@@ -1,0 +1,137 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum KpiDirection {
+  HIGHER_IS_BETTER
+  LOWER_IS_BETTER
+}
+
+enum KpiPeriod {
+  WEEKLY
+  MONTHLY
+}
+
+enum PerformanceStatus {
+  ON_TARGET
+  AT_RISK
+  CRITICAL
+}
+
+enum UserRole {
+  ADMIN
+  DM
+  OM
+  SERVICE_MANAGER
+}
+
+model Department {
+  id             String          @id @default(cuid())
+  name           String          @unique
+  kpiDefinitions KpiDefinition[]
+  connections    Connection[]
+  users          User[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model KpiDefinition {
+  id                   String               @id @default(cuid())
+  name                 String
+  department           Department           @relation(fields: [departmentId], references: [id])
+  departmentId         String
+  direction            KpiDirection
+  period               KpiPeriod
+  targetValue          Float
+  atRiskThresholdPct   Float                @default(99)
+  criticalThresholdPct Float                @default(99)
+  submissionRecords    SubmissionRecord[]
+  performanceSummaries PerformanceSummary[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@index([departmentId])
+}
+
+// Stand-in for the real Workforce Management (WFM) system until Phase 5
+// wires up the live integration (see lib/wfm/).
+model Connection {
+  id                   String               @id @default(cuid())
+  externalWfmId        String?              @unique
+  vaName               String
+  vaEmail              String
+  clientName           String
+  department           Department           @relation(fields: [departmentId], references: [id])
+  departmentId         String
+  submissions          Submission[]
+  performanceSummaries PerformanceSummary[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@index([departmentId])
+}
+
+model Submission {
+  id           String             @id @default(cuid())
+  connection   Connection         @relation(fields: [connectionId], references: [id])
+  connectionId String
+  period       KpiPeriod
+  periodStart  DateTime
+  submittedAt  DateTime           @default(now())
+  rawPayload   Json
+  records      SubmissionRecord[]
+
+  @@index([connectionId])
+}
+
+model SubmissionRecord {
+  id              String        @id @default(cuid())
+  submission      Submission    @relation(fields: [submissionId], references: [id])
+  submissionId    String
+  kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id])
+  kpiDefinitionId String
+  value           Float
+
+  @@index([submissionId])
+  @@index([kpiDefinitionId])
+}
+
+// Computed on write from SubmissionRecord — see lib/performance.ts.
+model PerformanceSummary {
+  id              String            @id @default(cuid())
+  connection      Connection        @relation(fields: [connectionId], references: [id])
+  connectionId    String
+  kpiDefinition   KpiDefinition     @relation(fields: [kpiDefinitionId], references: [id])
+  kpiDefinitionId String
+  period          KpiPeriod
+  periodStart     DateTime
+  actualValue     Float
+  targetValue     Float
+  pct             Float
+  status          PerformanceStatus
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([connectionId, kpiDefinitionId, periodStart])
+  @@index([kpiDefinitionId])
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  name         String?
+  role         UserRole    @default(SERVICE_MANAGER)
+  department   Department? @relation(fields: [departmentId], references: [id])
+  departmentId String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([departmentId])
+}
