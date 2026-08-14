@@ -26,14 +26,14 @@ export function DashboardSidebar({
         collapsed ? "w-20" : "w-64"
       }`}
     >
-      <div
-        className={`flex items-center px-3 py-4 ${collapsed ? "justify-center" : "justify-between"}`}
-      >
+      <div className="relative flex items-center justify-center px-3 py-4">
         {!collapsed && <LogoBadge className="h-6" />}
         <button
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface-hover hover:text-foreground"
+          className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface-hover hover:text-foreground ${
+            collapsed ? "" : "absolute top-2 right-2"
+          }`}
         >
           <PanelLeft className="size-4" />
         </button>
