@@ -18,9 +18,8 @@ function parseKpiForm(formData: FormData) {
   const direction = String(formData.get("direction") ?? "") as KpiDirection;
   const period = String(formData.get("period") ?? "") as KpiPeriod;
   const targetValue = Number(formData.get("targetValue"));
-  const atRiskThresholdPct = Number(formData.get("atRiskThresholdPct") ?? 99);
-  const criticalThresholdPct = Number(
-    formData.get("criticalThresholdPct") ?? 99,
+  const deviationThresholdPct = Number(
+    formData.get("deviationThresholdPct") ?? 99,
   );
 
   if (
@@ -28,7 +27,8 @@ function parseKpiForm(formData: FormData) {
     !departmentId ||
     !Object.values(KpiDirection).includes(direction) ||
     !Object.values(KpiPeriod).includes(period) ||
-    Number.isNaN(targetValue)
+    Number.isNaN(targetValue) ||
+    Number.isNaN(deviationThresholdPct)
   ) {
     throw new Error("Missing or invalid KPI fields.");
   }
@@ -39,8 +39,7 @@ function parseKpiForm(formData: FormData) {
     direction,
     period,
     targetValue,
-    atRiskThresholdPct,
-    criticalThresholdPct,
+    deviationThresholdPct,
   };
 }
 

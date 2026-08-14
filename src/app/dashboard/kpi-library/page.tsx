@@ -39,8 +39,7 @@ export default async function KpiLibraryPage() {
                   <th className="px-4 py-2 font-medium">Direction</th>
                   <th className="px-4 py-2 font-medium">Period</th>
                   <th className="px-4 py-2 font-medium">Target</th>
-                  <th className="px-4 py-2 font-medium">At Risk %</th>
-                  <th className="px-4 py-2 font-medium">Critical %</th>
+                  <th className="px-4 py-2 font-medium">Deviation %</th>
                   {isAdmin && <th className="px-4 py-2" />}
                 </tr>
               </thead>
@@ -48,7 +47,7 @@ export default async function KpiLibraryPage() {
                 {kpis.length === 0 && (
                   <tr>
                     <td
-                      colSpan={isAdmin ? 8 : 7}
+                      colSpan={isAdmin ? 7 : 6}
                       className="px-4 py-6 text-center text-muted"
                     >
                       No KPIs defined yet.
@@ -58,10 +57,10 @@ export default async function KpiLibraryPage() {
                 {kpis.map((kpi) =>
                   isAdmin ? (
                     <tr key={kpi.id} className="border-t border-surface-border">
-                      <td colSpan={8} className="px-2 py-2">
+                      <td colSpan={7} className="px-2 py-2">
                         <form
                           action={updateKpiDefinition}
-                          className="grid grid-cols-8 items-center gap-2"
+                          className="grid grid-cols-7 items-center gap-2"
                         >
                           <input type="hidden" name="id" value={kpi.id} />
                           <input
@@ -108,17 +107,10 @@ export default async function KpiLibraryPage() {
                             className="rounded border border-surface-border bg-transparent px-2 py-1"
                           />
                           <input
-                            name="atRiskThresholdPct"
+                            name="deviationThresholdPct"
                             type="number"
                             step="any"
-                            defaultValue={kpi.atRiskThresholdPct}
-                            className="rounded border border-surface-border bg-transparent px-2 py-1"
-                          />
-                          <input
-                            name="criticalThresholdPct"
-                            type="number"
-                            step="any"
-                            defaultValue={kpi.criticalThresholdPct}
+                            defaultValue={kpi.deviationThresholdPct}
                             className="rounded border border-surface-border bg-transparent px-2 py-1"
                           />
                           <div className="flex gap-3 text-xs">
@@ -146,10 +138,7 @@ export default async function KpiLibraryPage() {
                       <td className="px-4 py-2 text-muted">{kpi.period}</td>
                       <td className="px-4 py-2 text-muted">{kpi.targetValue}</td>
                       <td className="px-4 py-2 text-muted">
-                        {kpi.atRiskThresholdPct}%
-                      </td>
-                      <td className="px-4 py-2 text-muted">
-                        {kpi.criticalThresholdPct}%
+                        {kpi.deviationThresholdPct}%
                       </td>
                     </tr>
                   ),
@@ -230,17 +219,10 @@ export default async function KpiLibraryPage() {
                   className="rounded border border-surface-border bg-transparent px-3 py-2 text-sm"
                 />
                 <input
-                  name="atRiskThresholdPct"
+                  name="deviationThresholdPct"
                   type="number"
                   step="any"
-                  placeholder="At Risk % (default 99)"
-                  className="rounded border border-surface-border bg-transparent px-3 py-2 text-sm"
-                />
-                <input
-                  name="criticalThresholdPct"
-                  type="number"
-                  step="any"
-                  placeholder="Critical % (default 99)"
+                  placeholder="Deviation % (default 99)"
                   className="rounded border border-surface-border bg-transparent px-3 py-2 text-sm"
                 />
                 <button

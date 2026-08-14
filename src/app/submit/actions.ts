@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
+import { computePct, computeStatus } from "@/lib/performance";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 export async function createSubmission(formData: FormData) {
@@ -41,19 +42,63 @@ export async function createSubmission(formData: FormData) {
 
   const periodStart = currentPeriodStart(period);
 
-  await prisma.submission.create({
-    data: {
-      connectionId,
-      period,
-      periodStart,
-      rawPayload,
-      records: {
-        create: values.map((v) => ({
-          kpiDefinitionId: v.kpiDefinitionId,
-          value: v.value,
-        })),
+  await prisma.$transaction(async (tx) => {
+    await tx.submission.create({
+      data: {
+        connectionId,
+        period,
+        periodStart,
+        rawPayload,
+        records: {
+          create: values.map((v) => ({
+            kpiDefinitionId: v.kpiDefinitionId,
+            value: v.value,
+          })),
+        },
       },
-    },
+    });
+
+    // Actual = sum of every submitted value for this KPI/connection/period —
+    // mirrors the legacy "normalize then summarize into one row" workflow,
+    // since a period can receive more than one submission.
+    for (const kpi of connection.department.kpiDefinitions) {
+      const total = await tx.submissionRecord.aggregate({
+        where: {
+          kpiDefinitionId: kpi.id,
+          submission: { connectionId, periodStart },
+        },
+        _sum: { value: true },
+      });
+      const actualValue = total._sum.value ?? 0;
+      const pct = computePct(kpi.direction, kpi.targetValue, actualValue);
+      const status = computeStatus(pct, kpi.deviationThresholdPct);
+
+      await tx.performanceSummary.upsert({
+        where: {
+          connectionId_kpiDefinitionId_periodStart: {
+            connectionId,
+            kpiDefinitionId: kpi.id,
+            periodStart,
+          },
+        },
+        create: {
+          connectionId,
+          kpiDefinitionId: kpi.id,
+          period,
+          periodStart,
+          actualValue,
+          targetValue: kpi.targetValue,
+          pct,
+          status,
+        },
+        update: {
+          actualValue,
+          targetValue: kpi.targetValue,
+          pct,
+          status,
+        },
+      });
+    }
   });
 
   redirect("/submit?success=1");
