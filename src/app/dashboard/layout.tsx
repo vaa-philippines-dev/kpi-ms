@@ -14,13 +14,13 @@ export default async function DashboardLayout({
   ]);
 
   return (
-    <div className="flex min-h-screen gap-4 bg-background p-4">
+    <div className="flex min-h-screen bg-background">
       <DashboardSidebar
         email={session?.user?.email ?? ""}
         role={session?.user?.role ?? ""}
         submissionsToday={submissionsToday}
       />
-      <main className="min-w-0 flex-1 overflow-x-hidden p-6">{children}</main>
+      <main className="min-w-0 flex-1 overflow-x-hidden p-8">{children}</main>
     </div>
   );
 }

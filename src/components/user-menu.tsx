@@ -6,7 +6,15 @@ import { MoreVertical, UserCog, LogOut } from "lucide-react";
 import { roleLabel } from "@/lib/roles";
 import { signOutAction } from "@/app/dashboard/actions";
 
-export function UserMenu({ email, role }: { email: string; role: string }) {
+export function UserMenu({
+  email,
+  role,
+  collapsed = false,
+}: {
+  email: string;
+  role: string;
+  collapsed?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const initial = email[0]?.toUpperCase() ?? "?";
@@ -29,26 +37,49 @@ export function UserMenu({ email, role }: { email: string; role: string }) {
     };
   }, [open]);
 
+  const avatar = (
+    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
+      {initial}
+    </div>
+  );
+
   return (
-    <div ref={rootRef} className="relative flex items-center gap-2 px-1">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
-        {initial}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium">{email}</p>
-        <p className="text-[11px] text-muted">{roleLabel(role)}</p>
-      </div>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Account menu"
-        aria-expanded={open}
-        className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-hover hover:text-foreground"
-      >
-        <MoreVertical className="size-4" />
-      </button>
+    <div
+      ref={rootRef}
+      className={`relative flex items-center gap-2 ${collapsed ? "justify-center" : "px-1"}`}
+    >
+      {collapsed ? (
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-label="Account menu"
+          aria-expanded={open}
+        >
+          {avatar}
+        </button>
+      ) : (
+        <>
+          {avatar}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium">{email}</p>
+            <p className="text-[11px] text-muted">{roleLabel(role)}</p>
+          </div>
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-label="Account menu"
+            aria-expanded={open}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-hover hover:text-foreground"
+          >
+            <MoreVertical className="size-4" />
+          </button>
+        </>
+      )}
 
       {open && (
-        <div className="absolute right-0 bottom-full mb-2 w-44 overflow-hidden rounded-xl border border-surface-border bg-surface py-1 shadow-lg">
+        <div
+          className={`absolute z-10 w-44 overflow-hidden rounded-xl border border-surface-border bg-surface py-1 shadow-lg ${
+            collapsed ? "bottom-0 left-full ml-2" : "right-0 bottom-full mb-2"
+          }`}
+        >
           <Link
             href="/dashboard/settings"
             onClick={() => setOpen(false)}
