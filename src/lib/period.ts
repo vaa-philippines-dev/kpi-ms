@@ -18,3 +18,10 @@ export function currentPeriodStart(period: KpiPeriod, now = new Date()): Date {
   }
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
+
+/** Start of the current UTC day. */
+export function startOfToday(now = new Date()): Date {
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+}
