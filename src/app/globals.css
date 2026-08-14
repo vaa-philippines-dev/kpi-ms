@@ -1,29 +1,30 @@
 @import "tailwindcss";
 
 :root {
-  --background: #08090b;
-  --surface: #0f1115;
-  --surface-hover: #15181e;
-  --surface-border: #1f232b;
-  --foreground: #f2f3f5;
-  --muted: #8b909c;
-  --accent: #5b8cff;
+  /* Neutral grey-black (Linear/Discord-style) — deliberately not blue-tinted. */
+  --background: #0a0a0b;
+  --surface: #19191c;
+  --surface-hover: #232326;
+  --surface-border: #2d2d31;
+  --foreground: #f4f4f5;
+  --muted: #97979d;
+  --accent: #4a7fd6;
   --accent-foreground: #ffffff;
-  --success: #34d399;
-  --warning: #fbbf24;
-  --danger: #f87171;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
 }
 
 :root[data-theme="light"] {
-  --background: #f6f7f9;
+  --background: #f7f7f8;
   --surface: #ffffff;
-  --surface-hover: #eef0f3;
-  --surface-border: #e2e5ea;
-  --foreground: #16181d;
-  --muted: #6b7280;
-  --accent: #3b6fe0;
+  --surface-hover: #f1f1f2;
+  --surface-border: #e5e5e7;
+  --foreground: #0f0f10;
+  --muted: #6b6b70;
+  --accent: #2f66c4;
   --accent-foreground: #ffffff;
-  --success: #059669;
+  --success: #16a34a;
   --warning: #d97706;
   --danger: #dc2626;
 }

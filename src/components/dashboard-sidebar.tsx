@@ -39,7 +39,7 @@ export function DashboardSidebar({
                     href={item.href}
                     className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition ${
                       active
-                        ? "bg-surface-hover text-accent"
+                        ? "bg-surface-hover text-foreground font-medium"
                         : "text-muted hover:bg-surface-hover hover:text-foreground"
                     }`}
                   >
