@@ -1,25 +1,30 @@
+import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
+import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { currentPeriodStart } from "@/lib/period";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
-const TILES: { status: PerformanceStatus; label: string; style: string }[] = [
+const TILES = [
   {
     status: PerformanceStatus.ON_TARGET,
     label: "On Target",
-    style: "border-emerald-500/30 text-emerald-400",
+    icon: CheckCircle2,
+    style: "border-success/30 text-success",
   },
   {
     status: PerformanceStatus.AT_RISK,
     label: "At Risk",
-    style: "border-amber-500/30 text-amber-400",
+    icon: AlertTriangle,
+    style: "border-warning/30 text-warning",
   },
   {
     status: PerformanceStatus.CRITICAL,
     label: "Critical",
-    style: "border-red-500/30 text-red-400",
+    icon: XCircle,
+    style: "border-danger/30 text-danger",
   },
-];
+] as const;
 
 export default async function DashboardOverviewPage() {
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY);
@@ -67,47 +72,49 @@ export default async function DashboardOverviewPage() {
       ) : (
         <div className="max-w-4xl space-y-8">
           <div className="grid grid-cols-3 gap-4">
-            {TILES.map((tile) => (
-              <div
-                key={tile.status}
-                className={`rounded-lg border bg-surface p-4 ${tile.style}`}
-              >
-                <div className="text-3xl font-semibold">
-                  {counts[tile.status]}
+            {TILES.map((tile) => {
+              const Icon = tile.icon;
+              return (
+                <div
+                  key={tile.status}
+                  className={`rounded-xl border bg-surface p-4 ${tile.style}`}
+                >
+                  <Icon className="size-5" />
+                  <div className="mt-3 text-3xl font-semibold">
+                    {counts[tile.status]}
+                  </div>
+                  <div className="mt-1 text-sm">{tile.label}</div>
                 </div>
-                <div className="mt-1 text-sm">{tile.label}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-surface-border">
-            <table className="w-full text-sm">
-              <thead className="bg-surface text-left text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Department</th>
-                  <th className="px-4 py-2 font-medium">On Target</th>
-                  <th className="px-4 py-2 font-medium">At Risk</th>
-                  <th className="px-4 py-2 font-medium">Critical</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...byDepartment.entries()].map(([dept, c]) => (
-                  <tr key={dept} className="border-t border-surface-border">
-                    <td className="px-4 py-2">{dept}</td>
-                    <td className="px-4 py-2 text-emerald-400">
-                      {c[PerformanceStatus.ON_TARGET]}
-                    </td>
-                    <td className="px-4 py-2 text-amber-400">
-                      {c[PerformanceStatus.AT_RISK]}
-                    </td>
-                    <td className="px-4 py-2 text-red-400">
-                      {c[PerformanceStatus.CRITICAL]}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHead>
+              <tr>
+                <Th>Department</Th>
+                <Th>On Target</Th>
+                <Th>At Risk</Th>
+                <Th>Critical</Th>
+              </tr>
+            </TableHead>
+            <tbody>
+              {[...byDepartment.entries()].map(([dept, c]) => (
+                <Tr key={dept}>
+                  <Td>{dept}</Td>
+                  <Td className="text-success">
+                    {c[PerformanceStatus.ON_TARGET]}
+                  </Td>
+                  <Td className="text-warning">
+                    {c[PerformanceStatus.AT_RISK]}
+                  </Td>
+                  <Td className="text-danger">
+                    {c[PerformanceStatus.CRITICAL]}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
         </div>
       )}
     </>

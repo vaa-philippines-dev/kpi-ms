@@ -1,7 +1,19 @@
 import Link from "next/link";
+import { CheckCircle2, ArrowRight } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { createSubmission } from "./actions";
+
+function SubmitShell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex flex-1 items-center justify-center px-6 py-16">
+      <Card className="w-full max-w-lg p-8">{children}</Card>
+    </main>
+  );
+}
 
 export default async function SubmitPage(props: PageProps<"/submit">) {
   const searchParams = await props.searchParams;
@@ -17,17 +29,23 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
 
   if (success) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Submission recorded
-        </h1>
-        <p className="mt-2 text-sm text-muted">
-          Thanks — your KPI values have been saved.
-        </p>
-        <Link href="/submit" className="mt-6 text-sm text-accent hover:underline">
-          Submit another
-        </Link>
-      </main>
+      <SubmitShell>
+        <div className="text-center">
+          <CheckCircle2 className="mx-auto size-10 text-success" />
+          <h1 className="mt-4 text-2xl font-semibold tracking-tight">
+            Submission recorded
+          </h1>
+          <p className="mt-2 text-sm text-muted">
+            Thanks — your KPI values have been saved.
+          </p>
+          <Link
+            href="/submit"
+            className="mt-6 inline-block text-sm text-accent hover:underline"
+          >
+            Submit another
+          </Link>
+        </div>
+      </SubmitShell>
     );
   }
 
@@ -40,67 +58,73 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
 
   if (!connectionId || !connection) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-24">
-        <div className="w-full max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">
+      <SubmitShell>
+        <div className="text-center">
+          <p className="text-xs tracking-wide text-muted uppercase">
+            Step 1 of 3
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">
             KPI submission
           </h1>
           <p className="mt-2 text-sm text-muted">
             Enter your Connection ID to get started.
           </p>
           {connectionId && !connection && (
-            <p className="mt-4 text-sm text-red-400">
+            <p className="mt-4 text-sm text-danger">
               Connection ID not found — double-check it and try again.
             </p>
           )}
           <form method="GET" className="mt-6 flex gap-2">
-            <input
+            <Input
               name="connectionId"
               placeholder="Connection ID"
               required
               defaultValue={connectionId ?? ""}
-              className="w-full rounded-lg border border-surface-border bg-transparent px-3 py-2 text-sm"
+              className="w-full"
             />
-            <button
-              type="submit"
-              className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-            >
+            <Button type="submit" className="shrink-0">
               Continue
-            </button>
+            </Button>
           </form>
         </div>
-      </main>
+      </SubmitShell>
     );
   }
 
   if (!period) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
-        <p className="text-sm text-muted">
-          {connection.vaName} · {connection.clientName} ·{" "}
-          {connection.department.name}
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-          Which period are you submitting for?
-        </h1>
-        <div className="mt-6 flex gap-3">
+      <SubmitShell>
+        <div className="text-center">
+          <p className="text-xs tracking-wide text-muted uppercase">
+            Step 2 of 3
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            {connection.vaName} · {connection.clientName} ·{" "}
+            {connection.department.name}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+            Which period are you submitting for?
+          </h1>
+          <div className="mt-6 flex justify-center gap-3">
+            <Link
+              href={`/submit?connectionId=${connection.id}&period=${KpiPeriod.WEEKLY}`}
+            >
+              <Button>Weekly</Button>
+            </Link>
+            <Link
+              href={`/submit?connectionId=${connection.id}&period=${KpiPeriod.MONTHLY}`}
+            >
+              <Button variant="outline">Monthly</Button>
+            </Link>
+          </div>
           <Link
-            href={`/submit?connectionId=${connection.id}&period=${KpiPeriod.WEEKLY}`}
-            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+            href="/submit"
+            className="mt-8 inline-block text-xs text-muted hover:underline"
           >
-            Weekly
-          </Link>
-          <Link
-            href={`/submit?connectionId=${connection.id}&period=${KpiPeriod.MONTHLY}`}
-            className="rounded-lg border border-surface-border px-5 py-2.5 text-sm font-medium hover:bg-surface"
-          >
-            Monthly
+            Wrong connection? Start over
           </Link>
         </div>
-        <Link href="/submit" className="mt-8 text-xs text-muted hover:underline">
-          Wrong connection? Start over
-        </Link>
-      </main>
+      </SubmitShell>
     );
   }
 
@@ -110,62 +134,64 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   });
 
   return (
-    <main className="flex flex-1 flex-col items-center px-6 py-16">
-      <div className="w-full max-w-lg">
-        <p className="text-center text-sm text-muted">
-          {connection.vaName} · {connection.clientName} ·{" "}
-          {connection.department.name} · {period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}
+    <SubmitShell>
+      <div className="text-center">
+        <p className="text-xs tracking-wide text-muted uppercase">
+          Step 3 of 3
         </p>
-        <h1 className="mt-2 text-center text-2xl font-semibold tracking-tight">
+        <p className="mt-2 text-sm text-muted">
+          {connection.vaName} · {connection.clientName} ·{" "}
+          {connection.department.name} ·{" "}
+          {period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           Enter your KPI values
         </h1>
-
-        {kpis.length === 0 ? (
-          <p className="mt-6 text-center text-sm text-muted">
-            No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are
-            configured for {connection.department.name} yet.
-          </p>
-        ) : (
-          <form action={createSubmission} className="mt-8 space-y-4">
-            <input type="hidden" name="connectionId" value={connection.id} />
-            <input type="hidden" name="period" value={period} />
-            {kpis.map((kpi) => (
-              <div key={kpi.id}>
-                <label className="block text-sm">
-                  {kpi.name}
-                  <span className="ml-2 text-xs text-muted">
-                    (target {kpi.targetValue},{" "}
-                    {kpi.direction === KpiDirection.HIGHER_IS_BETTER
-                      ? "higher is better"
-                      : "lower is better"}
-                    )
-                  </span>
-                </label>
-                <input
-                  name={`kpi_${kpi.id}`}
-                  type="number"
-                  step="any"
-                  required
-                  className="mt-1 w-full rounded-lg border border-surface-border bg-transparent px-3 py-2 text-sm"
-                />
-              </div>
-            ))}
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
-            >
-              Submit
-            </button>
-          </form>
-        )}
-
-        <Link
-          href="/submit"
-          className="mt-6 block text-center text-xs text-muted hover:underline"
-        >
-          Wrong connection? Start over
-        </Link>
       </div>
-    </main>
+
+      {kpis.length === 0 ? (
+        <p className="mt-6 text-center text-sm text-muted">
+          No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are
+          configured for {connection.department.name} yet.
+        </p>
+      ) : (
+        <form action={createSubmission} className="mt-8 space-y-4">
+          <input type="hidden" name="connectionId" value={connection.id} />
+          <input type="hidden" name="period" value={period} />
+          {kpis.map((kpi) => (
+            <div key={kpi.id}>
+              <label className="block text-sm">
+                {kpi.name}
+                <span className="ml-2 text-xs text-muted">
+                  (target {kpi.targetValue},{" "}
+                  {kpi.direction === KpiDirection.HIGHER_IS_BETTER
+                    ? "higher is better"
+                    : "lower is better"}
+                  )
+                </span>
+              </label>
+              <Input
+                name={`kpi_${kpi.id}`}
+                type="number"
+                step="any"
+                required
+                className="mt-1 w-full"
+              />
+            </div>
+          ))}
+          <Button type="submit" className="flex w-full items-center justify-center gap-2">
+            Submit
+            <ArrowRight className="size-4" />
+          </Button>
+        </form>
+      )}
+
+      <Link
+        href="/submit"
+        className="mt-6 block text-center text-xs text-muted hover:underline"
+      >
+        Wrong connection? Start over
+      </Link>
+    </SubmitShell>
   );
 }

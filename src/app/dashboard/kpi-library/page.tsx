@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
+import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
+import { Button, TextAction } from "@/components/ui/button";
+import { Input, Select } from "@/components/ui/input";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 import {
   createKpiDefinition,
@@ -30,136 +33,112 @@ export default async function KpiLibraryPage() {
         <ComingSoon note="Add at least one department first (Departments page) before defining KPIs." />
       ) : (
         <div className="max-w-4xl space-y-8">
-          <div className="overflow-x-auto rounded-lg border border-surface-border">
-            <table className="w-full text-sm">
-              <thead className="bg-surface text-left text-xs uppercase tracking-wide text-muted">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Name</th>
-                  <th className="px-4 py-2 font-medium">Department</th>
-                  <th className="px-4 py-2 font-medium">Direction</th>
-                  <th className="px-4 py-2 font-medium">Period</th>
-                  <th className="px-4 py-2 font-medium">Target</th>
-                  <th className="px-4 py-2 font-medium">Deviation %</th>
-                  {isAdmin && <th className="px-4 py-2" />}
-                </tr>
-              </thead>
-              <tbody>
-                {kpis.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={isAdmin ? 7 : 6}
-                      className="px-4 py-6 text-center text-muted"
-                    >
-                      No KPIs defined yet.
-                    </td>
-                  </tr>
-                )}
-                {kpis.map((kpi) =>
-                  isAdmin ? (
-                    <tr key={kpi.id} className="border-t border-surface-border">
-                      <td colSpan={7} className="px-2 py-2">
-                        <form
-                          action={updateKpiDefinition}
-                          className="grid grid-cols-7 items-center gap-2"
+          <Table>
+            <TableHead>
+              <tr>
+                <Th>Name</Th>
+                <Th>Department</Th>
+                <Th>Direction</Th>
+                <Th>Period</Th>
+                <Th>Target</Th>
+                <Th>Deviation %</Th>
+                {isAdmin && <Th />}
+              </tr>
+            </TableHead>
+            <tbody>
+              {kpis.length === 0 && (
+                <Tr>
+                  <Td
+                    colSpan={isAdmin ? 7 : 6}
+                    className="py-6 text-center text-muted"
+                  >
+                    No KPIs defined yet.
+                  </Td>
+                </Tr>
+              )}
+              {kpis.map((kpi) =>
+                isAdmin ? (
+                  <Tr key={kpi.id}>
+                    <Td colSpan={7} className="!py-2">
+                      <form
+                        action={updateKpiDefinition}
+                        className="grid grid-cols-7 items-center gap-2"
+                      >
+                        <input type="hidden" name="id" value={kpi.id} />
+                        <Input name="name" defaultValue={kpi.name} className="py-1" />
+                        <Select
+                          name="departmentId"
+                          defaultValue={kpi.departmentId}
+                          className="py-1"
                         >
-                          <input type="hidden" name="id" value={kpi.id} />
-                          <input
-                            name="name"
-                            defaultValue={kpi.name}
-                            className="rounded border border-surface-border bg-transparent px-2 py-1"
-                          />
-                          <select
-                            name="departmentId"
-                            defaultValue={kpi.departmentId}
-                            className="rounded border border-surface-border bg-surface px-2 py-1"
-                          >
-                            {departments.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            name="direction"
-                            defaultValue={kpi.direction}
-                            className="rounded border border-surface-border bg-surface px-2 py-1"
-                          >
-                            <option value={KpiDirection.HIGHER_IS_BETTER}>
-                              Higher is better
+                          {departments.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
                             </option>
-                            <option value={KpiDirection.LOWER_IS_BETTER}>
-                              Lower is better
-                            </option>
-                          </select>
-                          <select
-                            name="period"
-                            defaultValue={kpi.period}
-                            className="rounded border border-surface-border bg-surface px-2 py-1"
-                          >
-                            <option value={KpiPeriod.WEEKLY}>Weekly</option>
-                            <option value={KpiPeriod.MONTHLY}>Monthly</option>
-                          </select>
-                          <input
-                            name="targetValue"
-                            type="number"
-                            step="any"
-                            defaultValue={kpi.targetValue}
-                            className="rounded border border-surface-border bg-transparent px-2 py-1"
-                          />
-                          <input
-                            name="deviationThresholdPct"
-                            type="number"
-                            step="any"
-                            defaultValue={kpi.deviationThresholdPct}
-                            className="rounded border border-surface-border bg-transparent px-2 py-1"
-                          />
-                          <div className="flex gap-3 text-xs">
-                            <button
-                              type="submit"
-                              className="text-accent hover:underline"
-                            >
-                              Save
-                            </button>
-                          </div>
-                        </form>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={kpi.id} className="border-t border-surface-border">
-                      <td className="px-4 py-2">{kpi.name}</td>
-                      <td className="px-4 py-2 text-muted">
-                        {kpi.department.name}
-                      </td>
-                      <td className="px-4 py-2 text-muted">
-                        {kpi.direction === KpiDirection.HIGHER_IS_BETTER
-                          ? "Higher is better"
-                          : "Lower is better"}
-                      </td>
-                      <td className="px-4 py-2 text-muted">{kpi.period}</td>
-                      <td className="px-4 py-2 text-muted">{kpi.targetValue}</td>
-                      <td className="px-4 py-2 text-muted">
-                        {kpi.deviationThresholdPct}%
-                      </td>
-                    </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
-          </div>
+                          ))}
+                        </Select>
+                        <Select
+                          name="direction"
+                          defaultValue={kpi.direction}
+                          className="py-1"
+                        >
+                          <option value={KpiDirection.HIGHER_IS_BETTER}>
+                            Higher is better
+                          </option>
+                          <option value={KpiDirection.LOWER_IS_BETTER}>
+                            Lower is better
+                          </option>
+                        </Select>
+                        <Select name="period" defaultValue={kpi.period} className="py-1">
+                          <option value={KpiPeriod.WEEKLY}>Weekly</option>
+                          <option value={KpiPeriod.MONTHLY}>Monthly</option>
+                        </Select>
+                        <Input
+                          name="targetValue"
+                          type="number"
+                          step="any"
+                          defaultValue={kpi.targetValue}
+                          className="py-1"
+                        />
+                        <Input
+                          name="deviationThresholdPct"
+                          type="number"
+                          step="any"
+                          defaultValue={kpi.deviationThresholdPct}
+                          className="py-1"
+                        />
+                        <TextAction type="submit">Save</TextAction>
+                      </form>
+                    </Td>
+                  </Tr>
+                ) : (
+                  <Tr key={kpi.id}>
+                    <Td>{kpi.name}</Td>
+                    <Td className="text-muted">{kpi.department.name}</Td>
+                    <Td className="text-muted">
+                      {kpi.direction === KpiDirection.HIGHER_IS_BETTER
+                        ? "Higher is better"
+                        : "Lower is better"}
+                    </Td>
+                    <Td className="text-muted">{kpi.period}</Td>
+                    <Td className="text-muted">{kpi.targetValue}</Td>
+                    <Td className="text-muted">{kpi.deviationThresholdPct}%</Td>
+                  </Tr>
+                ),
+              )}
+            </tbody>
+          </Table>
 
           {isAdmin && (
-            <div>
+            <div className="space-y-4">
               {kpis.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-3">
+                <div className="flex flex-wrap gap-3">
                   {kpis.map((kpi) => (
                     <form key={kpi.id} action={deleteKpiDefinition}>
                       <input type="hidden" name="id" value={kpi.id} />
-                      <button
-                        type="submit"
-                        className="text-xs text-red-400 hover:underline"
-                      >
+                      <TextAction type="submit" tone="danger">
                         Delete &quot;{kpi.name}&quot;
-                      </button>
+                      </TextAction>
                     </form>
                   ))}
                 </div>
@@ -169,18 +148,13 @@ export default async function KpiLibraryPage() {
                 action={createKpiDefinition}
                 className="grid grid-cols-2 gap-3 rounded-lg border border-dashed border-surface-border p-4 sm:grid-cols-4"
               >
-                <input
+                <Input
                   name="name"
                   placeholder="KPI name"
                   required
-                  className="rounded border border-surface-border bg-transparent px-3 py-2 text-sm sm:col-span-2"
+                  className="sm:col-span-2"
                 />
-                <select
-                  name="departmentId"
-                  required
-                  defaultValue=""
-                  className="rounded border border-surface-border bg-surface px-3 py-2 text-sm"
-                >
+                <Select name="departmentId" required defaultValue="">
                   <option value="" disabled>
                     Department
                   </option>
@@ -189,11 +163,10 @@ export default async function KpiLibraryPage() {
                       {d.name}
                     </option>
                   ))}
-                </select>
-                <select
+                </Select>
+                <Select
                   name="direction"
                   defaultValue={KpiDirection.HIGHER_IS_BETTER}
-                  className="rounded border border-surface-border bg-surface px-3 py-2 text-sm"
                 >
                   <option value={KpiDirection.HIGHER_IS_BETTER}>
                     Higher is better
@@ -201,36 +174,25 @@ export default async function KpiLibraryPage() {
                   <option value={KpiDirection.LOWER_IS_BETTER}>
                     Lower is better
                   </option>
-                </select>
-                <select
-                  name="period"
-                  defaultValue={KpiPeriod.MONTHLY}
-                  className="rounded border border-surface-border bg-surface px-3 py-2 text-sm"
-                >
+                </Select>
+                <Select name="period" defaultValue={KpiPeriod.MONTHLY}>
                   <option value={KpiPeriod.WEEKLY}>Weekly</option>
                   <option value={KpiPeriod.MONTHLY}>Monthly</option>
-                </select>
-                <input
+                </Select>
+                <Input
                   name="targetValue"
                   type="number"
                   step="any"
                   placeholder="Target value"
                   required
-                  className="rounded border border-surface-border bg-transparent px-3 py-2 text-sm"
                 />
-                <input
+                <Input
                   name="deviationThresholdPct"
                   type="number"
                   step="any"
                   placeholder="Deviation % (default 99)"
-                  className="rounded border border-surface-border bg-transparent px-3 py-2 text-sm"
                 />
-                <button
-                  type="submit"
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-                >
-                  Add KPI
-                </button>
+                <Button type="submit">Add KPI</Button>
               </form>
             </div>
           )}

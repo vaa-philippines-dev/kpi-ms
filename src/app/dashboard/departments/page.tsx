@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/page-header";
+import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
+import { Button, TextAction } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   createDepartment,
   deleteDepartment,
@@ -12,7 +15,9 @@ export default async function DepartmentsPage() {
     auth(),
     prisma.department.findMany({
       orderBy: { name: "asc" },
-      include: { _count: { select: { kpiDefinitions: true, connections: true } } },
+      include: {
+        _count: { select: { kpiDefinitions: true, connections: true } },
+      },
     }),
   ]);
   const isAdmin = session?.user?.role === "ADMIN";
@@ -24,92 +29,74 @@ export default async function DepartmentsPage() {
         description="Department list used to cluster KPIs and connections."
       />
 
-      <div className="max-w-2xl">
-        <div className="overflow-hidden rounded-lg border border-surface-border">
-          <table className="w-full text-sm">
-            <thead className="bg-surface text-left text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">KPIs</th>
-                <th className="px-4 py-2 font-medium">Connections</th>
-                {isAdmin && <th className="px-4 py-2" />}
-              </tr>
-            </thead>
-            <tbody>
-              {departments.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={isAdmin ? 4 : 3}
-                    className="px-4 py-6 text-center text-muted"
-                  >
-                    No departments yet.
-                  </td>
-                </tr>
-              )}
-              {departments.map((dept) => (
-                <tr key={dept.id} className="border-t border-surface-border">
-                  {isAdmin ? (
-                    <td className="px-4 py-2">
-                      <form action={renameDepartment} className="flex gap-2">
-                        <input type="hidden" name="id" value={dept.id} />
-                        <input
-                          name="name"
-                          defaultValue={dept.name}
-                          className="w-full rounded border border-surface-border bg-transparent px-2 py-1"
-                        />
-                        <button
-                          type="submit"
-                          className="shrink-0 text-xs text-accent hover:underline"
-                        >
-                          Save
-                        </button>
-                      </form>
-                    </td>
-                  ) : (
-                    <td className="px-4 py-2">{dept.name}</td>
-                  )}
-                  <td className="px-4 py-2 text-muted">
-                    {dept._count.kpiDefinitions}
-                  </td>
-                  <td className="px-4 py-2 text-muted">
-                    {dept._count.connections}
-                  </td>
-                  {isAdmin && (
-                    <td className="px-4 py-2 text-right">
-                      <form action={deleteDepartment}>
-                        <input type="hidden" name="id" value={dept.id} />
-                        <button
-                          type="submit"
-                          className="text-xs text-red-400 hover:underline"
-                        >
-                          Delete
-                        </button>
-                      </form>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="max-w-2xl space-y-4">
+        <Table>
+          <TableHead>
+            <tr>
+              <Th>Name</Th>
+              <Th>KPIs</Th>
+              <Th>Connections</Th>
+              {isAdmin && <Th />}
+            </tr>
+          </TableHead>
+          <tbody>
+            {departments.length === 0 && (
+              <Tr>
+                <Td colSpan={isAdmin ? 4 : 3} className="py-6 text-center text-muted">
+                  No departments yet.
+                </Td>
+              </Tr>
+            )}
+            {departments.map((dept) => (
+              <Tr key={dept.id}>
+                {isAdmin ? (
+                  <Td>
+                    <form action={renameDepartment} className="flex gap-2">
+                      <input type="hidden" name="id" value={dept.id} />
+                      <Input
+                        name="name"
+                        defaultValue={dept.name}
+                        className="w-full py-1"
+                      />
+                      <TextAction type="submit" className="shrink-0">
+                        Save
+                      </TextAction>
+                    </form>
+                  </Td>
+                ) : (
+                  <Td>{dept.name}</Td>
+                )}
+                <Td className="text-muted">{dept._count.kpiDefinitions}</Td>
+                <Td className="text-muted">{dept._count.connections}</Td>
+                {isAdmin && (
+                  <Td className="text-right">
+                    <form action={deleteDepartment}>
+                      <input type="hidden" name="id" value={dept.id} />
+                      <TextAction type="submit" tone="danger">
+                        Delete
+                      </TextAction>
+                    </form>
+                  </Td>
+                )}
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
 
         {isAdmin && (
           <form
             action={createDepartment}
-            className="mt-4 flex gap-2 rounded-lg border border-dashed border-surface-border p-4"
+            className="flex gap-2 rounded-lg border border-dashed border-surface-border p-4"
           >
-            <input
+            <Input
               name="name"
               placeholder="New department name"
               required
-              className="w-full rounded border border-surface-border bg-transparent px-3 py-2 text-sm"
+              className="w-full"
             />
-            <button
-              type="submit"
-              className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-            >
+            <Button type="submit" className="shrink-0">
               Add
-            </button>
+            </Button>
           </form>
         )}
       </div>
