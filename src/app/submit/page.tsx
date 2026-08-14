@@ -1,16 +1,31 @@
 import Link from "next/link";
-import { CheckCircle2, ArrowRight } from "lucide-react";
+import { CheckCircle2, ArrowRight, X } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { HeroBackground } from "@/components/hero-background";
 import { createSubmission } from "./actions";
 
+// Presented as a modal over the landing hero — same chrome as AuthModal —
+// but /submit stays its own real URL, since it's the link VAs actually
+// bookmark/get sent directly rather than reach by clicking through "/".
 function SubmitShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-16">
-      <Card className="w-full max-w-lg p-8">{children}</Card>
+    <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-16">
+      <HeroBackground />
+      <div className="animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
+        <div className="animate-modal-pop relative w-full max-w-lg rounded-2xl border border-surface-border bg-surface p-8 shadow-2xl shadow-black/40">
+          <Link
+            href="/"
+            aria-label="Close"
+            className="absolute top-4 right-4 text-muted transition hover:text-foreground"
+          >
+            <X className="size-4" />
+          </Link>
+          {children}
+        </div>
+      </div>
     </main>
   );
 }
