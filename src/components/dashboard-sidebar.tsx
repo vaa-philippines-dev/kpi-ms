@@ -2,10 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut } from "lucide-react";
 import { dashboardNavGroups } from "@/lib/nav";
-import { roleLabel } from "@/lib/roles";
-import { signOutAction } from "@/app/dashboard/actions";
+import { UserMenu } from "@/components/user-menu";
 
 export function DashboardSidebar({
   email,
@@ -17,38 +15,13 @@ export function DashboardSidebar({
   submissionsToday: number;
 }) {
   const pathname = usePathname();
-  const initial = email[0]?.toUpperCase() ?? "?";
 
   return (
     <aside className="flex w-72 shrink-0 flex-col rounded-2xl border border-surface-border bg-surface p-4 shadow-sm">
-      <div className="flex items-center gap-3 px-1 pb-4">
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent/15 text-base font-semibold text-accent">
-          {initial}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{email}</p>
-          <p className="text-xs text-muted">{roleLabel(role)}</p>
-        </div>
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            aria-label="Sign out"
-            title="Sign out"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground transition hover:opacity-90"
-          >
-            <LogOut className="size-4" />
-          </button>
-        </form>
-      </div>
-
-      <div className="border-t border-surface-border" />
-
-      <nav className="mt-4 flex flex-1 flex-col gap-5">
+      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto">
         {dashboardNavGroups.map((group) => (
           <div key={group.label}>
-            <p className="px-3 pb-1.5 text-xs tracking-wide text-muted uppercase">
-              {group.label}
-            </p>
+            <p className="px-3 pb-1.5 text-xs text-muted">{group.label}</p>
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) => {
                 const active =
@@ -84,6 +57,10 @@ export function DashboardSidebar({
           </div>
         ))}
       </nav>
+
+      <div className="mt-3 border-t border-surface-border pt-3">
+        <UserMenu email={email} role={role} />
+      </div>
     </aside>
   );
 }
