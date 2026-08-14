@@ -29,7 +29,7 @@ export function DashboardSidebar({
       <div
         className={`flex items-center px-3 py-4 ${collapsed ? "justify-center" : "justify-between"}`}
       >
-        {!collapsed && <LogoBadge className="scale-90" />}
+        {!collapsed && <LogoBadge className="h-6" />}
         <button
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}

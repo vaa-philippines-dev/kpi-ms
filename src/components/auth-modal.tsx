@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 import { GoogleIcon } from "@/components/icons/google-icon";
-import { LogoBadge } from "@/components/logo-badge";
+import { BrandMark } from "@/components/brand-mark";
 import { signInWithGoogle } from "@/app/sign-in/actions";
 
 export function AuthModal({
@@ -48,7 +48,7 @@ export function AuthModal({
         >
           <X className="size-4" />
         </button>
-        <LogoBadge />
+        <BrandMark />
         <h2 className="mt-4 text-2xl font-semibold tracking-tight">
           KPI Dashboard
         </h2>

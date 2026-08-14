@@ -3,7 +3,7 @@ import { ClipboardList } from "lucide-react";
 import { auth } from "@/auth";
 import { HeroBackground } from "@/components/hero-background";
 import { DashboardAccessButton } from "@/components/dashboard-access-button";
-import { LogoBadge } from "@/components/logo-badge";
+import { BrandMark } from "@/components/brand-mark";
 
 export default async function Home() {
   const session = await auth();
@@ -13,7 +13,7 @@ export default async function Home() {
       <HeroBackground />
 
       <div className="relative w-full max-w-xl text-center">
-        <LogoBadge className="mb-4" />
+        <BrandMark className="mb-4" />
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
           Performance,{" "}
           <span className="text-gradient-animated">one place.</span>
