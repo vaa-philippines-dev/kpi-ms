@@ -39,8 +39,8 @@ model Department {
   kpiDefinitions KpiDefinition[]
   connections    Connection[]
   users          User[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
 }
 
 model KpiDefinition {
@@ -55,8 +55,8 @@ model KpiDefinition {
   criticalThresholdPct Float                @default(99)
   submissionRecords    SubmissionRecord[]
   performanceSummaries PerformanceSummary[]
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  createdAt            DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime             @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
 }
@@ -73,8 +73,8 @@ model Connection {
   departmentId         String
   submissions          Submission[]
   performanceSummaries PerformanceSummary[]
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  createdAt            DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime             @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
 }
@@ -84,8 +84,8 @@ model Submission {
   connection   Connection         @relation(fields: [connectionId], references: [id])
   connectionId String
   period       KpiPeriod
-  periodStart  DateTime
-  submittedAt  DateTime           @default(now())
+  periodStart  DateTime           @db.Timestamptz(3)
+  submittedAt  DateTime           @default(now()) @db.Timestamptz(3)
   rawPayload   Json
   records      SubmissionRecord[]
 
@@ -112,12 +112,12 @@ model PerformanceSummary {
   kpiDefinition   KpiDefinition     @relation(fields: [kpiDefinitionId], references: [id])
   kpiDefinitionId String
   period          KpiPeriod
-  periodStart     DateTime
+  periodStart     DateTime          @db.Timestamptz(3)
   actualValue     Float
   targetValue     Float
   pct             Float
   status          PerformanceStatus
-  updatedAt       DateTime          @updatedAt
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
 
   @@unique([connectionId, kpiDefinitionId, periodStart])
   @@index([kpiDefinitionId])
@@ -130,8 +130,8 @@ model User {
   role         UserRole    @default(SERVICE_MANAGER)
   department   Department? @relation(fields: [departmentId], references: [id])
   departmentId String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
 }
