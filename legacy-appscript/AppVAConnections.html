@@ -1,0 +1,1264 @@
+<script>
+// ─── CONNECTIONS MODULE ───────────────────────────────────────
+function _connShowError(msg) {
+  var pc = document.getElementById('page-content');
+  if (!pc) return;
+  pc.innerHTML = '<div style="padding:32px;">'
+    + '<div style="background:rgba(255,77,106,0.08);border:1px solid var(--danger);border-radius:8px;padding:20px;">'
+    + '<strong style="color:var(--danger);">VA Connections failed to load</strong>'
+    + '<p style="margin-top:8px;font-size:13px;color:var(--text-secondary);">' + msg + '</p>'
+    + '</div>'
+    + '<button class="btn btn-primary" style="margin-top:16px;" onclick="renderConnections()">Retry</button>'
+    + '</div>';
+}
+
+function renderMyTeam() {
+  VAA_LOG && VAA_LOG.info("TEAM", "renderMyTeam()");
+  set('page-content', '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+  gsr('getMyTeamRoster', State.user.id).then(function(res) {
+    if (!res || !res.success) {
+      set('page-content', '<div class="empty-state"><h3>Failed to load team</h3><p style="color:var(--text-muted);font-size:12px;">'+(res&&res.message||'Unknown error')+'</p></div>');
+      return;
+    }
+    var team    = res.data.team;
+    var members = res.data.members || [];
+
+    if (!team) {
+      set('page-content', '<div class="empty-state"><h3>No team assigned</h3><p style="color:var(--text-muted);font-size:12px;">You are not currently set as the leader of any team. Contact your manager.</p></div>');
+      return;
+    }
+
+    var teamLabel = team.teamNumber ? 'Team '+String(team.teamNumber).padStart(2,'0') : team.teamName;
+
+    var rows = members.length ? members.map(function(m) {
+      var clientsPreview = m.clientNames.length
+        ? m.clientNames.slice(0,3).join(', ') + (m.clientNames.length>3 ? ' +'+(m.clientNames.length-3)+' more' : '')
+        : '\u2014';
+      return '<tr>'
+        + '<td><strong>'+m.name+'</strong><div style="font-size:11px;color:var(--text-muted);">'+m.email+'</div></td>'
+        + '<td style="font-size:12px;">'+m.department+'</td>'
+        + '<td style="text-align:center;"><span class="badge badge-info">'+m.connCount+'</span></td>'
+        + '<td style="font-size:12px;color:var(--text-secondary);">'+clientsPreview+'</td>'
+        + '</tr>';
+    }).join('') : '<tr><td colspan="4" class="table-empty">No Virtual Assistants assigned to your team yet.</td></tr>';
+
+    set('page-content',
+      '<div class="section-header" style="margin-bottom:16px;">'
+      +'<span class="section-title">My Team</span>'
+      +'<span class="badge badge-info" style="margin-left:10px;">'+teamLabel+' \u2014 '+team.teamName+'</span>'
+      +'</div>'
+      +'<div class="card">'
+      +'<div class="card-header"><div class="card-title">Team Members</div>'
+      +'<div class="card-subtitle">'+members.length+' Virtual Assistant'+(members.length!==1?'s':'')+'</div></div>'
+      +'<div class="table-wrap">'
+      +'<table class="data-table"><thead><tr><th>Virtual Assistant</th><th>Department</th><th>Connections</th><th>Clients</th></tr></thead>'
+      +'<tbody>'+rows+'</tbody></table></div></div>'
+    );
+  });
+}
+
+function renderConnections() {
+  VAA_LOG && VAA_LOG.info("CONN", "renderConnections()");
+  var pc = document.getElementById('page-content');
+  if (!pc) return;
+  pc.innerHTML = '<div style="padding:40px;text-align:center;">'
+    + '<div class="spinner" style="margin:0 auto 16px;"></div>'
+    + '<div style="color:var(--text-muted);">Loading VA Connections...</div></div>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res) {
+        _connShowError(
+          'The backend function returned null. This means the deployed script does not have the latest Code.gs. '
+          + 'Please redeploy: Deploy \u2192 Manage Deployments \u2192 Edit \u2192 New Version \u2192 Deploy.',
+          null
+        );
+        return;
+      }
+      if (!res.success) {
+        _connShowError(res.message || 'Unknown backend error.', res.diag || null);
+        return;
+      }
+      var conns = res.data || [];
+      window._allConnections = conns;
+      console.log('[VAConn] loaded', conns.length, 'rows', res.diag ? JSON.stringify(res.diag) : '');
+      _connLoadMeta(conns);
+    })
+    .withFailureHandler(function(err) {
+      _connShowError(
+        'GAS threw an exception: ' + (err ? err.message : 'unknown'),
+        null
+      );
+    })
+    .getVAConnections(State.user.id, State.user.role);
+}
+
+function _connLoadMeta(conns) {
+  VAA_LOG && VAA_LOG.debug("CONN", "_connLoadMeta: " + conns.length + " connections");
+  google.script.run
+    .withSuccessHandler(function(dRes) {
+      google.script.run
+        .withSuccessHandler(function(sRes) {
+          google.script.run
+            .withSuccessHandler(function(uRes) {
+              var deptMap = {}, svcMap = {}, userMap = {};
+              ((dRes && dRes.data) || []).forEach(function(d){ deptMap[d.DeptID]   = d.DeptName; });
+              ((sRes && sRes.data) || []).forEach(function(s){ svcMap[s.ServiceID] = s.ServiceName; });
+              ((uRes && uRes.data) || []).forEach(function(u){ userMap[u.UserID]   = u.Name; });
+              window._connDeptMap = deptMap;
+              window._connSvcMap  = svcMap;
+              window._connUserMap = userMap;
+              _connRender(conns, deptMap, svcMap, userMap);
+            })
+            .withFailureHandler(function(){ _connRender(conns, {}, {}, {}); })
+            .getVAConnectionUsers();
+        })
+        .withFailureHandler(function(){ _connRender(conns, {}, {}, {}); })
+        .getServices('');
+    })
+    .withFailureHandler(function(){ _connRender(conns, {}, {}, {}); })
+    .getDepartments();
+}
+
+function _connRender(conns, deptMap, svcMap, userMap) {
+  VAA_LOG && VAA_LOG.info("CONN", "_connRender: " + conns.length + " rows");
+  var canCreate = ['Administrator','Manager','Team Leader'].indexOf(State.user.role) >= 0;
+  var isAdmin   = State.user.role === 'Administrator';
+
+  var tableRows = '';
+  if (conns.length === 0) {
+    tableRows = '<tr><td colspan="7" class="table-empty">No connections found.'
+      + (isAdmin ? '' : '') + '</td></tr>';
+  } else {
+    conns.forEach(function(c) {
+      var status = String(c.Status || 'Pending');
+      var sClass = status === 'Active' ? 'badge-success' : status === 'Pending' ? 'badge-info' : 'badge-muted';
+      tableRows += '<tr style="cursor:pointer" onclick="connOpenDetail(\'' + c.ConnectionID + '\')">'
+        + '<td><strong>' + (c.ClientName || '\u2014') + '</strong>'
+        + (c.SecondaryName ? '<div style="font-size:11px;color:var(--text-muted);">' + c.SecondaryName + '</div>' : '')
+        + '</td>'
+        + '<td>' + (userMap[c.VAUserID] || c.VAUserID || '\u2014') + '</td>'
+        + '<td><span class="pill">' + (deptMap[c.DeptID] || c.DeptID || '\u2014') + '</span></td>'
+        + '<td><span class="pill">' + (svcMap[c.ServiceID] || c.ServiceID || '\u2014') + '</span></td>'
+        + '<td>' + (c.StartDate ? String(c.StartDate).slice(0,10) : '\u2014') + '</td>'
+        + '<td><span class="badge ' + sClass + '">' + status + '</span></td>'
+        + '<td onclick="event.stopPropagation()" style="white-space:nowrap;">'
+        + (canCreate && status !== 'Inactive'
+          ? ''
+          : (canCreate && status === 'Inactive'
+            ? '<button class="btn btn-icon" title="Set Active" onclick="changeConnStatus(\'' + c.ConnectionID + '\',\'Active\')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/></svg></button>'
+            : ''))
+        + '</td>'
+        + '</tr>';
+    });
+  }
+
+  var html = '<div class="section-header">'
+    + '<span class="section-title">VA Connections <span style="color:var(--text-muted);font-size:13px;font-weight:400;">(' + conns.length + ')</span></span>'
+    + '<div style="display:flex;gap:8px;">'
+    + (isAdmin ? '<button class="btn btn-secondary" onclick="openImportConnections()" style="display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import</button>' : '')
+    + (canCreate ? '<button class="btn btn-primary" onclick="connOpenForm()">+ New Connection</button>' : '')
+    + '</div></div>'
+    + '<div class="card" style="padding:0;overflow:hidden;">'
+    + '<div id="conn-dt-wrap"></div></div>';
+
+  var pc = document.getElementById('page-content');
+  if (pc) {
+    pc.innerHTML = html;
+    setTimeout(connFilter, 0);
+  }
+}
+
+function connFilter() {
+  VAA_LOG && VAA_LOG.debug("CONN", "connFilter()");
+  var q    = ((document.getElementById('conn-search')||{}).value||'').toLowerCase();
+  var dept = (document.getElementById('conn-dept-f')||{}).value||'';
+  var role = (document.getElementById('conn-role-f')||{}).value||'';
+  var canCreate = ['Administrator','Manager','Team Leader'].includes(State.user.role);
+  var isAdmin   = State.user.role === 'Administrator';
+  var uMap = window._connUserMap || {};
+  var dMap = window._connDeptMap || {};
+  var sMap = window._connSvcMap  || {};
+
+  var data = (window._allConnections||[]).filter(function(c) {
+    if (dept && c.DeptID !== dept) return false;
+    if (role && c.Status !== role) return false;
+    if (q) {
+      var txt = ((c.ClientName||'')+(c.SecondaryName||'')+(uMap[c.VAUserID]||'')+(dMap[c.DeptID]||'')).toLowerCase();
+      if (!txt.includes(q)) return false;
+    }
+    return true;
+  });
+
+  var dtData = data.map(function(conn) {
+    var status   = conn.Status || 'Pending';
+    var sClass   = status==='Active'?'badge-success'
+                 : status==='Paused'?'badge-warning'
+                 : (status==='End of Contract'||status==='End of Project')?'badge-danger'
+                 : status==='Pending'?'badge-muted':'badge-muted';
+    return {
+      ClientName:    conn.ClientName    || '\u2014',
+      SecondaryName: conn.SecondaryName || '',
+      VAName:        uMap[conn.VAUserID] || conn.VAUserID || '\u2014',
+      Department:    dMap[conn.DeptID]   || conn.DeptID   || '\u2014',
+      Service:       sMap[conn.ServiceID]|| conn.ServiceID || '\u2014',
+      ConnectionType:  conn.ConnectionType || 'Regular',
+      StartDate:     conn.StartDate ? String(conn.StartDate).slice(0,10) : '\u2014',
+      InactiveDate:  conn.InactiveDate ? String(conn.InactiveDate).slice(0,10) : '',
+      Status:        status,
+      _sClass:       sClass,
+      _connId:       conn.ConnectionID,
+      _connType:     conn.ConnectionType || 'Regular',
+      _isEnded:      (status === 'End of Contract' || status === 'End of Project'),
+      _canCreate:    canCreate
+    };
+  });
+
+  var wrap = document.getElementById('conn-dt-wrap');
+  if (!wrap) return;
+
+  if (true) {
+    window._connDT = renderDataTable({
+      containerId:  'conn-dt-wrap',
+      defaultLimit: 10,
+      limitOptions: [10, 25, 50, 100],
+      emptyMessage: 'No connections match your filters.',
+      data: dtData,
+      rowClick: function(row) { connOpenDetail(row._connId); },
+      rowStyle:  'cursor:pointer;',
+      columns: [
+        { key:'ClientName', label:'Account', sortable:true, filterable:true,
+          render: function(v, row) {
+            return '<strong>'+v+'</strong>'
+              + (row.SecondaryName ? '<div style="font-size:11px;color:var(--text-muted);">'+row.SecondaryName+'</div>' : '');
+          }
+        },
+        { key:'VAName', label:'VA Name', sortable:true, filterable:true },
+        { key:'Department', label:'Dept / Service', sortable:true, filterable:'select',
+          render: function(v, row) {
+            return '<span style="font-size:12px;">'+v+'</span>'
+              +(row.Service&&row.Service!==v?'<div style="font-size:11px;color:var(--text-muted);">'+row.Service+'</div>':'');
+          }
+        },
+        { key:'StartDate', label:'Start Date', sortable:true, filterable:false },
+        { key:'Status', label:'Status', sortable:true, filterable:'select',
+          render: function(v, row) {
+            return '<span class="badge '+row._sClass+'">'+v+'</span>';
+          }
+        }
+      ]
+    });
+  } else {
+    // Refresh data in existing DataTable
+    window._connDT.refresh(dtData);
+  }
+}
+
+
+
+function _renderStatusHistory(raw) {
+  var history = [];
+  try { if (raw && raw !== 'undefined') history = JSON.parse(raw); } catch(e){}
+  if (!Array.isArray(history) || !history.length) return '';
+  var COLOR = {
+    'Active':'#22c55e','Paused':'#f59e0b',
+    'End of Contract':'#ef4444','End of Project':'#ef4444','Pending':'#6b7280'
+  };
+  var items = history.slice().reverse().map(function(h,idx) {
+    var col  = COLOR[h.status] || '#6b7280';
+    var isFirst = idx === 0;
+    // Type change entry
+    if (h.typeChange) {
+      return '<div class="status-history-item">'
+        + '<div class="status-history-dot" style="background:#8b5cf6;"></div>'
+        + '<div style="flex:1;padding-bottom:4px;">'
+        + '<span style="font-weight:700;font-size:12px;color:#8b5cf6;">Type: '+h.from+' \u2192 '+h.to+'</span>'
+        + (h.at ? '<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">'+h.at.slice(0,10)+'</span>' : '')
+        + '</div>'
+        + '</div>';
+    }
+    return '<div class="status-history-item">'
+      + '<div class="status-history-dot" style="background:'+col+';"'+(isFirst?' title="Current"':'')+' ></div>'
+      + '<div style="flex:1;padding-bottom:4px;">'
+      + '<span style="font-weight:700;font-size:12px;color:var(--text-primary);">'+h.status+'</span>'
+      + (h.date ? '<span style="font-size:11px;color:var(--text-muted);margin-left:8px;">'+h.date+'</span>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="conn-status-panel" style="margin-top:12px;">'
+    + '<div class="conn-status-panel-label">\u{1f553} Status History</div>'
+    + '<div class="status-history-timeline">' + items + '</div>'
+    + '</div>';
+}
+
+
+function connOpenDetail(connId) {
+  VAA_LOG && VAA_LOG.info("CONN", "connOpenDetail: " + connId);
+  var conn = (window._allConnections||[]).filter(function(c){ return c.ConnectionID === connId; })[0];
+  window._currentConnId = connId;
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box modal-xxl';
+  var title = conn ? (conn.ClientName || 'Connection Detail') : 'Connection Detail';
+  openModal(title, '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto 16px;"></div></div>');
+  openConnectionDetail(connId);
+}
+
+// ─── NEW CONNECTION FORM ──────────────────────────────────────
+function connOpenForm() {
+  var isAdmin = State.user.role === 'Administrator';
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box';
+
+  google.script.run
+    .withSuccessHandler(function(dRes) {
+      google.script.run
+        .withSuccessHandler(function(uRes) {
+          var depts = (dRes && dRes.data) || [];
+          var users = (uRes && uRes.data) || [];
+          var userDept = State.user.department || '';
+          var vas = users
+            .filter(function(u) { return u.Role === 'Virtual Assistant' && (u.IsActive===true||u.IsActive==='TRUE'); })
+            .sort(function(a,b){ return (a.Name||'').localeCompare(b.Name||''); });
+          var deptOpts = depts.map(function(d) {
+            return '<option value="' + d.DeptID + '"' + (d.DeptID === userDept ? ' selected' : '') + '>' + d.DeptName + '</option>';
+          }).join('');
+
+          var html = '<form onsubmit="connSubmitForm(event)">'
+            + '<div class="form-group"><label class="form-label">Primary Account Name *</label>'
+            + '<input class="form-control" id="cf-primary" required autocomplete="off" placeholder="Main client/account name"></div>'
+            + '<div class="form-group"><label class="form-label">Secondary Name <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>'
+            + '<input class="form-control" id="cf-secondary" autocomplete="off" placeholder="Alias or alternative name"></div>'
+            + '<div class="form-row">'
+            + '<div class="form-group"><label class="form-label">Department *</label>'
+            + '<select class="form-control" id="cf-dept" onchange="connFormDeptChange()" required'
+            + (!isAdmin && userDept ? ' disabled' : '') + '>'
+            + '<option value="">\u2014 Select \u2014</option>' + deptOpts + '</select>'
+            + (!isAdmin && userDept ? '<div class="form-hint">Fixed to your department.</div>' : '')
+            + '</div>'
+            + '<div class="form-group"><label class="form-label">Service *</label>'
+            + '<select class="form-control" id="cf-svc" required disabled>'
+            + '<option value="">\u2014 Select department first \u2014</option></select></div>'
+            + '</div>'
+            + '<div class="form-row">'
+            + '<div class="form-group"><label class="form-label">VA Name</label>'
+            + '<select class="form-control" id="cf-va">'
+            + '<option value="">\u2014 Select VA \u2014</option>'
+            + vas.map(function(v){ return '<option value="' + v.UserID + '">' + v.Name + '</option>'; }).join('')
+            + '</select></div>'
+            + '<div class="form-group"><label class="form-label">Start Date *</label>'
+            + '<input class="form-control" id="cf-start" type="date" value="' + new Date().toISOString().slice(0,10) + '" required></div>'
+            + '</div>'
+            + '<div class="form-group">'
+            + '<label class="form-label">Connection Type</label>'
+            + '<select class="form-control" id="cf-type">'
+            + '<option value="Regular">Regular</option>'
+            + '<option value="Project-based">Project-based</option>'
+            + '</select>'
+            + '<div class="form-hint">Regular: daily/weekly basis. Project-based: on/off based on total hours.</div>'
+            + '</div>'
+            + '<div class="form-actions">'
+            + '<button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+            + '<button type="submit" class="btn btn-primary" id="cf-submit">Save Connection</button>'
+            + '</div></form>';
+
+          window._cfAllUsers = users;
+          openModal('New Connection', html);
+          if (!isAdmin && userDept) setTimeout(connFormDeptChange, 100);
+        })
+        .withFailureHandler(function(e){ alert('Failed to load users: '+(e?e.message:'')); })
+        .getVAConnectionUsers();
+    })
+    .withFailureHandler(function(e){ alert('Failed to load departments: '+(e?e.message:'')); })
+    .getDepartments();
+}
+
+function connFormDeptChange() {
+  var deptId  = (document.getElementById('cf-dept') || {}).value || '';
+  var svcSel  = document.getElementById('cf-svc');
+  var vaSel   = document.getElementById('cf-va');
+  var isAdmin = State.user.role === 'Administrator';
+
+  if (svcSel) {
+    svcSel.disabled = true;
+    svcSel.innerHTML = '<option value="">Loading...</option>';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        var svcs = (res && res.data) || [];
+        if (!svcs.length) {
+          svcSel.innerHTML = '<option value="">No services for this department</option>';
+          svcSel.disabled = true;
+        } else {
+          svcSel.innerHTML = '<option value="">\u2014 Select Service \u2014</option>'
+            + svcs.map(function(s){ return '<option value="' + s.ServiceID + '">' + s.ServiceName + '</option>'; }).join('');
+          svcSel.disabled = false;
+        }
+      })
+      .withFailureHandler(function(){ svcSel.innerHTML = '<option value="">Failed to load</option>'; })
+      .getServices(deptId);
+  }
+
+  if (vaSel) {
+    var all = window._cfAllUsers || [];
+    var vas = all.filter(function(u) {
+      if (u.Role !== 'Virtual Assistant') return false;
+      if (isAdmin) return true;
+      return !deptId || u.Department === deptId;
+    });
+    vaSel.innerHTML = '<option value="">\u2014 Select VA \u2014</option>'
+      + vas.map(function(v){ return '<option value="' + v.UserID + '">' + v.Name + '</option>'; }).join('');
+  }
+}
+
+function connSubmitForm(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  var btn = document.getElementById('cf-submit');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+  var primary = (document.getElementById('cf-primary') || {}).value || '';
+  var deptId  = (document.getElementById('cf-dept')    || {}).value || '';
+  var svcId   = (document.getElementById('cf-svc')     || {}).value || '';
+
+  if (!primary) { alert('Primary Account Name is required.'); if(btn){btn.disabled=false;btn.textContent='Save Connection';} return; }
+  if (!deptId)  { alert('Please select a Department.');       if(btn){btn.disabled=false;btn.textContent='Save Connection';} return; }
+  if (!svcId)   { alert('Please select a Service.');          if(btn){btn.disabled=false;btn.textContent='Save Connection';} return; }
+
+  var data = {
+    clientName:     primary,
+    secondaryName:  (document.getElementById('cf-secondary') || {}).value || '',
+    deptId:         deptId,
+    serviceId:      svcId,
+    vaUserId:       (document.getElementById('cf-va')    || {}).value || '',
+    startDate:      (document.getElementById('cf-start') || {}).value || new Date().toISOString().slice(0,10),
+    connectionType: (document.getElementById('cf-type')  || {value:'Regular'}).value || 'Regular',
+    status:         'Pending'
+  };
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        closeModal();
+        toast('Connection saved successfully.', 'success');
+        renderConnections();
+      } else {
+        toast((res && res.message) || 'Failed to save connection.', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Connection'; }
+      }
+    })
+    .withFailureHandler(function(err) {
+      toast('Error: ' + (err ? err.message : 'Unknown error'), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Save Connection'; }
+    })
+    .createVAConnection(data, State.user.id);
+}
+
+// ─── VA CONNECTION IMPORT ─────────────────────────────────────
+function openImportConnections() {
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box modal-xl';
+  var html = buildVAConnImportUI();
+  if (typeof openModal === 'function') {
+    openModal('Import VA Connections', html);
+  } else {
+    var overlay = document.getElementById('modal-overlay');
+    var titleEl = document.getElementById('modal-title');
+    var bodyEl  = document.getElementById('modal-body');
+    if (titleEl) titleEl.textContent = 'Import VA Connections';
+    if (bodyEl)  bodyEl.innerHTML = html;
+    if (overlay) { overlay.style.display = 'flex'; overlay.classList.remove('hidden'); }
+  }
+}
+
+function buildVAConnImportUI() {
+  return '<div style="margin-bottom:12px;font-size:13px;color:var(--text-muted);">'
+    + 'Upload or paste CSV data. Columns: <strong>Client Name, Secondary Name, Department, Service, VA Name, Start Date</strong>'
+    + '</div>'
+    + '<div class="import-col-pills" style="margin-bottom:14px;">'
+    + '<span class="import-col-pill required">1. Client Name *</span>'
+    + '<span class="import-col-pill">2. Secondary Name</span>'
+    + '<span class="import-col-pill required">3. Department *</span>'
+    + '<span class="import-col-pill required">4. Service *</span>'
+    + '<span class="import-col-pill">5. VA Name</span>'
+    + '<span class="import-col-pill">6. Start Date</span>'
+    + '</div>'
+    + '<div style="margin-bottom:12px;">'
+    + '<button class="btn btn-secondary btn-sm" onclick="vaConnDownloadTemplate()" style="margin-bottom:10px;">'
+    + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+    + ' Download Template</button>'
+    + '<label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Or upload CSV file:</label>'
+    + '<input type="file" id="vaconn-file" accept=".csv,.txt" onchange="vaConnHandleFile(this)" class="form-control" style="font-size:13px;">'
+    + '</div>'
+    + '<div class="form-group">'
+    + '<label class="form-label">Paste data here (no header row, comma or tab separated):</label>'
+    + '<textarea class="form-control" id="vaconn-paste" rows="8" placeholder="Acme Corp,,Customer Service,Billing Support,Jane Doe,2025-01-15&#10;Beta LLC,,Operations,Tech Support,," oninput="vaConnEnableNext()"></textarea>'
+    + '</div>'
+    + '<div id="vaconn-parse-err" style="display:none;color:var(--danger);font-size:13px;margin-bottom:8px;"></div>'
+    + '<div class="form-actions">'
+    + '<button class="btn btn-secondary" onclick="vaConnCloseModal()">Cancel</button>'
+    + '<button class="btn btn-primary" id="vaconn-preview-btn" onclick="vaConnGoPreview()" disabled>Preview &amp; Validate \u2192</button>'
+    + '</div>';
+}
+
+function vaConnCloseModal() {
+  if (typeof closeModal === 'function') { closeModal(); return; }
+  var overlay = document.getElementById('modal-overlay');
+  if (overlay) { overlay.style.display = 'none'; overlay.classList.add('hidden'); }
+}
+
+function vaConnDownloadTemplate() {
+  var csv = 'Client Name,Secondary Name,Department,Service,VA Name,Start Date\n'
+    + '"Acme Corp","AcmePh","Customer Service","Billing Support","Jane Doe","2025-01-15"\n'
+    + '"Beta LLC","","Operations","Tech Support","","2025-03-01"\n';
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'va_connections_template.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function vaConnHandleFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var lines = e.target.result.trim().split('\n');
+    var first = (lines[0] || '').split(/[,\t]/)[0].trim().toLowerCase();
+    var isHeader = first === 'client name' || first === 'client' || first === 'clientname';
+    var textarea = document.getElementById('vaconn-paste');
+    if (textarea) {
+      textarea.value = (isHeader ? lines.slice(1) : lines).join('\n');
+      vaConnEnableNext();
+    }
+  };
+  reader.readAsText(file);
+}
+
+function vaConnEnableNext() {
+  var val = (document.getElementById('vaconn-paste') || {}).value || '';
+  var btn = document.getElementById('vaconn-preview-btn');
+  if (btn) btn.disabled = !val.trim();
+}
+
+function vaConnParseRow(line) {
+  var delim = line.indexOf('\t') >= 0 ? '\t' : ',';
+  var cols = [];
+  var inQ = false, cur = '';
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') { inQ = !inQ; continue; }
+    if (ch === delim && !inQ) { cols.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  cols.push(cur.trim());
+  return {
+    clientName:    cols[0] || '',
+    secondaryName: cols[1] || '',
+    deptName:      cols[2] || '',
+    serviceName:   cols[3] || '',
+    vaName:        cols[4] || '',
+    startDate:     cols[5] || ''
+  };
+}
+
+function vaConnGoPreview() {
+  var raw = (document.getElementById('vaconn-paste') || {}).value || '';
+  if (!raw.trim()) return;
+  var rows = raw.trim().split('\n').filter(function(l){ return l.trim(); }).map(vaConnParseRow);
+
+  var previewBtn = document.getElementById('vaconn-preview-btn');
+  if (previewBtn) { previewBtn.disabled = true; previewBtn.textContent = 'Validating...'; }
+
+  google.script.run
+    .withSuccessHandler(function(dRes) {
+      google.script.run
+        .withSuccessHandler(function(sRes) {
+          var allDepts = (dRes && dRes.data) || [];
+          var allSvcs  = (sRes && sRes.data) || [];
+          var validated = rows.map(function(row, i) {
+            var errors = [];
+            if (!row.clientName) errors.push('Client Name is required');
+            if (!row.deptName)   errors.push('Department is required');
+            if (!row.serviceName) errors.push('Service is required');
+            if (row.deptName && !allDepts.find(function(d){ return d.DeptName.toLowerCase().trim() === row.deptName.toLowerCase().trim(); }))
+              errors.push('Department "' + row.deptName + '" not found');
+            if (row.serviceName && !allSvcs.find(function(s){ return s.ServiceName.toLowerCase().trim() === row.serviceName.toLowerCase().trim(); }))
+              errors.push('Service "' + row.serviceName + '" not found');
+            return Object.assign({}, row, { _row: i + 1, _valid: errors.length === 0, _errors: errors });
+          });
+          window._vaConnImportRows = validated;
+          vaConnShowPreview(validated);
+        })
+        .withFailureHandler(function(e){ vaConnShowError('Failed to load services: ' + (e?e.message:'')); })
+        .getServices('');
+    })
+    .withFailureHandler(function(e){ vaConnShowError('Failed to load departments: ' + (e?e.message:'')); })
+    .getDepartments();
+}
+
+function vaConnShowError(msg) {
+  var el = document.getElementById('vaconn-parse-err');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  var btn = document.getElementById('vaconn-preview-btn');
+  if (btn) { btn.disabled = false; btn.textContent = 'Preview & Validate \u2192'; }
+}
+
+function vaConnShowPreview(rows) {
+  var validCount = rows.filter(function(r){ return r._valid; }).length;
+  var invalidCount = rows.length - validCount;
+  var tbody = rows.map(function(r) {
+    var statusBadge = r._valid
+      ? '<span class="badge badge-success">Valid</span>'
+      : '<span class="badge badge-danger" title="' + r._errors.join('; ') + '">Error</span>';
+    var errRow = !r._valid
+      ? '<tr class="import-row-error-detail"><td colspan="7"><div class="import-row-errors">'
+        + r._errors.map(function(e){ return '<span class="import-row-error-msg">\u26A0 ' + e + '</span>'; }).join('')
+        + '</div></td></tr>'
+      : '';
+    return '<tr class="' + (r._valid ? '' : 'import-row-error') + '">'
+      + '<td class="mono" style="font-size:11px;color:var(--text-muted);">' + r._row + '</td>'
+      + '<td>' + statusBadge + '</td>'
+      + '<td><strong>' + (r.clientName || '\u2014') + '</strong></td>'
+      + '<td style="color:var(--text-muted);font-size:12px;">' + (r.secondaryName || '\u2014') + '</td>'
+      + '<td>' + (r.deptName || '\u2014') + '</td>'
+      + '<td>' + (r.serviceName || '\u2014') + '</td>'
+      + '<td>' + (r.vaName || '\u2014') + '</td>'
+      + '</tr>' + errRow;
+  }).join('');
+
+  var html = '<div class="import-summary-bar" style="margin-bottom:12px;">'
+    + '<div class="import-summary-item total"><span class="import-summary-num">' + rows.length + '</span><span class="import-summary-label">Total</span></div>'
+    + '<div class="import-summary-item success"><span class="import-summary-num">' + validCount + '</span><span class="import-summary-label">Ready</span></div>'
+    + (invalidCount ? '<div class="import-summary-item error"><span class="import-summary-num">' + invalidCount + '</span><span class="import-summary-label">Errors</span></div>' : '')
+    + '</div>'
+    + '<div class="table-wrap" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:12px;">'
+    + '<table class="import-preview-table">'
+    + '<thead><tr><th>#</th><th>Status</th><th>Client Name</th><th>Secondary</th><th>Department</th><th>Service</th><th>VA Name</th></tr></thead>'
+    + '<tbody>' + tbody + '</tbody>'
+    + '</table></div>'
+    + '<div class="import-note-bar ' + (invalidCount ? 'warning' : 'success') + '" style="margin-bottom:12px;">'
+    + (invalidCount
+        ? 'Error rows will be skipped. <strong>' + validCount + '</strong> rows will be imported.'
+        : 'All <strong>' + validCount + '</strong> rows are valid and ready.')
+    + '</div>'
+    + '<div class="form-actions">'
+    + '<button class="btn btn-secondary" onclick="openImportConnections()">\u2190 Back</button>'
+    + '<button class="btn btn-primary" ' + (validCount === 0 ? 'disabled' : '') + ' onclick="vaConnRunImport()">'
+    + 'Import ' + validCount + ' Connection' + (validCount !== 1 ? 's' : '') + '</button>'
+    + '</div>';
+
+  var bodyEl = document.getElementById('modal-body');
+  var titleEl = document.getElementById('modal-title');
+  if (titleEl) titleEl.textContent = 'Preview \u2014 Import VA Connections';
+  if (bodyEl) bodyEl.innerHTML = html;
+}
+
+function vaConnRunImport() {
+  var validRows = (window._vaConnImportRows || []).filter(function(r){ return r._valid; });
+  if (!validRows.length) return;
+
+  var bodyEl = document.getElementById('modal-body');
+  if (bodyEl) bodyEl.innerHTML = '<div style="text-align:center;padding:48px 24px;">'
+    + '<div class="spinner" style="margin:0 auto 20px;"></div>'
+    + '<div style="font-size:15px;font-weight:600;margin-bottom:8px;">Importing ' + validRows.length + ' connection' + (validRows.length !== 1 ? 's' : '') + '...</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);">Applying default KPI configurations. Please wait.</div></div>';
+
+  var payload = validRows.map(function(r) {
+    return { clientName: r.clientName, secondaryName: r.secondaryName || '', deptName: r.deptName, serviceName: r.serviceName, vaName: r.vaName || '', startDate: r.startDate || '' };
+  });
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      window._vaConnImportRows = null;
+      var titleEl = document.getElementById('modal-title');
+      if (titleEl) titleEl.textContent = 'Import Complete';
+      var bodyEl2 = document.getElementById('modal-body');
+      if (!bodyEl2) return;
+
+      var allResults = (res && res.results) || [];
+      var imported   = (res && res.imported) || 0;
+      var failed     = (res && res.failed) || 0;
+      var kpiTotal   = allResults.reduce(function(s, r){ return s + (r.kpiCount || 0); }, 0);
+      var failRows   = allResults.filter(function(r){ return !r.success; });
+
+      var failTable = failRows.length
+        ? '<div class="table-wrap" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:12px;">'
+          + '<table class="import-preview-table"><thead><tr><th>Row</th><th>Client</th><th>Error</th></tr></thead><tbody>'
+          + failRows.map(function(r){ return '<tr class="import-row-error"><td class="mono" style="font-size:11px;">' + r.row + '</td><td>' + (r.clientName || '\u2014') + '</td><td><span class="badge badge-danger">' + (r.message || 'Failed') + '</span></td></tr>'; }).join('')
+          + '</tbody></table></div>'
+        : '';
+
+      bodyEl2.innerHTML = '<div class="import-summary-bar" style="margin-bottom:12px;">'
+        + '<div class="import-summary-item success"><span class="import-summary-num">' + imported + '</span><span class="import-summary-label">Imported</span></div>'
+        + '<div class="import-summary-item" style="border-color:rgba(0,212,255,0.2);"><span class="import-summary-num" style="color:var(--accent);">' + kpiTotal + '</span><span class="import-summary-label">KPI Rules Applied</span></div>'
+        + (failed ? '<div class="import-summary-item error"><span class="import-summary-num">' + failed + '</span><span class="import-summary-label">Failed</span></div>' : '')
+        + '</div>'
+        + (kpiTotal > 0
+            ? '<div class="import-note-bar success" style="margin-bottom:12px;">Default KPI thresholds from the KPI Library were applied to each connection.</div>'
+            : '<div class="import-note-bar warning" style="margin-bottom:12px;">No KPI rules found for these services. Add KPIs in the KPI Library first.</div>')
+        + failTable
+        + '<div class="form-actions">'
+        + '<button class="btn btn-secondary" onclick="openImportConnections()">Import More</button>'
+        + '<button class="btn btn-primary" onclick="vaConnCloseModal();renderConnections();">Done \u2014 View Connections</button>'
+        + '</div>';
+    })
+    .withFailureHandler(function(err) {
+      var bodyEl3 = document.getElementById('modal-body');
+      if (bodyEl3) bodyEl3.innerHTML = '<div style="padding:24px;color:var(--danger);">Import failed: ' + (err ? err.message : 'unknown error') + '</div>'
+        + '<div class="form-actions"><button class="btn btn-secondary" onclick="openImportConnections()">Try Again</button></div>';
+    })
+    .bulkCreateVAConnections(payload, State.user.id);
+}
+
+
+function toggleConnStatus(connId, currentStatus) {
+  var newStatus = currentStatus === 'Inactive' ? 'Active' : 'Inactive';
+  changeConnStatus(connId, newStatus);
+}
+function getConnStatuses(connectionType) {
+  if (connectionType === 'Project-based') return ['Active','Paused','End of Project'];
+  return ['Active','Paused','End of Contract'];
+}
+
+function openChangeStatusModal(connId) {
+  window._ccsConnId = connId;
+  // Find connection from in-memory list
+  var conn = (window._allConnections||[]).find(function(c){ return c.ConnectionID===connId; });
+  if (!conn) { toast('Connection not found.','error'); return; }
+  var connType = conn.ConnectionType || 'Regular';
+  var currStatus = conn.Status || 'Active';
+  var isEnded = currStatus==='End of Contract'||currStatus==='End of Project';
+  if (isEnded) { toast('This connection has ended and cannot be changed.','warning'); return; }
+  var allStatuses = connType==='Project-based' ? ['Active','Paused','End of Project'] : ['Active','Paused','End of Contract'];
+  var otherStatuses = allStatuses.filter(function(s){ return s!==currStatus; });
+  var today2 = new Date().toISOString().slice(0,10);
+  var clientName = conn.ClientName || connId;
+  var statusOpts = otherStatuses.map(function(s){
+    return '<option value="'+s+'">'+s+'</option>';
+  }).join('');
+  openModal('Change Connection Status \u2014 '+clientName,
+    '<div style="padding:4px 0 16px;">'
+    +'<p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Current status: <strong>'+currStatus+'</strong></p>'
+    +'<div class="form-group"><label class="form-label">New Status</label>'
+    +'<select class="form-control" id="ccs-status">'+statusOpts+'</select></div>'
+    +'<div class="form-group" id="ccs-date-wrap"><label class="form-label">Effective Date</label>'
+    +'<input type="date" class="form-control" id="ccs-date" value="'+today2+'"></div>'
+    +'<div class="form-actions" style="margin-top:20px;">'
+    +'<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+    +'<button class="btn btn-primary" onclick="_confirmChangeStatus()">Save Change</button>'
+    +'</div></div>'
+  );
+  // Hide date for Active (resume)
+  document.getElementById('ccs-status').addEventListener('change', function(){
+    var dw = document.getElementById('ccs-date-wrap');
+    if (dw) dw.style.display = this.value==='Active' ? 'none' : '';
+  });
+}
+
+function _confirmChangeStatus() {
+  var connId = window._ccsConnId;
+  var sel  = document.getElementById('ccs-status');
+  var dat  = document.getElementById('ccs-date');
+  if (!sel) return;
+  var newStatus = sel.value;
+  var statusDate = (dat && dat.value) ? dat.value : new Date().toISOString().slice(0,10);
+  closeModal();
+  changeConnStatus(connId, newStatus, statusDate);
+}
+
+function changeConnStatus(connId, newStatus) {
+  VAA_LOG && VAA_LOG.info("CONN", "changeConnStatus: " + connId + " \u2192 " + newStatus);
+  if (newStatus !== 'Active') {
+    var box = document.getElementById('modal-box');
+    if (box) box.className = 'modal-box';
+    var today = new Date().toISOString().slice(0,10);
+    window._inactiveConnId = connId;
+    openModal('Set ' + newStatus + ' Date',
+      '<div style="padding:4px 0 16px;">'
+      + '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">Select the date this connection became inactive.</p>'
+      + '<div class="form-group"><label class="form-label">Inactive Date</label>'
+      + '<input class="form-control" type="date" id="inactive-date-inp" value="' + today + '"></div>'
+      + '<div class="form-actions">'
+      + '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+      + '<button class="btn btn-primary" onclick="_confirmInactive()">Confirm</button>'
+      + '</div></div>'
+    );
+    return;
+  }
+  _doChangeConnStatus(connId, newStatus, null);
+}
+
+function _confirmInactive() {
+  var connId = window._inactiveConnId || '';
+  var dateInp = document.getElementById('inactive-date-inp');
+  var inactiveDate = dateInp ? dateInp.value : new Date().toISOString().slice(0,10);
+  closeModal();
+  _doChangeConnStatus(connId, 'Inactive', inactiveDate);
+}
+
+function _doChangeConnStatus(connId, newStatus, inactiveDate) {
+  gsr('updateVAConnectionStatus', connId, newStatus, State.user.id, inactiveDate || '').then(function(res) {
+    toast(res && res.success ? 'Status updated to ' + newStatus + '.' : (res && res.message || 'Failed'), res && res.success ? 'success' : 'error');
+    if (res && res.success) {
+      var idx = (window._allConnections||[]).findIndex(function(x){ return x.ConnectionID === connId; });
+      if (idx >= 0) window._allConnections[idx].Status = newStatus;
+      connFilter();
+    }
+  });
+}
+
+
+function renderVAConnections() {
+  var pc = document.getElementById('page-content');
+  if (pc) pc.innerHTML = '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto 16px;"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var conns = (res && res.data) || [];
+      var html = '<div class="section-header"><span class="section-title">My Connections (' + conns.length + ')</span></div>';
+      if (!conns.length) {
+        html += '<div class="empty-state" style="padding:60px;text-align:center;"><h3>No connections assigned yet.</h3></div>';
+      } else {
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">';
+        conns.forEach(function(c) {
+          var status = String(c.Status || 'Pending');
+          var sClass = status==='Active'?'badge-success':status==='Pending'?'badge-info':'badge-muted';
+          html += '<div class="card" style="cursor:pointer;" onclick="connOpenDetail(\'' + c.ConnectionID + '\')">'
+            + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">'
+            + '<strong style="font-size:14px;">' + (c.ClientName||'\u2014') + '</strong>'
+            + '<span class="badge ' + sClass + '">' + status + '</span>'
+            + '</div>'
+            + (c.SecondaryName ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">' + c.SecondaryName + '</div>' : '')
+            + '<div style="font-size:12px;color:var(--text-muted);">Started: ' + (c.StartDate ? String(c.StartDate).slice(0,10) : '\u2014') + '</div>'
+            + '</div>';
+        });
+        html += '</div>';
+      }
+      if (pc) pc.innerHTML = html;
+    })
+    .withFailureHandler(function(err) {
+      if (pc) pc.innerHTML = '<div style="padding:40px;color:var(--danger);">Failed: ' + (err?err.message:'unknown') + '</div>';
+    })
+    .getVAConnections(State.user.id, State.user.role);
+}
+
+function filterConnTable(q) { connFilter(); }
+function openCreateConnection() { connOpenForm(); }
+
+function openConnectionDetail(connId) {
+  VAA_LOG && VAA_LOG.info("CONN", "openConnectionDetail: " + connId);
+var conn = (window._allConnections || []).find(function(c){ return c.ConnectionID === connId; });
+var deptMap = window._connDeptMap || {};
+var svcMap  = window._connSvcMap  || {};
+var userMap = window._connUserMap || {};
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+// Only open modal if not already open (connOpenDetail already opened it)
+var modalOverlay = document.getElementById('modal-overlay');
+var modalAlreadyOpen = modalOverlay && modalOverlay.classList.contains('active');
+if (!modalAlreadyOpen) {
+  openModal(conn ? conn.ClientName : 'Connection Detail', '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+}
+// Update modal title in case it's already open
+var titleEl = document.getElementById('modal-title');
+if (titleEl && conn) titleEl.textContent = conn.ClientName || 'Connection Detail';
+// Show spinner in modal-body
+var existingBody = document.getElementById('modal-body');
+if (existingBody) existingBody.innerHTML = '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>';
+window._currentConnId = connId;
+console.log('[CONN DETAIL] Loading detail for connId:', connId, 'conn:', conn ? conn.ClientName : 'not in cache');
+console.log('[CONN] loading detail for:', connId);
+Promise.all([
+  gsr('getKPIConfigForConn', connId),
+  gsr('getInterventions', connId),
+  gsr('getVAConnectionPerformance', connId, 6)
+]).then(function(results) {
+  console.log('[CONN] detail loaded ok');
+  console.log('[CONN DETAIL] Loaded: cfg='+((results[0]||{}).data||[]).length+' intv='+((results[1]||{}).data||[]).length);
+var cfgResult  = results[0] || {};
+var intvResult = results[1] || {};
+var perfResult = results[2] || {};
+var cfg      = cfgResult.data  || [];
+var hasConfig = cfgResult.hasConfig;
+var intv     = intvResult.data || [];
+var perfData = perfResult.data || [];
+var canEdit  = ['Administrator','Manager','Team Leader'].includes(State.user.role);
+var deptName = deptMap[conn ? conn.DeptID : '']           || conn && conn.DeptID           || '\u2014';
+var svcName  = svcMap [conn ? conn.ServiceID : '']        || conn && conn.ServiceID        || '\u2014';
+var vaName   = userMap[conn ? conn.VAUserID : '']         || conn && conn.VAUserID         || '\u2014';
+var tlName   = userMap[conn ? conn.TeamLeaderUserID : ''] || conn && conn.TeamLeaderUserID || '\u2014';
+var curSt     = conn ? (conn.Status || '') : '';
+var connType  = conn ? (conn.ConnectionType || 'Regular') : 'Regular';
+var isEnded   = (curSt === 'End of Contract' || curSt === 'End of Project');
+var sCls      = curSt==='Active' ? 'badge-success'
+              : curSt==='Paused' ? 'badge-warning'
+              : isEnded          ? 'badge-danger' : 'badge-muted';
+var allSt     = connType === 'Project-based'
+              ? ['Active','Paused','End of Project']
+              : ['Active','Paused','End of Contract'];
+var otherSt   = allSt.filter(function(s){ return s !== curSt; });
+var inactDate = conn && conn.InactiveDate ? String(conn.InactiveDate).slice(0,10) : '';
+var today2    = new Date().toISOString().slice(0,10);
+
+// ── Status change panel ──
+var statusPanel;
+if (!canEdit || isEnded) {
+  statusPanel = '<div class="conn-status-panel">'
+    + '<div class="conn-status-panel-label">Status</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;">'
+    + '<span class="badge ' + sCls + '" style="font-size:13px;padding:5px 12px;">' + (curSt||'\u2014') + '</span>'
+    + (isEnded ? '<span style="font-size:12px;color:var(--text-muted);">Terminal \u2014 cannot be changed</span>' : '')
+    + '</div></div>';
+} else {
+  statusPanel = '<div class="conn-status-panel">'
+    + '<div class="conn-status-panel-label">Change Status</div>'
+    + '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">'
+    + '<span class="badge ' + sCls + '">' + curSt + '</span>'
+    + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>'
+    + '<select class="form-control" id="conn-status-sel" style="width:auto;height:28px;font-size:12px;padding:2px 8px;">'
+    + '<option value="">Change to\u2026</option>'
+    + otherSt.map(function(s){ return '<option value="'+s+'">'+s+'</option>'; }).join('')
+    + '</select>'
+    + '<input type="date" id="conn-status-date" class="form-control" style="width:140px;height:28px;font-size:12px;" value="' + today2 + '">'
+    + '<button class="btn btn-primary btn-sm" onclick="saveConnStatus(\'' + connId + '\')" style="height:28px;font-size:12px;">Save</button>'
+    + '</div></div>';
+}
+
+// ── Info grid ──
+var infoGrid = '<div class="conn-detail-info">'
+  + connDetailItem('Department', deptName)
+  + connDetailItem('Service', svcName)
+  + connDetailItem('VA Name', vaName)
+  + connDetailItem('Team Leader', tlName)
+  + connDetailItem('Connection Type', connType)
+  + connDetailItem('Start Date', formatDate(conn ? conn.StartDate : ''))
+  + (inactDate ? connDetailItem(isEnded ? 'End Date' : 'Paused Date', inactDate) : connDetailItem('End / Paused Date', '\u2014'))
+  + connDetailItem('Flagged', (conn && (conn.IsFlagged === true || conn.IsFlagged === 'TRUE')) ? '⚑ Yes' : 'No')
+  + connDetailItem('Has KPI Config', (conn && (conn.HasKPIConfig === true || conn.HasKPIConfig === 'TRUE')) ? '\u2713 Configured' : 'Not configured')
+  + '</div>'
+  + (canEdit ? ('<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px 0 4px;border-top:1px solid var(--border);margin-top:8px;">'
+    + '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Account Name</div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<input id="conn-edit-name" class="form-control" style="height:28px;font-size:12px;flex:1;" value="'+(conn&&conn.ClientName||'')+'">'
+    + '<button class="btn btn-primary btn-sm" style="height:28px;padding:0 10px;white-space:nowrap;" onclick="saveConnField(\''+connId+'\',\'clientName\',\'conn-edit-name\')">Save</button>'
+    + '</div></div>'
+    + '<div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Start Date</div>'
+    + '<div style="display:flex;gap:6px;">'
+    + '<input id="conn-edit-start" type="date" class="form-control" style="height:28px;font-size:12px;width:150px;" value="'+(conn&&conn.StartDate?String(conn.StartDate).slice(0,10):'')+'">'
+    + '<button class="btn btn-primary btn-sm" style="height:28px;padding:0 10px;white-space:nowrap;" onclick="saveConnField(\''+connId+'\',\'startDate\',\'conn-edit-start\')">Save</button>'
+    + '</div></div>'
+    + '</div>') : '');
+
+// ── Detail header ──
+var clientSub = conn && conn.SecondaryName ? conn.SecondaryName : '';
+var detailHeader = '<div class="conn-detail-header">'
+  + '<div>'
+  + '<div class="conn-detail-client">' + (conn ? conn.ClientName : '\u2014') + '</div>'
+  + (clientSub ? '<div class="conn-detail-sub">' + clientSub + '</div>' : '')
+  + '</div>'
+  + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">'
+  + '<span class="badge ' + sCls + '" style="font-size:12px;">' + curSt + '</span>'
+  + '<span class="badge ' + (connType==='Project-based'?'badge-info':'badge-muted') + '" style="font-size:11px;">' + connType + '</span>'
+  + '</div>'
+  + '</div>';
+
+// ── Connection Type Change Panel (Manager/Admin only) ──
+var canChangeType = canEdit && !isEnded;
+var typePanel = '';
+if (canChangeType) {
+  var otherType = connType === 'Project-based' ? 'Regular' : 'Project-based';
+  typePanel = '<div class="conn-status-panel" style="margin-bottom:12px;">'    + '<div class="conn-status-panel-label">Change Connection Type</div>'    + '<div style="display:flex;align-items:center;gap:8px;">'    + '<span class="badge '+(connType==='Project-based'?'badge-info':'badge-muted')+'">'+connType+'</span>'    + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>'    + '<select class="form-control" id="conn-type-sel" style="width:auto;height:28px;font-size:12px;padding:2px 8px;">'    + '<option value="">Change to\u2026</option>'    + '<option value="'+otherType+'">'+otherType+'</option>'    + '</select>'    + '<button class="btn btn-secondary btn-sm" onclick="saveConnType(\'' + connId + '\')" style="height:28px;font-size:12px;">Save</button>'    + '</div>'    + '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">'    + 'Note: changing type will update the allowed status transitions.</div>'    + '</div>';
+}
+
+var infoBar = detailHeader + infoGrid + typePanel + statusPanel
+  + _renderStatusHistory(conn ? conn.StatusHistory : '');
+
+
+var body = document.getElementById('modal-body');
+if (!body) return;
+body.innerHTML = infoBar
++ '<div class="tabs" id="detail-tabs" style="margin-top:16px;">'
++ '<button class="tab active" onclick="switchDetailTab(\'perf\',this)">Performance</button>'
++ '<button class="tab" onclick="switchDetailTab(\'kpi\',this)">KPI Configuration</button>'
++ '<button class="tab" onclick="switchDetailTab(\'intv\',this)">Interventions (' + intv.length + ')</button>'
++ '</div>'
++ '<div id="detail-tab-perf">' + renderPerfCharts(perfData) + '</div>'
++ '<div id="detail-tab-kpi" class="hidden">' + (typeof buildKPIConfigSection==='function' ? buildKPIConfigSection(cfg, hasConfig, connId, canEdit) : '<div style="padding:20px;color:var(--text-muted);">KPI config unavailable.</div>') + '</div>'
++ '<div id="detail-tab-intv" class="hidden">' + (typeof buildInterventionsSection==='function' ? buildInterventionsSection(intv, connId, canEdit) : '') + '</div>';
+});
+}
+
+function saveConnField(connId, field, inputId) {
+  var input = document.getElementById(inputId);
+  if (!input) return;
+  var val = input.value.trim();
+  if (!val) { toast('Value cannot be empty.','warning'); return; }
+  var data = {};
+  if (field === 'clientName') data.clientName = val;
+  else if (field === 'startDate') data.startDate = val;
+  gsr('updateVAConnection', connId, data, State.user.id).then(function(res) {
+    if (res && res.success) {
+      toast('Updated successfully.','success');
+      // Update in-memory cache
+      var conn2 = (window._allConnections||[]).find(function(c){ return c.ConnectionID===connId; });
+      if (conn2) {
+        if (field==='clientName') conn2.ClientName = val;
+        if (field==='startDate')  conn2.StartDate  = val;
+      }
+    } else { toast(res&&res.message||'Save failed.','error'); }
+  });
+}
+
+function saveConnType(connId) {
+  var sel = document.getElementById('conn-type-sel');
+  if (!sel || !sel.value) { toast('Select a type to change to.', 'warning'); return; }
+  var newType = sel.value;
+  gsr('updateVAConnectionType', connId, newType, State.user.id).then(function(res) {
+    if (res && res.success) {
+      toast('Connection type changed to ' + newType + '.', 'success');
+      // Update in-memory
+      var conn = (window._allConnections||[]).find(function(c){ return c.ConnectionID===connId; });
+      if (conn) {
+        conn.ConnectionType = newType;
+        // Update StatusHistory in memory
+        try {
+          var hist = JSON.parse(conn.StatusHistory||'[]');
+          hist.push({ typeChange:true, from:conn.ConnectionType, to:newType, changedBy:State.user.id, at:new Date().toISOString() });
+          conn.StatusHistory = JSON.stringify(hist);
+        } catch(e){}
+      }
+      connFilter();
+      connOpenDetail(connId); // refresh detail
+    } else {
+      toast((res&&res.message)||'Failed to update type.', 'error');
+    }
+  });
+}
+
+function saveConnStatus(connId) {
+  var sel     = document.getElementById('conn-status-sel');
+  var dateInp = document.getElementById('conn-status-date');
+  if (!sel || !sel.value) { toast('Select a status to change to.', 'warning'); return; }
+  var newStatus  = sel.value;
+  var statusDate = dateInp ? dateInp.value : new Date().toISOString().slice(0,10);
+  var btns = document.querySelectorAll('#modal-body .btn-primary');
+  btns.forEach(function(b){ b.disabled=true; b.textContent='Saving\u2026'; });
+  gsr('updateVAConnectionStatus', connId, newStatus, State.user.id, statusDate).then(function(res) {
+    if (res && res.success) {
+      toast('Status updated to ' + newStatus + '.', 'success');
+      var conn = (window._allConnections||[]).find(function(x){ return x.ConnectionID===connId; });
+      if (conn) {
+        conn.Status = newStatus;
+        if (newStatus !== 'Active') conn.InactiveDate = statusDate;
+        else conn.InactiveDate = '';
+        // Append to StatusHistory in-memory
+        try {
+          var hist = JSON.parse(conn.StatusHistory||'[]');
+          hist.push({ status: newStatus, date: statusDate, changedBy: State.user.id, at: new Date().toISOString() });
+          conn.StatusHistory = JSON.stringify(hist);
+        } catch(e){}
+      }
+      connFilter();
+      connOpenDetail(connId); // refresh detail panel
+    } else {
+      toast((res && res.message) || 'Failed to update status.', 'error');
+      btns.forEach(function(b){ b.disabled=false; b.textContent='Save'; });
+    }
+  });
+}
+
+function connDetailItem(label, value) {
+return '<div class="conn-detail-info-item">'
++ '<span class="conn-detail-info-label">' + label + '</span>'
++ '<span class="conn-detail-info-val">' + value + '</span>'
++ '</div>';
+}
+
+
+function renderPerfCharts(perfData) {
+  if (!perfData || !perfData.length) return '<div style="padding:32px;text-align:center;color:var(--text-muted);">No performance data yet.</div>';
+  return perfData.map(function(kpi) {
+    var reports = (kpi.reports||[]).filter(function(r){ return !r.NoDataAvailable && r.Actual !== '' && r.Actual !== null && r.Actual !== undefined; });
+    if (!reports.length) {
+      return '<div class="card" style="margin-bottom:12px;"><div class="card-header">'
+        + '<div class="card-title">'+(kpi.kpiName||'KPI')+' <span class="pill">'+(kpi.unit||'')+'</span></div></div>'
+        + '<div style="padding:24px;text-align:center;color:var(--text-muted);">No data submitted yet.</div></div>';
+    }
+    var W = 500, H = 160, PL = 40, PR = 16, PT = 14, PB = 28;
+    var cW = W - PL - PR, cH = H - PT - PB;
+    var actuals  = reports.map(function(r){ return parseFloat(r.Actual)||0; });
+    var targets  = reports.map(function(r){ return parseFloat(r.Target)||0; });
+    var allVals  = actuals.concat(targets);
+    var minV = Math.min.apply(null, allVals), maxV = Math.max.apply(null, allVals);
+    if (maxV === minV) { maxV = minV + 1; }
+    var pad = (maxV - minV) * 0.15;
+    minV = Math.max(0, minV - pad); maxV = maxV + pad;
+    function cx(i) { return PL + (reports.length > 1 ? (i / (reports.length-1)) * cW : cW/2); }
+    function cy(v) { return PT + cH - ((v - minV) / (maxV - minV)) * cH; }
+    // Grid
+    var grid = '';
+    for (var g = 0; g <= 4; g++) {
+      var gy = PT + (g/4)*cH;
+      var gv = (maxV - (g/4)*(maxV-minV)).toFixed(1);
+      grid += '<line x1="'+PL+'" y1="'+gy+'" x2="'+(W-PR)+'" y2="'+gy+'" stroke="var(--border)" stroke-width="1" stroke-dasharray="3,3"/>'
+        +'<text x="'+(PL-4)+'" y="'+(gy+4)+'" text-anchor="end" font-size="9" fill="var(--text-muted)">'+gv+'</text>';
+    }
+    // Target line (dashed grey)
+    var tPts = reports.map(function(r,i){ return cx(i)+','+cy(parseFloat(r.Target)||0); }).join(' ');
+    var tLine = '<polyline points="'+tPts+'" fill="none" stroke="var(--border)" stroke-width="2" stroke-dasharray="5,3" stroke-linejoin="round"/>';
+    // Actual line (solid, colored by worst status in set)
+    var aPts = reports.map(function(r,i){ return cx(i)+','+cy(parseFloat(r.Actual)||0); }).join(' ');
+    var aLine = '<polyline points="'+aPts+'" fill="none" stroke="var(--on-target)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';
+    // Dots colored per status
+    var dotColors = { 'On Target':'var(--on-target)', 'At Risk':'var(--at-risk)', 'Critical':'var(--critical)', 'No Data':'var(--border)' };
+    var tDots = reports.map(function(r,i){
+      return '<circle cx="'+cx(i)+'" cy="'+cy(parseFloat(r.Target)||0)+'" r="3" fill="var(--border)" stroke="white" stroke-width="1.5">'
+        +'<title>Target: '+(r.Target||'\u2014')+' ('+String(r.WeekStartDate||'').slice(5)+')</title></circle>';
+    }).join('');
+    var aDots = reports.map(function(r,i){
+      var col = dotColors[r.Status] || 'var(--border)';
+      return '<circle cx="'+cx(i)+'" cy="'+cy(parseFloat(r.Actual)||0)+'" r="4" fill="'+col+'" stroke="white" stroke-width="1.5">'
+        +'<title>Actual: '+(r.Actual||'\u2014')+' | Status: '+(r.Status||'\u2014')+' ('+String(r.WeekStartDate||'').slice(5)+')</title></circle>';
+    }).join('');
+    // X labels
+    var xLabels = reports.map(function(r,i){
+      return '<text x="'+cx(i)+'" y="'+(H-4)+'" text-anchor="middle" font-size="9" fill="var(--text-muted)">'+String(r.WeekStartDate||'').slice(5)+'</text>';
+    }).join('');
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="overflow:visible;">'
+      + grid + tLine + aLine + tDots + aDots + xLabels + '</svg>';
+    var legend = '<div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;">'
+      + '<span style="font-size:11px;display:flex;align-items:center;gap:4px;"><span style="width:14px;border-top:2px dashed var(--border);display:inline-block;"></span>Target</span>'
+      + '<span style="font-size:11px;display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--on-target);display:inline-block;"></span>On Target</span>'
+      + '<span style="font-size:11px;display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--at-risk);display:inline-block;"></span>At Risk</span>'
+      + '<span style="font-size:11px;display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:50%;background:var(--critical);display:inline-block;"></span>Critical</span>'
+      + '</div>';
+    return '<div class="card" style="margin-bottom:12px;"><div class="card-header">'
+      + '<div class="card-title">'+(kpi.kpiName||'KPI')+' <span class="pill">'+(kpi.unit||'')+'</span></div>'
+      + '</div><div style="padding:8px 0;">' + svg + legend + '</div></div>';
+  }).join('');
+}
+
+
+
+
+function renderSubmitReport() {
+gsr('getVAConnections', State.user.id, State.user.role).then(function(conns) {
+var connections = (conns && conns.data) || [];
+var opts = connections.map(function(c){ return '<option value="' + c.ConnectionID + '">' + (c.ClientName || c.ConnectionID) + '</option>'; }).join('');
+set('page-content',
+'<div class="card" style="max-width:800px;margin:0 auto">'
++ '<div class="card-header"><div class="card-title">Submit KPI Report</div></div>'
++ '<div class="form-group"><label class="form-label">Select Connection</label>'
++ '<select class="form-control" id="report-conn" onchange="loadReportKPIs()">'
++ '<option value="">\u2014 Choose account \u2014</option>' + opts
++ '</select></div>'
++ '<div class="form-group" id="report-date-wrap">'
++ '<label class="form-label" id="report-date-label">Week Start Date</label>'
++ '<input class="form-control" type="date" id="report-date" value="' + getMondayStr(new Date()) + '">'
++ '<div class="form-hint">Week always starts on Monday.</div>'
++ '</div>'
++ '<div id="report-kpi-rows"><div class="empty-state"><h3>Select a connection above</h3></div></div>'
++ '<div class="form-actions" id="report-actions" style="display:none">'
++ '<button class="btn btn-secondary" type="button" onclick="navigateTo(\'va-dashboard\')">Cancel</button>'
++ '<button class="btn btn-primary" type="button" onclick="submitReport()">Submit Report</button>'
++ '</div></div>');
+window._reportType = 'weekly';
+if (window._preselectedConnId) {
+  var sel = document.getElementById('report-conn');
+  if (sel) { sel.value = window._preselectedConnId; loadReportKPIs(); }
+  window._preselectedConnId = null;
+}
+});
+}
+
+function switchReportType(type, btn) {
+window._reportType = type;
+document.querySelectorAll('#report-type-tabs .tab').forEach(t => t.classList.remove('active'));
+btn.classList.add('active');
+var label = document.getElementById('report-date-label');
+var dateInput = document.getElementById('report-date');
+if (type === 'weekly') {
+label.textContent = 'Week Start Date';
+dateInput.value = getMondayStr(new Date());
+document.querySelector('.form-hint').textContent = 'Week always starts on Monday.';
+} else {
+label.textContent = 'Month Start Date';
+var now = new Date();
+dateInput.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+document.querySelector('.form-hint').textContent = 'Select the first day of the reporting month.';
+}
+loadReportKPIs();
+}
+
+function loadReportKPIs() {
+var connId = document.getElementById('report-conn').value;
+var dateVal = document.getElementById('report-date').value;
+if (!connId) { document.getElementById('report-kpi-rows').innerHTML = '<div class="empty-state"><h3>Select a connection above</h3></div>'; document.getElementById('report-actions').style.display='none'; return; }
+document.getElementById('report-kpi-rows').innerHTML = '<div class="loading-overlay"><div class="inline-spinner"></div></div>';
+var isVA = State.user.role === 'Virtual Assistant';
+var checkProm = isVA ? gsr('hasWeeklySubmission', connId, dateVal, State.user.id) : Promise.resolve({ submitted: false, canEdit: true });
+checkProm.then(function(sub) {
+  gsr('getKPIConfig', connId).then(function(cfg) {
+    var kpis = (cfg.data||[]).filter(function(k){ return k.IsApplicable===true || k.IsApplicable==='TRUE'; });
+    if (!kpis.length) { document.getElementById('report-kpi-rows').innerHTML = '<div class="empty-state"><h3>No applicable KPIs configured</h3></div>'; document.getElementById('report-actions').style.display='none'; return; }
+    window._reportKPIs = kpis;
+    if (isVA && sub && sub.submitted) {
+      document.getElementById('report-actions').style.display='none';
+      document.getElementById('report-kpi-rows').innerHTML =
+        '<div class="card" style="padding:20px;text-align:center;border:2px solid var(--warning);">'
+        + '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" style="margin-bottom:8px"><circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/></svg>'
+        + '<div style="font-weight:700;font-size:15px;margin-bottom:4px;">Already Submitted</div>'
+        + '<div style="font-size:13px;color:var(--text-muted);">You have already submitted a report for this connection this week.<br>Only a Team Leader or above can edit submitted reports.</div>'
+        + '</div>';
+      return;
+    }
+    document.getElementById('report-actions').style.display='flex';
+    document.getElementById('report-kpi-rows').innerHTML = `<div class="table-wrap"><table>
+<thead><tr><th>KPI</th><th>Unit</th><th>Account Label</th><th>Target</th><th>Actual</th><th>No Data</th></tr></thead>
+<tbody>
+${kpis.map(function(k,i){ return '<tr>'
+  +'<td><strong>'+k.KPIName+'</strong></td>'
+  +'<td><span class="pill">'+(k.Unit||'\u2014')+'</span></td>'
+  +'<td><input class="form-control kpi-target-input" style="width:100px" id="acct_'+i+'" placeholder="Optional"></td>'
+  +'<td><input class="form-control kpi-target-input" id="tgt_'+i+'" type="number" step="0.01" value="'+(k.WeeklyTarget||'')+'"></td>'
+  +'<td><input class="form-control kpi-actual-input" id="act_'+i+'" type="number" step="0.01" placeholder="\u2014"></td>'
+  +'<td><input type="checkbox" id="nodata_'+i+'" onchange="toggleNoData('+i+')"></td>'
+  +'</tr>'; }).join('')}
+</tbody></table></div>`;
+  });
+});
+}
+
+function toggleNoData(i) {
+var checked = document.getElementById('nodata_'+i).checked;
+document.getElementById('act_'+i).disabled = checked;
+if (checked) document.getElementById('act_'+i).value = '';
+}
+
+function submitReport() {
+var connId = document.getElementById('report-conn').value;
+var date = document.getElementById('report-date').value;
+if (!connId || !date) { toast('Please select a connection and date.', 'error'); return; }
+var kpis = window._reportKPIs || [];
+var entries = kpis.map((k,i) => ({
+kpiId: k.KPIID,
+accountLabel: document.getElementById('acct_'+i)?.value || '',
+target: document.getElementById('tgt_'+i)?.value || k.WeeklyTarget,
+actual: document.getElementById('act_'+i)?.value || '',
+noData: document.getElementById('nodata_'+i)?.checked || false
+}));
+var fn = window._reportType === 'monthly' ? 'submitMonthlyReport' : 'submitWeeklyReport';
+var data = window._reportType === 'monthly'
+? { connectionId: connId, monthStartDate: date, entries }
+: { connectionId: connId, weekStartDate: date, entries };
+gsr(fn, data, State.user.id).then(res => {
+toast(res.success ? res.message : res.message, res.success ? 'success' : 'error');
+if (res.success) navigateTo('va-dashboard');
+});
+}
+// Ensure render functions are on window for cross-module lookup
+window.renderConnections   = renderConnections;
+window.renderVAConnections = renderVAConnections;
+window.renderSubmitReport  = renderSubmitReport;
+
+</script>

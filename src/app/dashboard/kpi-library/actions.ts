@@ -12,34 +12,52 @@ async function requireAdmin() {
   }
 }
 
+function numberOrDefault(formData: FormData, key: string, fallback: number) {
+  const raw = formData.get(key);
+  if (raw === null || raw === "") return fallback;
+  return Number(raw);
+}
+
 function parseKpiForm(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
+  const cluster = String(formData.get("cluster") ?? "").trim();
   const departmentId = String(formData.get("departmentId") ?? "");
   const direction = String(formData.get("direction") ?? "") as KpiDirection;
   const period = String(formData.get("period") ?? "") as KpiPeriod;
   const targetValue = Number(formData.get("targetValue"));
-  const deviationThresholdPct = Number(
-    formData.get("deviationThresholdPct") ?? 99,
+  const deviationThresholdPct = numberOrDefault(
+    formData,
+    "deviationThresholdPct",
+    10,
+  );
+  const criticalThresholdPct = numberOrDefault(
+    formData,
+    "criticalThresholdPct",
+    25,
   );
 
   if (
     !name ||
+    !cluster ||
     !departmentId ||
     !Object.values(KpiDirection).includes(direction) ||
     !Object.values(KpiPeriod).includes(period) ||
     Number.isNaN(targetValue) ||
-    Number.isNaN(deviationThresholdPct)
+    Number.isNaN(deviationThresholdPct) ||
+    Number.isNaN(criticalThresholdPct)
   ) {
     throw new Error("Missing or invalid KPI fields.");
   }
 
   return {
     name,
+    cluster,
     departmentId,
     direction,
     period,
     targetValue,
     deviationThresholdPct,
+    criticalThresholdPct,
   };
 }
 

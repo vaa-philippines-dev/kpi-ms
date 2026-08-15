@@ -1,0 +1,1050 @@
+<script>
+
+// ── Long-Running Connections inline table ──────────────────────────────────
+function _renderLRTable(conns, uMap) {
+  if (!conns || !conns.length) {
+    return '<div style="padding:16px;font-size:12px;color:var(--text-muted);">No long-running connections found.</div>';
+  }
+  var rows = conns.map(function(conn) {
+    var d = conn.daysActive || 0;
+    var yrs = Math.floor(d/365), mos = Math.floor((d%365)/30), dys = d%30;
+    var dur = yrs > 0 ? yrs+'y '+mos+'m' : mos > 0 ? mos+'m '+dys+'d' : d+'d';
+    var va = uMap ? (uMap[conn.VAUserID]||conn.VAName||'—') : (conn.VAName||'—');
+    return '<tr>'      +'<td><strong style="font-size:12px;">'+String(conn.ClientName||'—')+'</strong>'      +(conn.SecondaryName?'<div style="font-size:10px;color:var(--text-muted);">'+conn.SecondaryName+'</div>':'')      +'</td>'      +'<td style="font-size:12px;">'+va+'</td>'      +'<td><span class="badge badge-warning" style="font-size:10px;">'+dur+'</span></td>'      +'</tr>';
+  }).join('');
+  return '<div class="table-wrap">'    +'<table class="data-table"><thead><tr><th>Client</th><th>VA</th><th>Duration</th></tr></thead>'    +'<tbody>'+rows+'</tbody></table></div>';
+}
+
+
+function renderUnassignedVAs(containerId) {
+  var wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  wrap.innerHTML = '<div style="padding:16px;text-align:center;"><div class="spinner" style="margin:0 auto;width:18px;height:18px;border-width:2px;"></div></div>';
+  var deptId = window._dashDept || window._mgrDept || '';
+  gsr('getUnassignedVAs', State.user.id, State.user.role, deptId).then(function(res){
+    var vas   = (res&&res.data)  || [];
+    var teams = (res&&res.teams) || [];
+    if (!vas.length) {
+      wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">\u2713 All VAs are assigned to a team.</div>';
+      return;
+    }
+    var teamOpts = '<option value="">-- Select Team --</option>'
+      + teams.map(function(t){ return '<option value="'+t.TeamID+'">'+t.TeamName+'</option>'; }).join('');
+    vas = vas.slice(0,10);
+    var rows = vas.map(function(va){
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">'
+        +'<div style="flex:1;"><strong style="font-size:12px;">'+va.Name+'</strong>'
+        +'<div style="font-size:11px;color:var(--text-muted);">'+va.Department+'</div></div>'
+        +'<select class="form-control" id="assign-team-'+va.UserID+'" style="width:160px;height:26px;font-size:11px;padding:2px 6px;">'+teamOpts+'</select>'
+        +'<button class="btn btn-primary btn-sm" style="font-size:11px;padding:3px 8px;white-space:nowrap;" onclick="_assignVAToTeam(\''+va.UserID+'\')">Assign</button>'
+        +'</div>';
+    }).join('');
+    wrap.innerHTML = rows;
+  });
+}
+
+function _assignVAToTeam(userId) {
+  var sel = document.getElementById('assign-team-'+userId);
+  if (!sel||!sel.value) { toast('Please select a team first.','warning'); return; }
+  var teamId = sel.value;
+  gsr('addUserToTeam', userId, teamId, State.user.id).then(function(res){
+    toast(res&&res.success ? 'VA assigned to team.' : (res&&res.message||'Failed.')
+      , res&&res.success ? 'success' : 'error');
+    if (res&&res.success) renderUnassignedVAs(sel.closest('[id]') ? sel.closest('[id^="unassigned"]').id : 'unassigned-vas-wrap');
+  });
+}
+
+// Alias used in refresh callbacks — defined as function so it's hoisted
+function _dashFmtWeekLabel(monday) { return _dashFmtWeek(monday); }
+function _dashFmtWeek(monday) {
+  if (!monday) return '';
+  var d = new Date(monday + 'T00:00:00');
+  var end = new Date(monday + 'T00:00:00');
+  end.setDate(end.getDate() + 6);
+  var fmt = function(dt){ return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+  return fmt(d) + ' \u2013 ' + fmt(end);
+}
+
+function dashNavWeek(dir) {
+  var cur = window._dashWeek || getMondayStr(new Date());
+  var d   = new Date(cur + 'T00:00:00');
+  d.setDate(d.getDate() + dir * 7);
+  var yr=d.getFullYear(), mo=String(d.getMonth()+1).padStart(2,'0'), dy=String(d.getDate()).padStart(2,'0');
+  var newWk   = yr+'-'+mo+'-'+dy;
+  var todayMon = getMondayStr(new Date());
+  if (newWk > todayMon) newWk = todayMon;
+  window._dashWeek = newWk;
+  var lbl = document.getElementById('dash-week-label');
+  if (lbl) lbl.textContent = _dashFmtWeek(newWk);
+  var nb = document.getElementById('dash-week-next');
+  if (nb) nb.disabled = newWk >= todayMon;
+  // Re-render trend chart for selected week
+  _dashRefreshTrend(newWk);
+}
+
+function dashGoToday() {
+  window._dashWeek = getMondayStr(new Date());
+  var lbl = document.getElementById('dash-week-label');
+  if (lbl) lbl.textContent = _dashFmtWeek(window._dashWeek);
+  var nb = document.getElementById('dash-week-next');
+  if (nb) nb.disabled = true;
+  _dashRefreshTrend(window._dashWeek);
+}
+
+function _dashRefreshTrend(week) {
+  var wrap = document.getElementById('trend-chart-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div style="padding:32px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>';
+  var dept = window._adminDeptFilter || '';
+  gsr('getDashboardData', State.user.id, State.user.role, dept, week, window._dashPeriod||'weekly')
+  .then(function(combined) {
+    var trend = combined.trend   || [];
+    var s     = combined.summary || {};
+    var p     = {};
+    var _tcw  = document.getElementById('trend-chart-wrap');
+    var sub   = _tcw && _tcw.closest && _tcw.closest('.card') ? _tcw.closest('.card').querySelector('.card-subtitle') : null;
+    if (sub) sub.textContent = _dashFmtWeekLabel ? _dashFmtWeekLabel(week) : week;
+    if (typeof renderTrendChart === 'function') wrap.innerHTML = renderTrendChart(trend);
+    // Update stat cards
+    var cards = document.getElementById('dash-stat-grid');
+    if (cards) {
+      cards.innerHTML =
+        statCard('Active Connections', s.total||0, 'total', statIcon('connections'))
+      + statCard('On Target', s.onTarget||0, 'on-target', statIcon('target'))
+      + statCard('At Risk', s.atRisk||0, 'at-risk', statIcon('warning'))
+      + statCard('Critical', s.critical||0, 'critical', statIcon('critical'));
+    }
+    // Rebuild status breakdown DataTable
+    var all2 = [].concat(p.critical||[], p.atRisk||[], p.onTarget||[], p.noData||[]);
+    var uMap2 = window._adminUMap || {};
+    var tableData = all2.map(function(conn){
+      var status = (p.critical||[]).indexOf(conn)>=0?'Critical':(p.atRisk||[]).indexOf(conn)>=0?'At Risk':(p.onTarget||[]).indexOf(conn)>=0?'On Target':'No Data';
+      return { ClientName:conn.ClientName||'\u2014', SecondaryName:conn.SecondaryName||'', VAName:uMap2[conn.VAUserID]||'\u2014', Status:status };
+    });
+    var dtW = document.getElementById('admin-status-dt');
+    if (dtW) {
+      renderDataTable({ containerId:'admin-status-dt', defaultLimit:10, limitOptions:[10,25,50,100],
+        emptyMessage:'No connections.', data:tableData,
+        columns:[
+          { key:'ClientName', label:'Client', sortable:true, filterable:true,
+            render:function(v,row){ return '<strong>'+v+'</strong>'+(row.SecondaryName?'<div style="font-size:11px;color:var(--text-muted);">'+row.SecondaryName+'</div>':''); }},
+          { key:'VAName', label:'VA', sortable:true, filterable:true },
+          { key:'Status', label:'Status', sortable:true, filterable:'select',
+            render:function(v){ var m={'Critical':'badge-danger','At Risk':'badge-warning','On Target':'badge-success','No Data':'badge-muted'}; return '<span class="badge '+(m[v]||'badge-muted')+'">'+v+'</span>'; }}
+        ]
+      });
+    }
+  });
+}
+
+function renderAdminDashboard(deptFilter) {
+  VAA_LOG && VAA_LOG.group("DASH", "renderAdminDashboard(dept=" + (deptFilter||"all") + ")");
+  // Sync week from global period bar
+  var _gp = window._globalPeriod || {};
+  if (_gp.periodKey) window._dashWeek = _gp.periodKey;
+  window._gpListeners = window._gpListeners || {};
+  window._gpListeners['admin-dashboard'] = function() { renderAdminDashboard(window._adminDeptFilter); };
+  var dept = deptFilter || window._adminDeptFilter || '';
+  window._adminDeptFilter = dept;
+  set('page-content','<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+  var _dashWk = window._dashWeek || getMondayStr(new Date());
+  gsr('getDashboardData', State.user.id, State.user.role, dept, _dashWk, window._dashPeriod||'weekly')
+  .then(function(combined) {
+    var depts = combined.depts   || [];
+    var s     = combined.summary || {};
+    var lr    = combined.longRun || [];
+    var trend = combined.trend   || [];
+    var uMap  = {};
+    (combined.vaUsers||[]).forEach(function(u){ uMap[u.UserID]=u.Name; });
+    window._adminLRData   = lr;
+    window._adminUMap     = uMap;
+    window._adminPerfSnap = combined.perf || {};  // has .critical[] .atRisk[] .onTarget[] .noData[]
+    window._perfUserMap = uMap;
+
+    var deptOpts = '<option value="">All Departments</option>'
+      + depts.map(function(d){
+          return '<option value="'+d.DeptID+'"'+(dept===d.DeptID?' selected':'')+'>'+d.DeptName+'</option>';
+        }).join('');
+
+    set('page-content',
+      // ── Single top control bar: dept + week nav ──
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;">'
+      + '<label style="font-size:12px;color:var(--text-secondary);">Dept:</label>'
+      + '<select class="form-control" style="width:190px;" id="dash-dept-sel" onchange="renderAdminDashboard(this.value)">'
+      + deptOpts + '</select>'
+      + '<div style="display:flex;align-items:center;gap:6px;margin-left:auto;">'
+      + '<button class="btn btn-secondary" style="padding:4px 10px;" onclick="dashNavWeek(-1)">'
+      + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>'
+      + '<div style="min-width:210px;text-align:center;font-size:13px;font-weight:600;padding:4px 14px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);">'
+      + '<span id="dash-week-label">' + _dashFmtWeekLabel(window._dashWeek||getMondayStr(new Date())) + '</span>'
+      + '</div>'
+      + '<button class="btn btn-secondary" id="dash-week-next" style="padding:4px 10px;" onclick="dashNavWeek(1)"'
+      + (window._dashWeek>=getMondayStr(new Date())?' disabled':'') + '>'
+      + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>'
+      + '<button class="btn btn-secondary" style="font-size:11px;padding:4px 8px;" onclick="dashGoToday()">Today</button>'
+      + '</div></div>'
+      // ── Stat cards ──
+      + '<div class="stat-grid" id="dash-stat-grid">'
+      + statCard('Active Connections', s.total||0, 'total', statIcon('connections'))
+      + statCard('On Target',  s.onTarget||0,  'on-target', statIcon('target'))
+      + statCard('At Risk',    s.atRisk||0,    'at-risk',   statIcon('warning'))
+      + statCard('Critical',   s.critical||0,  'critical',  statIcon('critical'))
+      + '</div>'
+      // ── Grid: Trend chart (left) | Long Running (right) ──
+      + '<div class="grid-2" style="margin-bottom:24px;">'
+      +   '<div class="card" style="overflow:visible;">'
+      +   '<div class="card-header"><div class="card-title">Performance Overview</div>'
+      +   '<div class="card-subtitle">' + _dashFmtWeekLabel(window._dashWeek||getMondayStr(new Date())) + '</div></div>'
+      +   '<div id="trend-chart-wrap">' + renderTrendChart(trend) + '</div>'
+      +   '</div>'
+      +   '<div class="card"><div class="card-header">'
+      +   '<div><div class="card-title">Long-Running Connections</div>'
+      +   '<div class="card-subtitle">Active 180+ days</div></div>'
+      +   '<div style="display:flex;align-items:center;gap:8px;">'
+      +   '<span class="badge badge-warning">'+lr.length+' accounts</span>'
+      +   (lr.length > 5 ? '<button class="btn btn-secondary btn-sm" onclick="openLongRunningModal()">View All</button>' : '')
+      +   '</div></div>'
+      +   _renderLRTable(lr.slice(0,5), uMap)
+      +   '</div>'
+      + '</div>'
+      // ── Status breakdown DataTable ──
+      + '<div class="card" style="margin-bottom:16px;"><div class="card-header" style="padding-bottom:0;">'
+      + '<div><div class="card-title">Status Breakdown</div></div></div>'
+      + '<div id="admin-status-dt"></div></div>'
+      // ── Unassigned VAs ──
+      + '<div class="card"><div class="card-header"><div class="card-title">Unassigned Virtual Assistants</div>'
+      + '<div class="card-subtitle">Active VAs not yet assigned to any team</div></div>'
+      + '<div id="unassigned-vas-wrap" style="padding:8px 16px 12px;"><div style="text-align:center;padding:12px;"><div class="spinner" style="margin:0 auto;width:16px;height:16px;border-width:2px;"></div></div></div>'
+      + '</div>'
+    );
+    if (!window._dashWeek) window._dashWeek = getMondayStr(new Date());
+    window._adminPerfData = p;
+    window._adminLRData   = lr;
+    window._adminUMap     = uMap;
+    // Build DataTable rows from perf data
+    setTimeout(function(){ renderUnassignedVAs('unassigned-vas-wrap'); }, 200);
+    setTimeout(function(){
+      var _sp = window._adminPerfSnap || {};
+      var all = [].concat(_sp.critical||[], _sp.atRisk||[], _sp.onTarget||[], _sp.noData||[]);
+      var tableData = all.map(function(conn){
+        var status = (_sp.critical||[]).indexOf(conn)>=0?'Critical':(_sp.atRisk||[]).indexOf(conn)>=0?'At Risk':(_sp.onTarget||[]).indexOf(conn)>=0?'On Target':'No Data';
+        return {
+          ClientName:    conn.ClientName||'\u2014',
+          SecondaryName: conn.SecondaryName||'',
+          VAName:        uMap[conn.VAUserID]||'\u2014',
+          Status:        status,
+          Flag:          (conn.IsFlagged===true||conn.IsFlagged==='TRUE')?'⚑':'',
+          ConnectionID:  conn.ConnectionID||''
+        };
+      });
+      window._adminStatusDT = renderDataTable({
+        containerId: 'admin-status-dt',
+        defaultLimit: 10,
+        limitOptions: [10,25,50,100],
+        emptyMessage: 'No connections match your filters.',
+        data: tableData,
+        columns: [
+          { key:'ClientName',    label:'Client',  sortable:true, filterable:true,
+            render: function(v,row){ return '<strong>'+v+'</strong>'+(row.SecondaryName?'<div style="font-size:11px;color:var(--text-muted);">'+row.SecondaryName+'</div>':''); } },
+          { key:'VAName',   label:'VA',       sortable:true, filterable:true },
+          { key:'Status',   label:'Status',   sortable:true, filterable:'select',
+            render: function(v){ var m={'Critical':'badge-danger','At Risk':'badge-warning','On Target':'badge-success','No Data':'badge-muted'}; return '<span class="badge '+(m[v]||'badge-muted')+'">'+v+'</span>'; } },
+          { key:'Flag',     label:'Flag',     sortable:false, filterable:false }
+        ]
+      });
+    }, 50);
+  });
+}
+
+function openLongRunningModal() {
+  var lr   = window._adminLRData || [];
+  var uMap = window._adminUMap || {};
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box modal-two-thirds';
+  openModal('Long-Running Connections (180+ days)',
+    '<div id="lr-modal-dt"></div>'
+  );
+  setTimeout(function() {
+    var dtData = lr.map(function(conn) {
+      return {
+        ClientName:  conn.ClientName || '\u2014',
+        SecondaryName: conn.SecondaryName || '',
+        VAName:      uMap[conn.VAUserID] || conn.VAName || '\u2014',
+        DaysActive:  conn.daysActive || 0,
+        Status:      conn.Status || '\u2014',
+        StartDate:   conn.StartDate ? String(conn.StartDate).slice(0,10) : '\u2014'
+      };
+    });
+    renderDataTable({
+      containerId:  'lr-modal-dt',
+      defaultLimit: 10,
+      limitOptions: [10, 25, 50, 100],
+      emptyMessage: 'No long-running connections found.',
+      data: dtData,
+      columns: [
+        { key:'ClientName',  label:'Client',    sortable:true, filterable:true,
+          render: function(v, row) {
+            return '<strong>'+v+'</strong>'+(row.SecondaryName?'<div style="font-size:11px;color:var(--text-muted);">'+row.SecondaryName+'</div>':'');
+          }
+        },
+        { key:'VAName',      label:'VA',        sortable:true, filterable:true },
+        { key:'DaysActive',  label:'Duration',  sortable:true, filterable:false,
+          render: function(v){
+            var d=v||0, yrs=Math.floor(d/365), mos=Math.floor((d%365)/30);
+            var dur = (yrs>0&&mos>0) ? yrs+' YR '+mos+' MO'+(mos!==1?'s':'') : yrs>0 ? yrs+' YR'+(yrs!==1?'s':'') : mos+' MO'+(mos!==1?'s':'');
+            return '<span class="badge badge-warning">'+dur+'</span>';
+          }
+        },
+        { key:'StartDate',   label:'Start Date', sortable:true, filterable:false }
+      ]
+    });
+  }, 50);
+}
+function _filterLRTable(q) {
+  // Legacy \u2014 handled by DataTable
+}
+
+function _filterStatusTable() {
+  var q = (document.getElementById('status-search')||{value:''}).value.toLowerCase();
+  var rows = document.querySelectorAll('#status-breakdown-tbody tr');
+  var lim = window._statusLimit || 10;
+  var shown = 0;
+  rows.forEach(function(r){
+    var match = !q || r.textContent.toLowerCase().includes(q);
+    r.style.display = (match && shown < lim) ? '' : 'none';
+    if (match && shown < lim) shown++;
+  });
+}
+function _setStatusLimit(n, btn) {
+  window._statusLimit = n;
+  document.querySelectorAll('.status-page-btn').forEach(function(b){ b.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
+  _filterStatusTable();
+}
+
+
+// ── Manager Notifications Panel ──────────────────────────────
+function _renderMgrNotifPanel() {
+  var el = document.getElementById('mgr-notif-panel');
+  if (!el) return;
+  var notifs = window._mgrNotifs || [];
+
+  var html = '<div class="card" style="position:sticky;top:80px;">'
+    + '<div class="card-header" style="padding-bottom:8px;">'
+    + '<div class="card-title" style="display:flex;align-items:center;gap:8px;">'
+    + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>'
+    + 'Notifications'
+    + (notifs.length ? '<span class="badge badge-danger" style="font-size:10px;padding:2px 6px;">'+notifs.length+'</span>' : '')
+    + '</div></div>';
+
+  if (!notifs.length) {
+    html += '<div style="padding:16px;font-size:12px;color:var(--text-muted);text-align:center;">'
+      + '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" style="display:block;margin:0 auto 8px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+      + 'All clear!</div>';
+  } else {
+    notifs.forEach(function(n) {
+      var icon = n.type === 'unassigned_vas'
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--at-risk)" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--critical)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+      html += '<div style="border-left:3px solid '+(n.type==='unassigned_vas'?'var(--at-risk)':'var(--critical)')+';padding:10px 12px;margin:0 0 8px;">'
+        + '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;">'
+        + icon
+        + '<span style="font-size:12px;font-weight:700;">'+n.title+'</span></div>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">'+n.message+'</div>';
+      if (n.type === 'unassigned_vas') {
+        html += '<button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="openAssignVAModal()">Assign to Team</button>';
+      }
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function openAssignVAModal() {
+  var notifs = window._mgrNotifs || [];
+  var unassigned = (notifs.find(function(n){ return n.type==='unassigned_vas'; })||{}).vas || [];
+  if (!unassigned.length) { toast('No unassigned VAs found.','info'); return; }
+
+  // Load same-dept teams
+  gsr('getTeams').then(function(tr) {
+    var deptId = State.user.department || '';
+    var teams = ((tr||{}).data||[]).filter(function(t){
+      return (t.IsActive===true||t.IsActive==='TRUE')
+        && (!deptId || String(t.DeptID||'')===String(deptId));
+    });
+    var teamOpts = '<option value="">-- Select Team --</option>'
+      + teams.map(function(t){
+          var num = t.TeamNumber ? 'Team '+String(t.TeamNumber).padStart(2,'0') : t.TeamName;
+          return '<option value="'+t.TeamID+'">'+num+' — '+t.TeamName+'</option>';
+        }).join('');
+
+    var rows = unassigned.map(function(va) {
+      return '<tr>'
+        +'<td style="font-size:12px;"><strong>'+va.name+'</strong>'
+        +'<div style="font-size:10px;color:var(--text-muted);">'+va.email+'</div></td>'
+        +'<td style="min-width:220px;"><select class="form-control va-team-sel" data-uid="'+va.userId+'" style="height:32px;font-size:12px;padding:4px 8px;width:100%;min-width:210px;">'+teamOpts+'</select></td>'
+        +'</tr>';
+    }).join('');
+
+    (function(){var mb=document.getElementById('modal-box'); if(mb) mb.className='modal-box modal-two-thirds';})();
+    openModal('Assign VAs to Team',
+      '<div style="margin-bottom:12px;font-size:13px;color:var(--text-secondary);">Select a team for each unassigned Virtual Assistant.</div>'
+      +'<div class="table-wrap" style="max-height:400px;overflow-y:auto;overflow-x:auto;">'
+      +'<table class="data-table" style="min-width:500px;"><thead><tr><th style="min-width:160px;">Virtual Assistant</th><th style="min-width:220px;">Assign to Team</th></tr></thead>'
+      +'<tbody>'+rows+'</tbody></table></div>'
+      +'<div class="form-actions" style="margin-top:16px;">'
+      +'<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn btn-primary" onclick="_saveVATeamAssignments()">Save Assignments</button>'
+      +'</div>'
+    );
+  });
+}
+
+function _saveVATeamAssignments() {
+  var sels = document.querySelectorAll('.va-team-sel');
+  var assignments = [];
+  sels.forEach(function(sel) {
+    if (sel.value) assignments.push({ userId: sel.dataset.uid, teamId: sel.value });
+  });
+  if (!assignments.length) { toast('Select at least one team assignment.','warning'); return; }
+  var done = 0;
+  assignments.forEach(function(a) {
+    gsr('addUserToTeam', a.userId, a.teamId, State.user.id).then(function(res) {
+      done++;
+      if (done === assignments.length) {
+        toast(assignments.length+' VA'+(assignments.length>1?'s':'')+' assigned successfully.','success');
+        closeModal();
+        // Refresh notifications
+        var deptId = State.user.department || '';
+        gsr('getManagerNotifications', State.user.id, deptId).then(function(nr) {
+          window._mgrNotifs = (nr&&nr.data)||[];
+          _renderMgrNotifPanel();
+        });
+      }
+    });
+  });
+}
+
+function renderManagerDashboard() {
+  VAA_LOG && VAA_LOG.info("DASH", "renderManagerDashboard()");
+  // Ensure week is initialised
+  if (!window._mgrWeek) window._mgrWeek = getMondayStr(new Date());
+  // Week label helpers
+  var _mfmt = function(iso){ var d=new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+  var _mgrWkLabel = function(mon){ var d=new Date(mon+'T00:00:00'); d.setDate(d.getDate()+6); var yr=d.getFullYear(),mo=String(d.getMonth()+1).padStart(2,'0'),dy=String(d.getDate()).padStart(2,'0'); return _mfmt(mon)+' \u2013 '+_mfmt(yr+'-'+mo+'-'+dy); };
+  var mgrIsAtCur = (window._mgrWeek||'') >= getMondayStr(new Date());
+  // nav helpers
+  window._mgrNavWeek = window._mgrNavWeek || function(dir) {
+    var cur=window._mgrWeek||getMondayStr(new Date()); var d=new Date(cur+'T00:00:00'); d.setDate(d.getDate()+dir*7);
+    var yr=d.getFullYear(),mo=String(d.getMonth()+1).padStart(2,'0'),dy=String(d.getDate()).padStart(2,'0');
+    var nw=yr+'-'+mo+'-'+dy; var tm=getMondayStr(new Date()); if(nw>tm) nw=tm;
+    window._mgrWeek=nw; renderManagerDashboard();
+  };
+Promise.all([
+  gsr('getDeptPerformance', State.user.id),
+  gsr('getDashboardSummary', State.user.id, State.user.role, '', window._mgrWeek||''),  // deptId resolved below
+  gsr('getVAConnectionUsers'),
+  gsr('getManagerDeptId', State.user.id)
+]).then(function(r2){
+var p       = (r2[0]||{}).data || {};
+var summary = r2[1] || {};
+var usersR  = r2[2] || {};
+var deptId  = (r2[3]||{}).data || State.user.department || '';
+var uMap = {}; (usersR.data||[]).forEach(function(u){ uMap[u.UserID]=u.Name; });
+window._perfUserMap = uMap;
+// Re-fetch summary with correct deptId
+Promise.all([
+  gsr('getDashboardSummary', State.user.id, State.user.role, deptId, window._mgrWeek||''),
+  gsr('getSystemPerformanceTrend', State.user.id, State.user.role, deptId, '', '', window._mgrPeriod||window._dashPeriod||'weekly'),
+  gsr('getLongRunningConnections', 180, deptId, '', State.user.id, State.user.role)
+]).then(function(r3){
+var summary2 = r3[0] || summary;
+var s = summary2.data || {};
+var trend = (r3[1]||{}).data || [];
+var lr    = (r3[2]||{}).data || [];
+window._mgrLastPerf = s; // cache (counts only)
+// Fetch perf arrays for status breakdown table
+gsr('getSystemPerformance', State.user.id, State.user.role, deptId, window._mgrWeek||'', '', window._mgrPeriod||'weekly').then(function(pr){
+  window._mgrPerfSnap = (pr&&pr.data) || {};
+});
+// Load notifications data alongside dashboard
+gsr('getManagerNotifications', State.user.id, deptId).then(function(notifRes){
+  var notifs = (notifRes&&notifRes.data)||[];
+  window._mgrNotifs = notifs;
+  _renderMgrNotifPanel();
+});
+set('page-content',
+  '<div style="display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start;">'
+  +'<div id="mgr-main-col">'
+  // ── Single top control bar: week nav ──
+  +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">'
+  + '<button class="btn btn-secondary" style="padding:4px 10px;" onclick="window._mgrNavWeek(-1)">'
+  + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>'
+  + '<div style="min-width:210px;text-align:center;font-size:13px;font-weight:600;padding:4px 14px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);">'
+  + '<span id="mgr-week-label">' + _mgrWkLabel(window._mgrWeek||getMondayStr(new Date())) + '</span>'
+  + '</div>'
+  + '<button class="btn btn-secondary" id="mgr-week-next" style="padding:4px 10px;" onclick="window._mgrNavWeek(1)"' + (mgrIsAtCur?' disabled':'') + '>'
+  + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>'
+  + '<button class="btn btn-secondary" style="font-size:11px;padding:4px 8px;" onclick="window._mgrWeek=getMondayStr(new Date());renderManagerDashboard();">Today</button>'
+  + '</div>'
+  // ── Stat cards ──
+  + '<div class="stat-grid" id="mgr-stat-grid">'
+  + statCard('Active Connections', s.total||0, 'total', statIcon('connections'))
+  + statCard('On Target', s.onTarget||0, 'on-target', statIcon('target'))
+  + statCard('At Risk', s.atRisk||0, 'at-risk', statIcon('warning'))
+  + statCard('Critical', s.critical||0, 'critical', statIcon('critical'))
+  + '</div>'
+  // ── Grid: Trend (left) | Long Running (right) ──
+  + '<div class="grid-2" style="margin-bottom:16px;">'
+  +   '<div class="card" style="overflow:visible;">'
+  +   '<div class="card-header"><div class="card-title">Performance Overview</div>'
+  +   '<div class="card-subtitle">' + _mgrWkLabel(window._mgrWeek||getMondayStr(new Date())) + '</div></div>'
+  +   '<div id="mgr-trend-wrap">' + renderTrendChart(trend) + '</div></div>'
+  +   '<div class="card"><div class="card-header">'
+  +   '<div><div class="card-title">Long-Running Connections</div>'
+  +   '<div class="card-subtitle">Active 180+ days in your department</div></div>'
+  +   '<div style="display:flex;align-items:center;gap:8px;">'
+  +   '<span class="badge badge-warning">' + lr.length + ' accounts</span>'
+  +   (lr.length > 5 ? '<button class="btn btn-secondary btn-sm" onclick="openLongRunningModal()">View All</button>' : '')
+  +   '</div></div>'
+  +   _renderLRTable(lr.slice(0,5), uMap)
+  +   '</div>'
+  + '</div>'
+  // ── Status Breakdown ──
+  + '<div class="card"><div class="card-header" style="padding-bottom:0;">'
+  + '<div><div class="card-title">Status Breakdown</div></div></div>'
+  + '<div id="mgr-status-dt"></div></div>'
+  +'</div>'  // end mgr-main-col
+  +'<div id="mgr-notif-panel"><div style="padding:30px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div></div>'  +'</div>'  // end outer grid
+);
+window._adminLRData = lr;
+window._adminUMap  = uMap;
+// Capture perf data for use in timeout
+setTimeout(function(){
+  var allPerf = [];
+  // Manager dashboard: use cached perf arrays if available
+  var _mgrSnap = window._mgrPerfSnap || {};
+  allPerf = [].concat(_mgrSnap.critical||[], _mgrSnap.atRisk||[], _mgrSnap.onTarget||[], _mgrSnap.noData||[]);
+  var perfTableData = allPerf.map(function(conn){
+    var _st = (_mgrSnap.critical||[]).indexOf(conn)>=0?'Critical':(_mgrSnap.atRisk||[]).indexOf(conn)>=0?'At Risk':(_mgrSnap.onTarget||[]).indexOf(conn)>=0?'On Target':'No Data';
+    return { ClientName:conn.ClientName||'\u2014', SecondaryName:conn.SecondaryName||'', VAName:uMap[conn.VAUserID]||'\u2014', Status:_st };
+  });
+  var mgrDT = document.getElementById('mgr-status-dt');
+  if (mgrDT) {
+    renderDataTable({
+      containerId:'mgr-status-dt', defaultLimit:10, limitOptions:[10,25,50,100],
+      emptyMessage:'No connections found.', data:perfTableData,
+      columns:[
+        { key:'ClientName', label:'Client', sortable:true, filterable:true,
+          render:function(v,row){ return '<strong>'+v+'</strong>'+(row.SecondaryName?'<div style="font-size:11px;color:var(--text-muted);">'+row.SecondaryName+'</div>':''); } },
+        { key:'VAName', label:'VA', sortable:true, filterable:true },
+        { key:'Status', label:'Status', sortable:true, filterable:'select',
+          render:function(v){ var m={'Critical':'badge-danger','At Risk':'badge-warning','On Target':'badge-success','No Data':'badge-muted'}; return '<span class="badge '+(m[v]||'badge-muted')+'">'+v+'</span>'; } }
+      ]
+    });
+  }
+  // Submission count
+  gsr('getWeeklySubmissionStatus', State.user.id, State.user.role, '').then(function(sr){
+    var rows = (sr && sr.data) || [];
+    var totalConns = rows.reduce(function(acc, va){ return acc + va.connections.length; }, 0);
+    var submitted  = rows.reduce(function(acc, va){ return acc + va.submittedCount; }, 0);
+    var el = document.getElementById('mgr-sub-count');
+    if (el) el.textContent = submitted + ' / ' + totalConns;
+  });
+}, 100);
+});
+});
+}
+
+function renderTLDashboard() {
+  VAA_LOG && VAA_LOG.info("DASH", "renderTLDashboard()");
+var _gp = window._globalPeriod || {};
+if (!_gp.periodKey) _gp.periodKey = smartDefaultWeek();
+var _tlDashWeek = _gp.periodKey;
+window._dashPeriod = _gp.period || window._dashPeriod || 'weekly';
+Promise.all([
+  gsr('getTeamPerformance', State.user.id, _tlDashWeek),
+  gsr('getTLTeamId', State.user.id),
+  gsr('getVAConnectionUsers')
+]).then(function(tlR) {
+var p      = (tlR[0]||{}).data || {};
+// getTLTeamId returns a raw string (not {success,data}) — use it directly
+var teamId = (typeof tlR[1] === 'string') ? tlR[1] : ((tlR[1]&&tlR[1].data) || '');
+window._tlTeamId = teamId;
+var uMap   = {}; ((tlR[2]||{}).data||[]).forEach(function(u){ uMap[u.UserID]=u.Name; });
+window._perfUserMap = uMap;
+set('page-content',
+  '<div class="stat-grid">'
+  + statCard('Total Accounts', p.total||0, 'total', statIcon('connections'))
+  + statCard('Submissions', '<span id="dash-sub-count" style="font-size:inherit;">\u2014</span><div id="dash-sub-week" style="font-size:10px;font-weight:400;color:var(--text-muted);margin-top:2px;"></div>', 'on-target', statIcon('report'))
+  + statCard('At Risk', (p.atRisk||[]).length, 'at-risk', statIcon('warning'))
+  + statCard('Critical', (p.critical||[]).length, 'critical', statIcon('critical'))
+  + '</div>'
+  + '<div class="tabs" id="tl-dash-tabs">'
+  + '<button class="tab" onclick="switchTLTab(\'all\', this)">All ('+( p.total||0)+')</button>'
+  + '<button class="tab active" onclick="switchTLTab(\'critical\', this)">Critical ('+((p.critical||[]).length)+')</button>'
+  + '<button class="tab" onclick="switchTLTab(\'atRisk\', this)">At Risk ('+((p.atRisk||[]).length)+')</button>'
+  + '<button class="tab" onclick="switchTLTab(\'onTarget\', this)">On Target ('+((p.onTarget||[]).length)+')</button>'
+  + '</div>'
+  + '<div id="tl-connections-grid" style="margin-bottom:16px;"></div>'
+  + '<div class="grid-2">'
+  + '<div class="card" style="overflow:visible;">'
+  + '<div class="card-header"><div class="card-title">Performance Trend</div></div>'
+  + '<div id="tl-trend-wrap"><div style="padding:20px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div></div>'
+  + '</div>'
+  + '<div class="card">'
+  + '<div class="card-header">'
+  + '<div><div class="card-title">Submission Status</div><div class="card-subtitle">Track submissions for the selected week</div></div>'
+  + '<div id="sub-week-ctrl" style="display:flex;align-items:center;gap:8px;"></div>'
+  + '</div>'
+  + '<div id="submission-status-wrap"><div class="table-empty">Loading...</div></div>'
+  + '</div>'
+  + '</div>'
+);
+window._tlPerfData = p;
+window._dashWeek = _tlDashWeek;
+_renderTLCards(p.critical||[], 'tl-connections-grid');
+setTimeout(function(){
+  // Render trend chart
+  // Use the TL's teamId to scope trend to their team only
+  gsr('getSystemPerformanceTrend', State.user.id, State.user.role, '', teamId||window._tlTeamId||'', '', window._dashPeriod||'weekly', window._dashWeek).then(function(tr){
+    var tw = document.getElementById('tl-trend-wrap');
+    if (tw && typeof renderTrendChart === 'function') tw.innerHTML = renderTrendChart((tr&&tr.data)||[]);
+  });
+  if (typeof renderSubmissionStatus !== 'function') return;
+  gsr('getAvailableWeeks').then(function(wr){
+    var weeks = (wr && wr.data) || [];
+    var cur = window._dashWeek;
+    if (!weeks.length || weeks.indexOf(cur) < 0) weeks.unshift(cur);
+    var ctrl = document.getElementById('sub-week-ctrl');
+    if (ctrl) {
+      ctrl.innerHTML = '<label style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">Week:</label>'
+        + '<select class="form-control" style="width:160px;font-size:13px;" onchange="renderSubmissionStatus(this.value)">'
+        + weeks.map(function(w){ return '<option value="'+w+'"'+(w===cur?' selected':'')+'>'+w+'</option>'; }).join('')
+        + '</select>';
+    }
+    renderSubmissionStatus(cur);
+    // Update submission count stat card
+    var subWeekEl = document.getElementById('dash-sub-week');
+    if (subWeekEl) subWeekEl.textContent = 'week of ' + cur;
+    gsr('getWeeklySubmissionStatus', State.user.id, State.user.role, cur).then(function(sr){
+      var rows = (sr && sr.data) || [];
+      var totalConns = rows.reduce(function(acc, va){ return acc + va.connections.length; }, 0);
+      var submitted  = rows.reduce(function(acc, va){ return acc + va.submittedCount; }, 0);
+      VAA_LOG && VAA_LOG.info("DASH", "TL submission count week="+cur+" submitted="+submitted+" totalConns="+totalConns);
+      var el = document.getElementById('dash-sub-count');
+      if (el) el.textContent = submitted + ' / ' + totalConns;
+    });
+  });
+}, 150);
+});
+}
+
+function switchTLTab(group, btn) {
+document.querySelectorAll('#tl-dash-tabs .tab').forEach(t => t.classList.remove('active'));
+btn.classList.add('active');
+var p = window._tlPerfData || {};
+var map = { all:[...(p.critical||[]),...(p.atRisk||[]),...(p.onTarget||[]),...(p.noData||[])], critical:p.critical||[], atRisk:p.atRisk||[], onTarget:p.onTarget||[] };
+_renderTLCards(map[group] || [], 'tl-connections-grid');
+}
+
+function _renderTLCards(conns, containerId) {
+  VAA_LOG && VAA_LOG.debug("DASH", "_renderTLCards: " + (conns||[]).length + " items \u2192 #" + containerId);
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  if (!conns || !conns.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:32px;text-align:center;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="opacity:0.2;margin-bottom:12px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><h3>No connections</h3></div>';
+    return;
+  }
+  var week = window._dashWeek || getMondayStr(new Date());
+  el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">'
+    + conns.map(function(conn) {
+        var status    = conn.status || conn.Status || 'No Data';
+        var connId    = conn.ConnectionID || conn.connectionId || '';
+        var client    = conn.clientName || conn.ClientName || '\u2014';
+        var secondary = conn.SecondaryName || conn.secondaryName || '';
+        var vaName    = conn.vaName || conn.VAName || '';
+        var statusCls = status === 'Critical' ? 'badge-danger'
+          : status === 'At Risk'   ? 'badge-warning'
+          : status === 'On Target' ? 'badge-success'
+          : 'badge-muted';
+        return '<div class="card" style="padding:14px 16px;cursor:pointer;" '          + 'onclick="openDashCardDetail(\'' + connId.replace(/'/g,'') + '\',\'' + week + '\')" '          + 'onmouseenter="this.style.opacity=\'0.85\'" '          + 'onmouseleave="this.style.opacity=\'1\'">'
+          + '<div style="font-size:14px;font-weight:700;margin-bottom:2px;">' + client + '</div>'
+          + (secondary ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">' + secondary + '</div>' : '')
+          + (vaName    ? '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">' + vaName + '</div>' : '')
+          + '<div style="display:flex;align-items:center;justify-content:space-between;">'
+          + '<span class="badge ' + statusCls + '">' + status + '</span>'
+          + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>'
+          + '</div>'
+          + '</div>';
+      }).join('')
+    + '</div>';
+}
+
+function openDashCardDetail(connId, week) {
+  VAA_LOG && VAA_LOG.info("DASH", "openDashCardDetail connId=" + connId + " week=" + week);
+  if (!connId) return;
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box modal-xl';
+  openModal('Connection Detail', '<div style="padding:30px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+  Promise.all([
+    gsr('getConnWeeklySubmissions', connId, week),
+    gsr('getKPIConfigForConn', connId)
+  ]).then(function(results) {
+    var subRes = results[0] || {};
+    var cfgRes = results[1] || {};
+    var subs   = subRes.data || [];
+    var conn   = subRes.conn || {};
+    var cfg    = cfgRes.data || [];
+    var body   = document.getElementById('modal-body');
+    if (!body) return;
+    var client    = conn.ClientName || '\u2014';
+    var secondary = conn.SecondaryName || '';
+    var startDate = conn.StartDate ? String(conn.StartDate).slice(0,10) : '\u2014';
+    var status    = conn.Status || '\u2014';
+    var sBadgeCls = status === 'Active' ? 'badge-success' : status === 'Inactive' ? 'badge-muted' : 'badge-warning';
+
+    // Info bar
+    var infoBar = '<div style="display:flex;gap:20px;flex-wrap:wrap;padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid var(--border);">'
+      + '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Client</div>'
+      + '<div style="font-weight:700;font-size:15px;">' + client + '</div>'
+      + (secondary ? '<div style="font-size:12px;color:var(--text-muted);">' + secondary + '</div>' : '')
+      + '</div>'
+      + '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Start Date</div>'
+      + '<div style="font-size:13px;font-weight:600;">' + startDate + '</div></div>'
+      + '<div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Status</div>'
+      + '<span class="badge ' + sBadgeCls + '">' + status + '</span></div>'
+      + '<div style="margin-left:auto;"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;">Week</div>'
+      + '<div style="font-size:13px;font-weight:600;">' + (week||getMondayStr(new Date())) + '</div></div>'
+      + '</div>';
+
+    // KPI submissions table
+    var kpiSection = '';
+    if (!subs.length) {
+      // Show configured KPIs with "No submission" state
+      var applicableKPIs = cfg.filter(function(k){ return k.IsApplicable===true||k.IsApplicable==='TRUE'; });
+      if (!applicableKPIs.length) {
+        kpiSection = '<div style="padding:24px;text-align:center;color:var(--text-muted);border:1px dashed var(--border);border-radius:var(--radius);">No KPI report submitted for this week.</div>';
+      } else {
+        kpiSection = '<div style="font-size:12px;color:var(--warning);margin-bottom:8px;font-weight:600;">\u26A0 No submission received for this week</div>'
+          + '<div class="table-wrap"><table>'
+          + '<thead><tr><th>KPI</th><th>Unit</th><th>Weekly Target</th><th>Actual</th><th>Status</th></tr></thead>'
+          + '<tbody>'
+          + applicableKPIs.map(function(k){
+              return '<tr>'
+                + '<td><strong>' + (k.KPIName||'\u2014') + '</strong></td>'
+                + '<td><span class="pill">' + (k.Unit||'\u2014') + '</span></td>'
+                + '<td>' + (k.WeeklyTarget||'\u2014') + '</td>'
+                + '<td style="color:var(--text-muted);">\u2014</td>'
+                + '<td><span class="badge badge-muted">No Data</span></td>'
+                + '</tr>';
+            }).join('')
+          + '</tbody></table></div>';
+      }
+    } else {
+      kpiSection = '<div class="table-wrap"><table>'
+        + '<thead><tr><th>KPI</th><th>Unit</th><th>Target</th><th>Actual</th><th>Status</th><th>Submitted By</th></tr></thead>'
+        + '<tbody>'
+        + subs.map(function(r){
+            var sBadge = r.status === 'Critical' ? 'badge-danger'
+              : r.status === 'At Risk' ? 'badge-warning'
+              : r.status === 'On Target' ? 'badge-success'
+              : 'badge-muted';
+            return '<tr>'
+              + '<td><strong>' + (r.kpiName||'\u2014') + '</strong></td>'
+              + '<td><span class="pill">' + (r.unit||'\u2014') + '</span></td>'
+              + '<td>' + (r.noData ? '\u2014' : (r.target||'\u2014')) + '</td>'
+              + '<td><strong>' + (r.noData ? '<span style="color:var(--text-muted);">No Data</span>' : (r.actual||'\u2014')) + '</strong></td>'
+              + '<td><span class="badge ' + sBadge + '">' + (r.noData ? 'No Data' : (r.status||'\u2014')) + '</span></td>'
+              + '<td style="font-size:12px;color:var(--text-secondary);">' + (r.submittedBy||'\u2014') + '</td>'
+              + '</tr>';
+          }).join('')
+        + '</tbody></table></div>';
+    }
+    body.innerHTML = infoBar + kpiSection;
+  });
+}
+
+
+function renderCSDashboard() {
+  VAA_LOG && VAA_LOG.info("DASH", "renderCSDashboard()");
+gsr('getSystemPerformance', getMondayStr(new Date()), '', '', 'weekly', State.user.id, State.user.role).then(function(perf) {
+var p = perf.data || {};
+set('page-content', `
+<div class="stat-grid">
+${statCard('Total Connections', p.total||0, 'total', statIcon('connections'))}
+${statCard('On Target', (p.onTarget||[]).length, 'on-target', statIcon('target'))}
+${statCard('At Risk', (p.atRisk||[]).length, 'at-risk', statIcon('warning'))}
+${statCard('Critical', (p.critical||[]).length, 'critical', statIcon('critical'))}
+</div>
+<div class="card">
+<div class="card-header"><div class="card-title">System-Wide Performance</div></div>
+${renderPerfStatusTable(p)}
+</div>
+`);
+});
+}
+
+function renderVADashboard(weekOverride) {
+  VAA_LOG && VAA_LOG.info("DASH", "renderVADashboard(week=" + (weekOverride||"current") + ")");
+  // Week navigation state
+  var week = weekOverride || window._vaDashWeek || getMondayStr(new Date());
+  window._vaDashWeek = week;
+
+  set('page-content', '<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var connections  = (res && res.data) || [];
+      var activeConns  = connections.filter(function(c){ return String(c.Status||'').toLowerCase() === 'active'; });
+      var pendingConns = connections.filter(function(c){ return String(c.Status||'').toLowerCase() === 'pending'; });
+
+      // ── Stat cards ──
+      var stats = '<div class="stat-grid" style="margin-bottom:24px;">'
+        + statCard('Total Connections', connections.length, 'total', statIcon('connections'))
+        + statCard('Active', activeConns.length, 'success', statIcon('connections'))
+        + statCard('Pending', pendingConns.length, 'warning', statIcon('report'))
+        + '</div>';
+
+      // ── Week navigator ──
+      var prevWeek = _offsetWeek(week, -1);
+      var nextWeek = _offsetWeek(week, +1);
+      var isCurrentWeek = week === getMondayStr(new Date());
+      var weekNav = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
+        + '<span style="font-size:15px;font-weight:700;">Active Connections</span>'
+        + '<div style="margin-left:auto;display:flex;align-items:center;gap:8px;">'
+        + '<button class="btn btn-secondary btn-sm" onclick="renderVADashboard(\'' + prevWeek + '\')" style="padding:5px 10px;">'
+        + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>'
+        + '</button>'
+        + '<div style="font-size:13px;font-weight:600;min-width:110px;text-align:center;padding:5px 12px;background:var(--bg-secondary);border-radius:var(--radius-xs);">Week of ' + week + '</div>'
+        + '<button class="btn btn-secondary btn-sm" onclick="renderVADashboard(\'' + nextWeek + '\')" style="padding:5px 10px;"' + (isCurrentWeek ? ' disabled' : '') + '>'
+        + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>'
+        + '</button>'
+        + (isCurrentWeek ? '' : '<button class="btn btn-secondary btn-sm" onclick="renderVADashboard()" style="font-size:12px;">Today</button>')
+        + '</div></div>';
+
+      if (!activeConns.length) {
+        set('page-content', stats + weekNav + '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted);">No active connections assigned yet.</div>');
+        return;
+      }
+
+      // ── Check all submission states for this week in parallel ──
+      var checks = activeConns.map(function(conn) {
+        return gsr('hasWeeklySubmission', conn.ConnectionID, week, State.user.id)
+          .then(function(sub){ return { connId: conn.ConnectionID, submitted: !!(sub && sub.submitted) }; });
+      });
+
+      Promise.all(checks).then(function(statuses) {
+        var submittedMap = {};
+        statuses.forEach(function(s){ submittedMap[s.connId] = s.submitted; });
+        var submittedCount = statuses.filter(function(s){ return s.submitted; }).length;
+
+        // ── Build cards ──
+        var grid = '<div id="va-conn-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px;">';
+        activeConns.forEach(function(conn) {
+          var submitted   = submittedMap[conn.ConnectionID];
+          var connIdSafe  = (conn.ConnectionID||'').replace(/'/g,'');
+          var clientSafe  = (conn.ClientName||'').replace(/'/g,"\\'");
+          grid += '<div class="card" style="padding:0;overflow:hidden;">'
+            // ── Card header ──
+            + '<div style="padding:14px 16px;border-bottom:1px solid var(--border);">'
+            + '<div style="font-size:15px;font-weight:700;margin-bottom:3px;">' + (conn.ClientName||'\u2014') + '</div>'
+            + (conn.SecondaryName ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:3px;">' + conn.SecondaryName + '</div>' : '')
+            + '<div style="font-size:12px;color:var(--text-muted);">Since ' + (conn.StartDate ? String(conn.StartDate).slice(0,10) : '\u2014') + '</div>'
+            + '</div>'
+            // ── Card footer ──
+            + '<div style="padding:10px 16px;display:flex;align-items:center;gap:8px;">'
+            + '<span class="badge badge-success">Active</span>'
+            + '<div style="flex:1;"></div>';
+
+          if (submitted) {
+            grid += '<span class="badge badge-success" style="display:flex;align-items:center;gap:5px;font-size:12px;padding:5px 10px;">'
+              + '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
+              + 'Submitted</span>';
+          } else {
+            grid += '<button class="btn btn-primary btn-sm" onclick="vaOpenSubmitModal(\'' + connIdSafe + '\',\'' + clientSafe + '\',\'' + week + '\')">'
+              + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'
+              + ' Submit Report</button>';
+          }
+
+          grid += '</div></div>';
+        });
+        grid += '</div>';
+
+        // ── Submission summary pill ──
+        var summaryPill = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+          + '<span style="font-size:13px;color:var(--text-secondary);">'
+          + submittedCount + ' of ' + activeConns.length + ' submitted this week'
+          + '</span>'
+          + (submittedCount === activeConns.length
+              ? '<span class="badge badge-success">All done \u2713</span>'
+              : '<span class="badge badge-warning">' + (activeConns.length - submittedCount) + ' pending</span>')
+          + '</div>';
+
+        // ── Pending connections ──
+        var pendingSection = '';
+        if (pendingConns.length) {
+          pendingSection = '<div style="margin-top:28px;">'
+            + '<div class="section-header" style="margin-bottom:12px;"><span class="section-title">Pending Connections</span></div>'
+            + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">';
+          pendingConns.forEach(function(conn) {
+            pendingSection += '<div class="card" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">'
+              + '<div><div style="font-size:14px;font-weight:600;">' + (conn.ClientName||'\u2014') + '</div>'
+              + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Since ' + (conn.StartDate ? String(conn.StartDate).slice(0,10) : '\u2014') + '</div></div>'
+              + '<span class="badge badge-warning">Pending</span>'
+              + '</div>';
+          });
+          pendingSection += '</div></div>';
+        }
+
+        set('page-content', stats + weekNav + summaryPill + grid + pendingSection);
+      });
+    })
+    .withFailureHandler(function(err) {
+      set('page-content', '<div style="padding:40px;color:var(--danger);">Failed to load connections: ' + (err ? err.message : 'unknown error') + '</div>');
+    })
+    .getVAConnections(State.user.id, State.user.role);
+}
+
+function _offsetWeek(weekStr, offsetWeeks) {
+  var d = new Date(weekStr + 'T00:00:00');
+  d.setDate(d.getDate() + offsetWeeks * 7);
+  return d.toISOString().slice(0,10);
+}
+
+function vaSubmitReportFor(connId, clientName) {
+  vaOpenSubmitModal(connId, clientName, window._vaDashWeek || getMondayStr(new Date()));
+}
+
+function vaOpenSubmitModal(connId, clientName, week) {
+  VAA_LOG && VAA_LOG.info("DASH", "vaOpenSubmitModal: " + clientName + " week=" + week);
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box modal-xl';
+  var useWeek = week || window._vaDashWeek || getMondayStr(new Date());
+  openModal('Submit KPI Report \u2014 ' + (clientName||''), '<div style="padding:30px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+  window._submitConnId = connId;
+  window._submitClientName = clientName;
+  _loadModalKPIs(connId, useWeek);
+}
+
+function _loadModalKPIs(connId, week) {
+  var body = document.getElementById('modal-body');
+  if (!body) return;
+  var isVA = State.user.role === 'Virtual Assistant';
+  var checkP = isVA ? gsr('hasWeeklySubmission', connId, week, State.user.id) : Promise.resolve({submitted:false});
+  checkP.then(function(sub) {
+    gsr('getKPIConfig', connId).then(function(cfg) {
+      var kpis = (cfg.data||[]).filter(function(k){ return k.IsApplicable===true||k.IsApplicable==='TRUE'; });
+      if (!kpis.length) {
+        body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">No applicable KPIs configured for this connection.</div>';
+        return;
+      }
+      if (isVA && sub && sub.submitted) {
+        body.innerHTML = '<div style="padding:24px;text-align:center;">'
+          + '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" style="margin-bottom:10px;"><circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/></svg>'
+          + '<div style="font-weight:700;font-size:16px;margin-bottom:6px;">Already Submitted</div>'
+          + '<div style="font-size:13px;color:var(--text-muted);">Report for week of <strong>' + week + '</strong> has already been submitted.<br>Only a Team Leader or above can edit submitted reports.</div>'
+          + '<div class="form-actions" style="justify-content:center;margin-top:16px;">'
+          + '<button class="btn btn-secondary" onclick="closeModal()">Close</button>'
+          + '</div></div>';
+        return;
+      }
+      window._modalKPIs = kpis;
+      window._modalWeek = week;
+      var kpiRows = kpis.map(function(k, i) {
+        var tooltip = k.Description
+          ? '<span title="' + k.Description.replace(/"/g,'&quot;') + '" style="cursor:help;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-left:4px;opacity:0.45;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg></span>'
+          : '';
+        return '<tr>'
+          + '<td><strong>' + k.KPIName + '</strong>' + tooltip + '</td>'
+          + '<td><input class="form-control kpi-actual-input" id="m_act_' + i + '" type="number" step="0.01" placeholder="\u2014 enter value \u2014" oninput="clearNoData(' + i + ')"></td>'
+          + '<td><span class="pill">' + (k.Unit||'\u2014') + '</span></td>'
+          + '<td><input class="form-control kpi-target-input" id="m_tgt_' + i + '" type="number" step="0.01" value="' + (k.WeeklyTarget||'') + '"></td>'
+          + '<td><input class="form-control kpi-target-input" style="width:90px" id="m_acct_' + i + '" placeholder="Optional"></td>'
+          + '<td><input type="checkbox" id="m_nodata_' + i + '" onchange="modalToggleNoData(' + i + ')"></td>'
+          + '</tr>';
+      }).join('');
+      body.innerHTML = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">'
+        + '<div class="form-group" style="margin:0;flex:0 0 auto;">'
+        + '<label class="form-label" style="margin-bottom:4px;">Week Start Date</label>'
+        + '<input class="form-control" type="date" id="m_week" value="' + week + '" style="width:160px;" onchange="snapToMonday(this);_loadModalKPIs(window._submitConnId,document.getElementById(\'m_week\').value)">'
+        + '<div class="form-hint" style="margin-top:3px;">Mondays only</div>'
+        + '</div></div>'
+        + '<div class="table-wrap"><table>'
+        + '<thead><tr><th>KPI</th><th>Actual</th><th>Unit</th><th>Target</th><th>Account Label</th><th>No Data</th></tr></thead>'
+        + '<tbody>' + kpiRows + '</tbody></table></div>'
+        + '<div class="form-actions" style="margin-top:16px;">'
+        + '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+        + '<button class="btn btn-primary" id="m_submit_btn" onclick="submitModalReport()">Submit Report</button>'
+        + '</div>';
+    });
+  });
+}
+
+function snapToMonday(input) {
+  var d = new Date(input.value + 'T00:00:00');
+  var day = d.getDay();
+  if (day !== 1) {
+    var diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    input.value = d.toISOString().slice(0,10);
+  }
+}
+function clearNoData(i) { document.getElementById('m_nodata_'+i).checked = false; }
+function modalToggleNoData(i) {
+  var checked = document.getElementById('m_nodata_'+i).checked;
+  var act = document.getElementById('m_act_'+i);
+  act.disabled = checked;
+  if (checked) act.value = '';
+}
+
+function submitModalReport() {
+  VAA_LOG && VAA_LOG.info("DASH", "submitModalReport()");
+  var connId = window._submitConnId;
+  var week   = (document.getElementById('m_week')||{}).value || window._modalWeek;
+  var kpis   = window._modalKPIs || [];
+  if (!connId || !week || !kpis.length) { toast('Missing connection or date.','error'); return; }
+  var btn = document.getElementById('m_submit_btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="inline-spinner" style="width:13px;height:13px;border-width:2px;margin-right:6px;"></div>Submitting\u2026'; }
+  var entries = kpis.map(function(k, i) {
+    var noData   = document.getElementById('m_nodata_'+i).checked;
+    var actualVal = document.getElementById('m_act_'+i).value;
+    if (!noData && (!actualVal || actualVal === '')) noData = true;
+    return {
+      kpiId:        k.KPIID,
+      accountLabel: document.getElementById('m_acct_'+i).value || '',
+      target:       document.getElementById('m_tgt_'+i).value  || k.WeeklyTarget || '',
+      actual:       noData ? '' : actualVal,
+      noData:       noData
+    };
+  });
+  gsr('submitWeeklyReport', { connectionId: connId, weekStartDate: week, entries: entries }, State.user.id)
+    .then(function(res) {
+      if (res && res.success) {
+        closeModal();
+        toast('Report submitted successfully!', 'success');
+        renderVADashboard(window._vaDashWeek);
+      } else {
+        toast((res && res.message) || 'Submission failed.', 'error');
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Submit Report'; }
+      }
+    });
+}
+
+
+window.renderAdminDashboard   = renderAdminDashboard;
+window.renderManagerDashboard = renderManagerDashboard;
+window.renderTLDashboard      = renderTLDashboard;
+window.renderCSDashboard      = renderCSDashboard;
+window.renderVADashboard      = renderVADashboard;
+
+// ── Wire the global period bar so changing week/month reloads the TL dashboard ──
+(function() {
+  if (!window._gpListeners) window._gpListeners = {};
+  window._gpListeners['tl-dashboard'] = function() {
+    if (typeof renderTLDashboard === 'function') renderTLDashboard();
+  };
+})();
+
+</script>

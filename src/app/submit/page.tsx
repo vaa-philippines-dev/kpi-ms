@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { CheckCircle2, ArrowRight, X } from "lucide-react";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { HeroBackground } from "@/components/hero-background";
+import { AuthModal } from "@/components/auth-modal";
+import { connectionScopeWhere } from "@/lib/connection-scope";
+import { currentPeriodStart } from "@/lib/period";
+import { getWeekStartDay } from "@/lib/settings";
 import { createSubmission } from "./actions";
 
 // Presented as a modal over the landing hero — same chrome as AuthModal —
@@ -42,6 +47,20 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
       : undefined;
   const success = searchParams.success === "1";
 
+  const session = await auth();
+
+  // VAs (and managers submitting on a VA's behalf) must sign in with their
+  // Google Workspace account — replaces the old public "type in your
+  // Connection ID" step now that Connections link to real User accounts.
+  if (!session?.user) {
+    return (
+      <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-24">
+        <HeroBackground />
+        <AuthModal open redirectTo="/submit" />
+      </main>
+    );
+  }
+
   if (success) {
     return (
       <SubmitShell>
@@ -64,14 +83,27 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     );
   }
 
+  const scope = connectionScopeWhere({
+    id: session.user.id,
+    role: session.user.role,
+    departmentId: session.user.departmentId,
+    teamId: session.user.teamId,
+  });
+
   const connection = connectionId
-    ? await prisma.connection.findUnique({
-        where: { id: connectionId },
-        include: { department: true },
+    ? await prisma.connection.findFirst({
+        where: { id: connectionId, ...scope },
+        include: { department: true, vaUser: true },
       })
     : null;
 
   if (!connectionId || !connection) {
+    const myConnections = await prisma.connection.findMany({
+      where: scope,
+      include: { vaUser: true },
+      orderBy: { clientName: "asc" },
+    });
+
     return (
       <SubmitShell>
         <div className="text-center">
@@ -82,25 +114,35 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
             KPI submission
           </h1>
           <p className="mt-2 text-sm text-muted">
-            Enter your Connection ID to get started.
+            Choose which connection you&apos;re submitting for.
           </p>
           {connectionId && !connection && (
             <p className="mt-4 text-sm text-danger">
-              Connection ID not found — double-check it and try again.
+              That connection isn&apos;t visible to your account.
             </p>
           )}
-          <form method="GET" className="mt-6 flex gap-2">
-            <Input
-              name="connectionId"
-              placeholder="Connection ID"
-              required
-              defaultValue={connectionId ?? ""}
-              className="w-full"
-            />
-            <Button type="submit" className="shrink-0">
-              Continue
-            </Button>
-          </form>
+          {myConnections.length === 0 ? (
+            <p className="mt-6 text-sm text-muted">
+              No connections are assigned to your account yet — contact your
+              manager.
+            </p>
+          ) : (
+            <form method="GET" className="mt-6 flex gap-2">
+              <Select name="connectionId" required defaultValue="" className="w-full">
+                <option value="" disabled>
+                  Connection
+                </option>
+                {myConnections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {(c.vaUser.name ?? c.vaUser.email)} · {c.clientName}
+                  </option>
+                ))}
+              </Select>
+              <Button type="submit" className="shrink-0">
+                Continue
+              </Button>
+            </form>
+          )}
         </div>
       </SubmitShell>
     );
@@ -114,7 +156,7 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
             Step 2 of 3
           </p>
           <p className="mt-2 text-sm text-muted">
-            {connection.vaName} · {connection.clientName} ·{" "}
+            {connection.vaUser.name ?? connection.vaUser.email} · {connection.clientName} ·{" "}
             {connection.department.name}
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">
@@ -148,6 +190,17 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     orderBy: { name: "asc" },
   });
 
+  // VAs can't resubmit once a period is finalized; managers (DM/OM/ADMIN)
+  // can still go back and correct it — mirrors the legacy
+  // isSummarySubmitted() check.
+  const weekStartDay = await getWeekStartDay();
+  const periodStart = currentPeriodStart(period, undefined, weekStartDay);
+  const alreadySubmitted =
+    session.user.role === "VA" &&
+    (await prisma.performanceSummary.findFirst({
+      where: { connectionId: connection.id, periodStart },
+    })) !== null;
+
   return (
     <SubmitShell>
       <div className="text-center">
@@ -155,7 +208,7 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
           Step 3 of 3
         </p>
         <p className="mt-2 text-sm text-muted">
-          {connection.vaName} · {connection.clientName} ·{" "}
+          {connection.vaUser.name ?? connection.vaUser.email} · {connection.clientName} ·{" "}
           {connection.department.name} ·{" "}
           {period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}
         </p>
@@ -164,7 +217,12 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
         </h1>
       </div>
 
-      {kpis.length === 0 ? (
+      {alreadySubmitted ? (
+        <p className="mt-6 text-center text-sm text-muted">
+          This period has already been submitted. Contact your Team Leader or
+          Manager if it needs to be corrected.
+        </p>
+      ) : kpis.length === 0 ? (
         <p className="mt-6 text-center text-sm text-muted">
           No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are
           configured for {connection.department.name} yet.

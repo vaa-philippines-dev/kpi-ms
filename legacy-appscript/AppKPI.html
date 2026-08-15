@@ -1,0 +1,1329 @@
+<script>
+function renderDepartments() {
+  VAA_LOG && VAA_LOG.info("KPI", "renderDepartments()");
+Promise.all([gsr('getDepartments'), gsr('getServices', '')]).then(([depts, svcs]) => {
+set('page-content', `
+<div class="tabs" id="dept-tabs">
+<button class="tab active" onclick="switchDeptTab('depts',this)">Departments (${(depts.data||[]).length})</button>
+<button class="tab" onclick="switchDeptTab('svcs',this)">Services (${(svcs.data||[]).length})</button>
+</div>
+<div id="dept-tab-depts">
+<div class="section-header">
+<span class="section-title">Departments</span>
+<button class="btn btn-primary" onclick="openCreateDept()">+ New Department</button>
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Name</th><th>Description</th><th>Actions</th></tr></thead>
+<tbody>${(depts.data||[]).map(d => `<tr>
+<td><strong>${d.DeptName}</strong></td>
+<td>${d.Description||'\u2014'}</td>
+<td><div style="display:flex;gap:4px">
+<button class="btn btn-icon" onclick="openEditDept('${d.DeptID}','${d.DeptName}','${d.Description||''}')">✏️</button>
+<button class="btn btn-icon danger" onclick="delDept('${d.DeptID}')">🗑️</button>
+</div></td>
+</tr>`).join('')}</tbody>
+</table></div></div>
+</div>
+<div id="dept-tab-svcs" class="hidden">
+<div class="section-header">
+<span class="section-title">Services</span>
+<button class="btn btn-primary" onclick="openCreateService(${JSON.stringify(depts.data||[]).replace(/"/g,'&quot;')})">+ New Service</button>
+</div>
+<div class="card"><div class="table-wrap"><table>
+<thead><tr><th>Service Name</th><th>Department</th><th>Description</th><th>Actions</th></tr></thead>
+<tbody>${(svcs.data||[]).map(s => {
+var dept = (depts.data||[]).find(d=>d.DeptID===s.DeptID)||{};
+return `<tr>
+<td><strong>${s.ServiceName}</strong></td>
+<td>${dept.DeptName||s.DeptID||'\u2014'}</td>
+<td>${s.Description||'\u2014'}</td>
+<td><div style="display:flex;gap:4px">
+<button class="btn btn-icon" onclick="openEditService('${s.ServiceID}',${JSON.stringify(s).replace(/"/g,'&quot;')},${JSON.stringify(depts.data||[]).replace(/"/g,'&quot;')})">✏️</button>
+<button class="btn btn-icon danger" onclick="delService('${s.ServiceID}')">🗑️</button>
+</div></td>
+</tr>`;
+}).join('')}</tbody>
+</table></div></div>
+</div>
+`);
+window._depts = depts.data || [];
+});
+}
+
+function switchDeptTab(tab, btn) {
+document.querySelectorAll('#dept-tabs .tab').forEach(t => t.classList.remove('active'));
+btn.classList.add('active');
+['depts','svcs'].forEach(t => { const el=document.getElementById('dept-tab-'+t); if(el) el.classList.toggle('hidden', t!==tab); });
+}
+
+function openCreateDept() {
+openModal('New Department', `
+<form onsubmit="submitCreateDept(event)">
+<div class="form-group"><label class="form-label">Department Name</label><input class="form-control" id="nd-name" required autocomplete="off"></div>
+<div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="nd-desc" rows="2"></textarea></div>
+<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" id="nd-submit">Create</button></div>
+</form>
+`);
+}
+function submitCreateDept(e) {
+e.preventDefault();
+e.stopPropagation();
+var btn = document.getElementById('nd-submit');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+gsr('createDepartment', { name:document.getElementById('nd-name').value, description:document.getElementById('nd-desc').value }, State.user.id).then(res => {
+toast(res.success?'Department created.':res.message, res.success?'success':'error');
+if (res.success) { closeModal(); renderDepartments(); }
+else if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+});
+}
+function openEditDept(id, name, desc) {
+openModal('Edit Department', `
+<form onsubmit="submitEditDept(event,'${id}')">
+<div class="form-group"><label class="form-label">Name</label><input class="form-control" id="ed-name" value="${name}" required></div>
+<div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="ed-desc" rows="2">${desc}</textarea></div>
+<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
+</form>
+`);
+}
+function submitEditDept(e, id) {
+e.preventDefault();
+gsr('updateDepartment', id, { name:document.getElementById('ed-name').value, description:document.getElementById('ed-desc').value }, State.user.id).then(res => {
+toast(res.success?'Updated.':res.message, res.success?'success':'error');
+if (res.success) { closeModal(); renderDepartments(); }
+});
+}
+function delDept(id) {
+if (!confirm('Delete this department?')) return;
+gsr('deleteDepartment', id, State.user.id).then(res => { toast(res.success?'Deleted.':res.message, res.success?'success':'error'); if(res.success) renderDepartments(); });
+}
+function openCreateService(depts) {
+openModal('New Service', `
+<form onsubmit="submitCreateService(event)">
+<div class="form-group"><label class="form-label">Service Name</label><input class="form-control" id="ns-name" required></div>
+<div class="form-group"><label class="form-label">Department</label>
+<select class="form-control" id="ns-dept">${depts.map(d=>`<option value="${d.DeptID}">${d.DeptName}</option>`).join('')}</select></div>
+<div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="ns-desc" rows="2"></textarea></div>
+<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Create</button></div>
+</form>
+`);
+}
+function submitCreateService(e) {
+e.preventDefault();
+gsr('createService', { name:document.getElementById('ns-name').value, deptId:document.getElementById('ns-dept').value, description:document.getElementById('ns-desc').value }, State.user.id).then(res => {
+toast(res.success?'Service created.':res.message, res.success?'success':'error');
+if (res.success) { closeModal(); renderDepartments(); }
+});
+}
+function openEditService(id, svc, depts) {
+openModal('Edit Service', `
+<form onsubmit="submitEditService(event,'${id}')">
+<div class="form-group"><label class="form-label">Name</label><input class="form-control" id="es-name" value="${svc.ServiceName||''}" required></div>
+<div class="form-group"><label class="form-label">Department</label>
+<select class="form-control" id="es-dept">${depts.map(d=>`<option value="${d.DeptID}" ${d.DeptID===svc.DeptID?'selected':''}>${d.DeptName}</option>`).join('')}</select></div>
+<div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="es-desc" rows="2">${svc.Description||''}</textarea></div>
+<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
+</form>
+`);
+}
+function submitEditService(e, id) {
+e.preventDefault();
+gsr('updateService', id, { name:document.getElementById('es-name').value, deptId:document.getElementById('es-dept').value, description:document.getElementById('es-desc').value }, State.user.id).then(res => {
+toast(res.success?'Updated.':res.message, res.success?'success':'error');
+if (res.success) { closeModal(); renderDepartments(); }
+});
+}
+function delService(id) {
+if (!confirm('Delete this service?')) return;
+gsr('deleteService', id, State.user.id).then(res => { toast(res.success?'Deleted.':res.message, res.success?'success':'error'); if(res.success) renderDepartments(); });
+}
+
+window._kpiViewMode = window._kpiViewMode || 'list';
+
+function renderKPIMaster() {
+  VAA_LOG && VAA_LOG.info("KPI", "renderKPIMaster()");
+Promise.all([gsr('getKPIMaster'), gsr('getDepartments'), gsr('getServices','')]).then(([res, depts, svcs]) => {
+var kpis     = res.data   || [];
+var allDepts = depts.data || [];
+var allSvcs  = svcs.data  || [];
+// Manager sees only their dept's KPIs and their dept only
+if (State.user.role === 'Manager' && State.user.department) {
+  kpis     = kpis.filter(function(k){ return k.DeptID === State.user.department; });
+  allDepts = allDepts.filter(function(d){ return d.DeptID === State.user.department; });
+  allSvcs  = allSvcs.filter(function(s){ return s.DeptID === State.user.department; });
+}
+window._kpiAllDepts = allDepts;
+window._kpiAllSvcs  = allSvcs;
+window._kpiAllData  = kpis;
+var getDeptName = id => (allDepts.find(d => d.DeptID === id)||{}).DeptName || id || '\u2014';
+var getSvcName  = id => (allSvcs.find(s => s.ServiceID === id)||{}).ServiceName || id || '\u2014';
+var isListView  = window._kpiViewMode !== 'dept';
+set('page-content', `
+<div class="section-header">
+<span class="section-title">KPI Library <span style="color:var(--text-muted);font-weight:400;font-size:13px;">(${kpis.length})</span></span>
+<div style="display:flex;gap:8px;align-items:center;">
+<!-- View toggle -->
+<div class="kpi-view-toggle" role="group" aria-label="View mode">
+<button class="kpi-vtoggle-btn ${isListView&&window._kpiViewMode!=='cluster'?'active':''}" onclick="switchKPIView('list')" title="List">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+List
+</button>
+<button class="kpi-vtoggle-btn ${!isListView&&window._kpiViewMode!=='cluster'?'active':''}" onclick="switchKPIView('dept')" title="Department">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+By Dept
+</button>
+<button class="kpi-vtoggle-btn ${window._kpiViewMode==='cluster'?'active':''}" onclick="switchKPIView('cluster')" title="Cluster">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="8" r="3"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><line x1="12" y1="11" x2="6" y2="16"/><line x1="12" y1="11" x2="18" y2="16"/></svg>
+By Cluster
+</button>
+</div>
+<button class="btn btn-primary" onclick="openCreateKPI()">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+New KPI
+</button>
+</div>
+</div>
+<!-- LIST VIEW: grouped by service -->
+<div id="kpi-list-view" style="display:${isListView&&window._kpiViewMode!=='cluster'?'block':'none'};">
+<div class="kpi-filter-row">
+<select class="form-control" id="kpi-filter-dept" onchange="filterKPITable()">
+<option value="">All Departments</option>
+${allDepts.map(d=>`<option value="${d.DeptID}">${d.DeptName}</option>`).join('')}
+</select>
+<select class="form-control" id="kpi-filter-svc" onchange="filterKPITable()">
+<option value="">All Services</option>
+${allSvcs.map(s=>`<option value="${s.ServiceID}" data-dept="${s.DeptID}">${s.ServiceName}</option>`).join('')}
+</select>
+<input class="form-control" id="kpi-filter-search" oninput="filterKPITable()" placeholder="Search KPI name...">
+</div>
+<div id="kpi-service-groups">
+${buildKPIServiceGroups(kpis, allDepts, allSvcs, getDeptName, getSvcName)}
+</div>
+</div>
+<!-- DEPARTMENT CARD VIEW -->
+<div id="kpi-dept-view" style="display:${window._kpiViewMode==='dept'?'block':'none'};">
+${allDepts.length === 0 ? `<div class="empty-state"><p>No departments found.</p></div>` :
+`<div class="kpi-dept-grid">
+${allDepts.map(dept => {
+var deptKPIs = kpis.filter(k => k.DeptID === dept.DeptID);
+var deptSvcs = allSvcs.filter(s => s.DeptID === dept.DeptID);
+var svcBreakdown = deptSvcs.map(s => {
+var cnt = kpis.filter(k => k.ServiceID === s.ServiceID).length;
+return `<div class="kpi-dept-svc-row">
+<span class="kpi-dept-svc-name">${s.ServiceName}</span>
+<span class="kpi-dept-svc-count">${cnt} KPI${cnt!==1?'s':''}</span>
+</div>`;
+}).join('');
+return `<div class="kpi-dept-card">
+<div class="kpi-dept-card-header">
+<div>
+<div class="kpi-dept-card-name">${dept.DeptName}</div>
+<div class="kpi-dept-card-meta">${deptKPIs.length} KPI${deptKPIs.length!==1?'s':''} across ${deptSvcs.length} service${deptSvcs.length!==1?'s':''}</div>
+</div>
+<span class="kpi-dept-badge">${deptKPIs.length}</span>
+</div>
+<div class="kpi-dept-svc-list">
+${deptSvcs.length ? svcBreakdown : '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No services yet</div>'}
+</div>
+<div class="kpi-dept-card-footer">
+<button class="btn btn-secondary btn-sm" onclick="openDeptKPIView('${dept.DeptID}')">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+View &amp; Edit
+</button>
+<button class="btn btn-primary btn-sm" onclick="openCreateKPIForDept('${dept.DeptID}')">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+Add KPI
+</button>
+</div>
+</div>`;
+}).join('')}
+</div>`
+}
+</div>
+`);
+});
+}
+
+
+function _buildClusterView() {
+  var kpis     = window._kpiAllData   || [];
+  var allDepts = window._kpiAllDepts  || [];
+  var allSvcs  = window._kpiAllSvcs   || [];
+  var canEdit  = ['Administrator','Manager'].includes(State.user.role);
+  var getDeptName = function(id){ return (allDepts.find(function(d){ return d.DeptID===id; })||{}).DeptName || id || '\u2014'; };
+  var getSvcName  = function(id){ return (allSvcs.find(function(s){ return s.ServiceID===id; })||{}).ServiceName || id || '\u2014'; };
+
+  if (!kpis.length) {
+    document.getElementById('kpi-cluster-groups').innerHTML =
+      '<div class="table-empty" style="padding:48px;text-align:center;">'
+      + '<p style="font-weight:600;">No KPIs found.</p>'
+      + '<p style="font-size:12px;color:var(--text-muted);">Add KPIs and assign them a Cluster to see them here.</p>'
+      + '</div>';
+    return;
+  }
+
+  // Build: Cluster \u2192 [kpis]
+  var clusterMap = {};
+  kpis.forEach(function(k) {
+    var cl = String(k.Cluster||'').trim() || 'Unclustered';
+    if (!clusterMap[cl]) clusterMap[cl] = [];
+    clusterMap[cl].push(k);
+  });
+
+  var clusters = Object.keys(clusterMap).sort(function(a,b){
+    if (a === 'Unclustered') return 1;
+    if (b === 'Unclustered') return -1;
+    return a.localeCompare(b);
+  });
+
+  var html = clusters.map(function(cl) {
+    var clKPIs  = clusterMap[cl];
+    var clId    = 'cl-' + cl.replace(/[^a-zA-Z0-9]/g, '_');
+
+    // Sub-group by Dept then Service within cluster
+    var deptMap = {};
+    clKPIs.forEach(function(k) {
+      var dId = k.DeptID || '__none__';
+      if (!deptMap[dId]) deptMap[dId] = {};
+      var sId = k.ServiceID || '__none__';
+      if (!deptMap[dId][sId]) deptMap[dId][sId] = [];
+      deptMap[dId][sId].push(k);
+    });
+
+    var bodyHtml = Object.keys(deptMap).map(function(dId) {
+      var deptName = getDeptName(dId);
+      var svcSections = Object.keys(deptMap[dId]).map(function(sId) {
+        var svcName = getSvcName(sId);
+        var rows = deptMap[dId][sId].map(function(k) {
+          return '<tr>'
+            + '<td><strong>'+(k.KPIName||'\u2014')+'</strong></td>'
+            + '<td><span class="pill">'+(k.Unit||'\u2014')+'</span></td>'
+            + '<td style="text-align:right;">'+(k.WeeklyTarget||'\u2014')+'</td>'
+            + '<td style="text-align:right;">'+(k.MonthlyTarget||'\u2014')+'</td>'
+            + '<td><span class="badge '+(k.PerformanceDirection==='higher'?'badge-success':'badge-warning')+'">'+(k.PerformanceDirection||'\u2014')+'</span></td>'
+            + (canEdit ? '<td><button class="btn btn-icon" title="Edit" onclick="openEditKPI(\''+k.KPIID+'\')">'
+              + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
+              + '</button></td>' : '<td></td>')
+            + '</tr>';
+        }).join('');
+        return '<div style="margin-bottom:1px;">'
+          + '<div style="padding:6px 16px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);background:rgba(255,255,255,0.02);">'
+          + deptName + ' &rsaquo; ' + svcName + '</div>'
+          + '<div class="table-wrap" style="margin:0;border-radius:0;"><table style="border:none;">'
+          + '<colgroup><col style="width:30%"><col style="width:7%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:8%"></colgroup>'
+          + '<thead><tr><th>KPI Name</th><th>Unit</th><th>Wk Target</th><th>Mo Target</th><th>Direction</th><th></th></tr></thead>'
+          + '<tbody>' + rows + '</tbody></table></div>'
+          + '</div>';
+      }).join('');
+      return svcSections;
+    }).join('');
+
+    return '<div class="kpi-cluster-section">'
+      + '<div class="kpi-cluster-header" onclick="toggleKPICluster(\''+clId+'\')">'
+      + '<span class="kpi-cluster-name">'+cl+'</span>'
+      + '<div style="display:flex;align-items:center;gap:8px;">'
+      + '<span class="kpi-cluster-count">'+clKPIs.length+' KPI'+(clKPIs.length!==1?'s':'')+'</span>'
+      + '<svg id="chev-'+clId+'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transition:transform .2s;color:var(--text-muted);"><polyline points="6 9 12 15 18 9"/></svg>'
+      + '</div></div>'
+      + '<div id="body-'+clId+'">' + bodyHtml + '</div>'
+      + '</div>';
+  }).join('');
+
+  var wrap = document.getElementById('kpi-cluster-groups');
+  if (wrap) wrap.innerHTML = html;
+}
+
+function toggleKPICluster(id) {
+  var body  = document.getElementById('body-'+id);
+  var chev  = document.getElementById('chev-'+id);
+  if (!body) return;
+  var hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  if (chev) chev.style.transform = hidden ? '' : 'rotate(-90deg)';
+}
+
+function switchKPIView(mode) {
+window._kpiViewMode = mode;
+var listView = document.getElementById('kpi-list-view');
+var deptView = document.getElementById('kpi-dept-view');
+var btns = document.querySelectorAll('.kpi-vtoggle-btn');
+if (listView) listView.style.display = mode === 'list' ? 'block' : 'none';
+if (deptView) deptView.style.display = mode === 'dept' ? 'block' : 'none';
+btns.forEach(b => b.classList.toggle('active', (mode === 'list') === b.title.includes('List')));
+}
+
+function buildKPIServiceGroups(kpis, allDepts, allSvcs, getDeptName, getSvcName) {
+getDeptName = getDeptName || (id => (( window._kpiAllDepts||[]).find(d=>d.DeptID===id)||{}).DeptName||id||'\u2014');
+getSvcName  = getSvcName  || (id => ((window._kpiAllSvcs ||[]).find(s=>s.ServiceID===id)||{}).ServiceName||id||'\u2014');
+allDepts    = allDepts    || window._kpiAllDepts || [];
+allSvcs     = allSvcs     || window._kpiAllSvcs  || [];
+kpis        = kpis        || window._kpiAllData  || [];
+if (!kpis.length && !allSvcs.length) {
+return `<div class="empty-state" style="padding:48px 20px;text-align:center;color:var(--text-muted);">No KPIs yet. Click "+ New KPI" to get started.</div>`;
+}
+return allDepts.map(dept => {
+var deptSvcs = allSvcs.filter(s => s.DeptID === dept.DeptID);
+if (!deptSvcs.length) return '';
+var deptKPIs = kpis.filter(k => k.DeptID === dept.DeptID);
+var svcSections = deptSvcs.map(svc => {
+var svcKPIs = kpis.filter(k => k.ServiceID === svc.ServiceID);
+var svcId   = svc.ServiceID;
+
+// ── Group svcKPIs by Cluster ──
+var clusterMap = {};
+svcKPIs.forEach(function(k){
+  var cl = String(k.Cluster||'').trim() || '\u2014 No Cluster \u2014';
+  if (!clusterMap[cl]) clusterMap[cl] = [];
+  clusterMap[cl].push(k);
+});
+var clusterKeys = Object.keys(clusterMap).sort(function(a,b){
+  if (a==='\u2014 No Cluster \u2014') return 1;
+  if (b==='\u2014 No Cluster \u2014') return -1;
+  return a.localeCompare(b);
+});
+
+var clusterSections = clusterKeys.length > 1
+  ? clusterKeys.map(function(cl){
+      var clKPIs = clusterMap[cl];
+      var clId   = 'cl_' + svcId + '_' + cl.replace(/[^a-zA-Z0-9]/g,'_');
+      var clRows = clKPIs.map(k => kpiTableRow(k, getDeptName, getSvcName)).join('');
+      return `<div class="kpi-cluster-inner">
+<div class="kpi-cluster-inner-header" onclick="toggleKPIInnerCluster('${clId}')">
+  <svg class="kpi-svc-chevron" id="ichev-${clId}" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+  <span class="kpi-cluster-inner-name">${cl}</span>
+  <span class="kpi-svc-count-badge" style="margin-left:6px;">${clKPIs.length}</span>
+</div>
+<div id="ibody-${clId}">
+<div class="table-wrap"><table class="kpi-svc-table">
+<colgroup><col style="width:28%"><col style="width:7%"><col style="width:10%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:18%"></colgroup>
+<thead><tr><th>KPI Name</th><th>Unit</th><th>Weekly Target</th><th>Monthly Target</th><th>Direction</th><th>Deviation</th><th>At Risk MAX</th><th>Actions</th></tr></thead>
+<tbody>${clRows}</tbody>
+</table></div>
+</div></div>`;
+    }).join('')
+  : (svcKPIs.length
+      ? `<div class="table-wrap"><table class="kpi-svc-table">
+<colgroup><col style="width:28%"><col style="width:7%"><col style="width:10%"><col style="width:10%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:18%"></colgroup>
+<thead><tr><th>KPI Name</th><th>Unit</th><th>Weekly Target</th><th>Monthly Target</th><th>Direction</th><th>Deviation</th><th>At Risk MAX</th><th>Actions</th></tr></thead>
+<tbody>${svcKPIs.map(k => kpiTableRow(k, getDeptName, getSvcName)).join('')}</tbody>
+</table></div>`
+      : '');
+
+return `<div class="kpi-svc-group" data-svc="${svcId}" data-dept="${dept.DeptID}">
+<div class="kpi-svc-group-header" onclick="toggleKPISvcGroup('${svcId}')">
+<div class="kpi-svc-group-left">
+<svg class="kpi-svc-chevron" id="chevron-${svcId}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+<span class="kpi-svc-group-name">${svc.ServiceName}</span>
+<span class="kpi-svc-count-badge">${svcKPIs.length}</span>
+${clusterKeys.length > 1 ? `<span style="font-size:10px;color:var(--text-muted);margin-left:4px;">${clusterKeys.filter(c=>c!=='\u2014 No Cluster \u2014').length} clusters</span>` : ''}
+</div>
+<div class="kpi-svc-group-actions" onclick="event.stopPropagation()">
+<button class="btn btn-secondary btn-sm" onclick="openBulkAddKPI('${dept.DeptID}','${svcId}')">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+Bulk Add
+</button>
+<button class="btn btn-primary btn-sm" onclick="openCreateKPIForSvc('${dept.DeptID}','${svcId}')">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+Add KPI
+</button>
+</div>
+</div>
+<div class="kpi-svc-group-body" id="svcbody-${svcId}">
+${svcKPIs.length ? clusterSections : `<div style="padding:16px 20px;font-size:13px;color:var(--text-muted);">No KPIs for this service yet.</div>`}
+</div>
+</div>`;
+}).join('');
+return `<div class="kpi-dept-section" data-dept="${dept.DeptID}">
+<div class="kpi-dept-section-header">
+<span class="kpi-dept-section-name">${dept.DeptName}</span>
+<span class="kpi-dept-section-count">${deptKPIs.length} KPI${deptKPIs.length!==1?'s':''}</span>
+</div>
+${svcSections}
+</div>`;
+}).join('');
+}
+
+function toggleKPIInnerCluster(clId) {
+  var body  = document.getElementById('ibody-' + clId);
+  var chev  = document.getElementById('ichev-' + clId);
+  if (!body) return;
+  var collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  if (chev) chev.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(-90deg)';
+}
+
+function toggleKPISvcGroup(svcId) {
+var body    = document.getElementById('svcbody-' + svcId);
+var chevron = document.getElementById('chevron-' + svcId);
+if (!body) return;
+var collapsed = body.style.display === 'none';
+body.style.display    = collapsed ? '' : 'none';
+if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(-90deg)';
+}
+
+function filterKPITable() {
+var deptF   = (document.getElementById('kpi-filter-dept')  ||{}).value || '';
+var svcF    = (document.getElementById('kpi-filter-svc')   ||{}).value || '';
+var searchF = ((document.getElementById('kpi-filter-search')||{}).value||'').toLowerCase().trim();
+var svcSel = document.getElementById('kpi-filter-svc');
+if (svcSel) {
+Array.from(svcSel.options).forEach(opt => {
+if (!opt.value) { opt.hidden = false; return; }
+opt.hidden = deptF ? opt.dataset.dept !== deptF : false;
+});
+if (svcSel.value && (svcSel.options[svcSel.selectedIndex]||{}).hidden) svcSel.value = '';
+}
+document.querySelectorAll('.kpi-dept-section').forEach(deptEl => {
+var matchDept = !deptF || deptEl.dataset.dept === deptF;
+deptEl.style.display = matchDept ? '' : 'none';
+});
+document.querySelectorAll('.kpi-svc-group').forEach(svcEl => {
+var matchSvc = !svcF || svcEl.dataset.svc === svcF;
+svcEl.style.display = matchSvc ? '' : 'none';
+});
+document.querySelectorAll('.kpi-svc-table tbody tr[data-name]').forEach(row => {
+row.style.display = (!searchF || row.dataset.name.includes(searchF)) ? '' : 'none';
+});
+}
+
+function openCreateKPIForSvc(deptId, svcId) {
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getKPIClusters')]).then(([depts, svcs, clusters]) => {
+window._kpiClusters = clusters.data||[];
+window._kpiAllDepts = depts.data||[]; window._kpiAllSvcs = svcs.data||[];
+var prefilled = { DeptID: deptId, ServiceID: svcId };
+openModal('Add KPI', `
+<form onsubmit="submitCreateKPIAndRefreshList(event,'${deptId}','${svcId}')">
+${kpiForm(prefilled, depts.data||[], svcs.data||[])}
+<div class="form-actions">
+<button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+<button type="submit" class="btn btn-primary" id="kf-create-btn">Add KPI</button>
+</div>
+</form>`);
+setTimeout(() => {
+kpiFormComputePct();
+var deptSel = document.getElementById('kf-dept');
+var svcSel  = document.getElementById('kf-svc');
+if (deptSel) { deptSel.value = deptId; kpiFormDeptChange(); deptSel.disabled = true; }
+if (svcSel)  { setTimeout(() => { svcSel.value = svcId; svcSel.disabled = true; }, 60); }
+}, 80);
+});
+}
+
+function submitCreateKPIAndRefreshList(e, deptId, svcId) {
+e.preventDefault(); e.stopPropagation();
+var btn = document.getElementById('kf-create-btn');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Adding...'; }
+gsr('createKPI', kpiFormData(), State.user.id).then(res => {
+toast(res.success?'KPI added.':res.message, res.success?'success':'error');
+if (res.success) {
+    closeModal(); window._deptModalActiveSvc = '';
+    gsr('getKPIClusters').then(function(cr){ window._kpiClusters = (cr&&cr.data)||[]; });
+    renderKPIMaster();
+  }
+else if (btn) { btn.disabled = false; btn.textContent = 'Add KPI'; }
+});
+}
+
+var KPI_UNITS     = ['%','number','hours','minutes','count','score','days','tickets','calls'];
+var KPI_DIRS      = ['higher','lower'];
+
+function openBulkAddKPI(deptId, svcId) {
+var allSvcs  = window._kpiAllSvcs  || [];
+var allDepts = window._kpiAllDepts || [];
+var svc  = allSvcs.find(function(s){ return s.ServiceID === svcId; }) || {};
+var dept = allDepts.find(function(d){ return d.DeptID === deptId; }) || {};
+var UNITS = ['%','number','hours','minutes','count','score','days','tickets','calls'];
+var DIRS  = ['higher','lower'];
+var unitOpts = UNITS.map(function(u){ return '<option value="'+u+'">'+u+'</option>'; }).join('');
+var dirOpts  = DIRS.map(function(d){ return '<option value="'+d+'">'+d+'</option>'; }).join('');
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+openModal('Bulk Add KPIs \u2014 ' + (svc.ServiceName||svcId),
+'<div style="margin-bottom:12px;font-size:13px;color:var(--text-muted);">Add multiple KPIs for <strong style="color:var(--text-primary);">' + (svc.ServiceName||svcId) + '</strong>. Rows marked in red will be skipped.</div>'
++ '<div style="overflow-x:auto;">'
++ '<table style="width:100%;border-collapse:collapse;" id="bulk-kpi-table">'
++ '<thead style="position:sticky;top:0;background:var(--bg-elevated);z-index:1;"><tr>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">#</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">KPI Name *</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">Unit</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">Weekly Target</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">Monthly Target</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">Direction</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">Deviation</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">At Risk MAX</th>'
++ '<th style="padding:8px 10px;font-size:11px;text-align:left;border-bottom:1px solid var(--border);">Description</th>'
++ '<th style="padding:8px 4px;border-bottom:1px solid var(--border);"></th>'
++ '</tr></thead>'
++ '<tbody id="bulk-kpi-rows"></tbody>'
++ '</table></div>'
++ '<div style="margin-top:10px;display:flex;gap:8px;">'
++ '<button class="btn btn-secondary btn-sm" onclick="addBulkKPIRow(\'' + deptId + '\',\'' + svcId + '\')">'
++ '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Row</button>'
++ '</div>'
++ '<div class="form-actions">'
++ '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
++ '<button class="btn btn-primary" onclick="submitBulkKPIs(\'' + deptId + '\',\'' + svcId + '\')">Save All KPIs</button>'
++ '</div>');
+window._bulkUnitOpts = unitOpts;
+window._bulkDirOpts  = dirOpts;
+// Add 3 starter rows
+for (var i = 0; i < 3; i++) addBulkKPIRow(deptId, svcId);
+}
+
+function addBulkKPIRow(deptId, svcId) {
+var tbody = document.getElementById('bulk-kpi-rows');
+if (!tbody) return;
+var idx = tbody.rows.length + 1;
+var unitOpts = window._bulkUnitOpts || '';
+var dirOpts  = window._bulkDirOpts  || '';
+var td = function(content, w) { return '<td style="padding:4px 5px;' + (w?'width:'+w+';':'') + '">' + content + '</td>'; };
+var input = function(id, ph, type) { return '<input class="form-control" style="min-width:0;font-size:12px;padding:4px 8px;" id="'+id+'" placeholder="'+(ph||'')+'" type="'+(type||'text')+'">'; };
+var select = function(id, opts) { return '<select class="form-control" style="font-size:12px;padding:4px 6px;" id="'+id+'">'+opts+'</select>'; };
+var row = document.createElement('tr');
+row.dataset.idx = idx;
+row.innerHTML = td('<span style="font-size:12px;color:var(--text-muted);">'+idx+'</span>', '28px')
+  + td(input('bkn-'+idx, 'KPI Name', 'text'))
+  + td(select('bku-'+idx, unitOpts), '90px')
+  + td(input('bkwt-'+idx, '0', 'number'), '90px')
+  + td(input('bkmt-'+idx, '0', 'number'), '90px')
+  + td(select('bkd-'+idx, dirOpts), '90px')
+  + td('<div style="display:flex;flex-direction:column;gap:2px;">' + input('bkdev-'+idx, '0', 'number') + '<span id="bkdevp-'+idx+'" style="font-size:10px;color:var(--text-muted);"></span></div>', '90px')
+  + td('<div style="display:flex;flex-direction:column;gap:2px;">' + input('bkrisk-'+idx, '0', 'number') + '<span id="bkriskp-'+idx+'" style="font-size:10px;color:var(--text-muted);"></span></div>', '90px')
+  + td(input('bkdesc-'+idx, 'Optional description', 'text'))
+  + td('<button class="btn btn-icon danger" style="width:24px;height:24px;" onclick="this.closest(\'tr\').remove();renumberBulkRows()" title="Remove"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>', '32px');
+tbody.appendChild(row);
+// Wire pct compute
+['bkwt-'+idx,'bkdev-'+idx,'bkrisk-'+idx,'bku-'+idx].forEach(function(id) {
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('input', function(){ bulkRowPct(idx); });
+});
+}
+
+function renumberBulkRows() {
+var rows = document.querySelectorAll('#bulk-kpi-rows tr');
+rows.forEach(function(row, i) {
+  var numCell = row.cells[0];
+  if (numCell) numCell.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">'+(i+1)+'</span>';
+});
+}
+
+function bulkRowPct(idx) {
+var wt  = parseFloat((document.getElementById('bkwt-'+idx)||{}).value) || 0;
+var dev = parseFloat((document.getElementById('bkdev-'+idx)||{}).value) || 0;
+var rsk = parseFloat((document.getElementById('bkrisk-'+idx)||{}).value) || 0;
+var unit = (document.getElementById('bku-'+idx)||{}).value || '';
+var isPct = unit === '%';
+var devEl  = document.getElementById('bkdevp-'+idx);
+var rskEl  = document.getElementById('bkriskp-'+idx);
+if (devEl)  devEl.textContent  = (!isPct && wt) ? (dev/wt*100).toFixed(1)+'% of target' : '';
+if (rskEl)  rskEl.textContent  = (!isPct && wt) ? (rsk/wt*100).toFixed(1)+'% of target' : '';
+}
+
+function bulkRowUnitChange(idx) { bulkRowPct(idx); }
+
+function submitBulkKPIs(deptId, svcId) {
+var rows = document.querySelectorAll('#bulk-kpi-rows tr');
+if (!rows.length) { toast('Add at least one row.', 'warning'); return; }
+var kpis = [];
+var hasError = false;
+rows.forEach(function(row) {
+  var idx = row.dataset.idx;
+  var name = (document.getElementById('bkn-'+idx)||{}).value || '';
+  if (!name.trim()) return; // skip blank rows silently
+  kpis.push({
+    name:              name.trim(),
+    unit:              (document.getElementById('bku-'+idx)||{}).value || '',
+    weeklyTarget:      (document.getElementById('bkwt-'+idx)||{}).value || '0',
+    monthlyTarget:     (document.getElementById('bkmt-'+idx)||{}).value || '0',
+    performanceDirection: (document.getElementById('bkd-'+idx)||{}).value || 'higher',
+    deviationThreshold:   (document.getElementById('bkdev-'+idx)||{}).value || '0',
+    atRiskThreshold:      (document.getElementById('bkrisk-'+idx)||{}).value || '0',
+    description:       (document.getElementById('bkdesc-'+idx)||{}).value || '',
+    deptId:            deptId,
+    serviceId:         svcId,
+    calculationLogic:  '',
+    dataSource:        '',
+    isActive:          true
+  });
+});
+if (!kpis.length) { toast('No valid rows to save. Fill in at least one KPI Name.', 'warning'); return; }
+var btn = event && event.target ? event.target.closest('button') : null;
+if (btn) { btn.disabled = true; btn.textContent = 'Saving '+kpis.length+' KPIs...'; }
+// Submit sequentially
+var saved = 0, failed = 0;
+function saveNext(i) {
+  if (i >= kpis.length) {
+    toast(saved + ' KPI' + (saved!==1?'s':'') + ' saved.' + (failed?' '+failed+' failed.':''), saved>0?'success':'error');
+    if (saved > 0) { closeModal(); renderKPIMaster(); }
+    else if (btn) { btn.disabled = false; btn.textContent = 'Save All KPIs'; }
+    return;
+  }
+  gsr('createKPI', kpis[i], State.user.id).then(function(res) {
+    if (res && res.success) saved++; else failed++;
+    saveNext(i + 1);
+  });
+}
+saveNext(0);
+}
+
+function rebuildKPIServiceGroups() {
+var container = document.getElementById('kpi-service-groups');
+if (!container) return;
+container.innerHTML = buildKPIServiceGroups();
+}
+function openDeptKPIView(deptId) {
+var allDepts = window._kpiAllDepts || [];
+var allSvcs  = window._kpiAllSvcs  || [];
+var dept     = allDepts.find(d => d.DeptID === deptId) || {};
+var deptSvcs = allSvcs.filter(s => s.DeptID === deptId);
+var kpis     = (window._kpiAllData || []).filter(k => k.DeptID === deptId);
+var getSvcName = id => (allSvcs.find(s => s.ServiceID === id)||{}).ServiceName || id || '\u2014';
+window._deptModalDeptId = deptId;
+var firstSvcId = deptSvcs.length ? deptSvcs[0].ServiceID : '';
+window._deptModalActiveSvc = window._deptModalActiveSvc || firstSvcId;
+var tabsHtml = `
+<div class="dept-modal-tabs">
+<button class="dept-modal-tab ${!window._deptModalActiveSvc?'active':''}" onclick="switchDeptModalTab('')" data-svc="">All Services</button>
+${deptSvcs.map(s => `<button class="dept-modal-tab ${window._deptModalActiveSvc===s.ServiceID?'active':''}" onclick="switchDeptModalTab('${s.ServiceID}')" data-svc="${s.ServiceID}">${s.ServiceName}</button>`).join('')}
+</div>`;
+var activeSvc = window._deptModalActiveSvc;
+var visibleKPIs = activeSvc ? kpis.filter(k => k.ServiceID === activeSvc) : kpis;
+var tableHtml = visibleKPIs.length ? `
+<table class="dept-modal-table">
+<thead>
+<tr>
+<th>KPI Name</th><th>Service</th><th>Unit</th>
+<th>Weekly Target</th><th>Monthly Target</th><th>Direction</th>
+<th>Deviation</th><th>At Risk MAX</th><th>Actions</th>
+</tr>
+</thead>
+<tbody>
+${visibleKPIs.map(k => {
+var unit = (k.Unit||'').trim();
+var isPercent = unit === '%';
+var wt = parseFloat(k.WeeklyTarget)||0;
+var devAbs  = parseFloat(k.DeviationThreshold)||0;
+var riskAbs = parseFloat(k.AtRiskThreshold)||0;
+var devPct  = (!isPercent && wt) ? ((devAbs/wt)*100).toFixed(1) : null;
+var riskPct = (!isPercent && wt) ? ((riskAbs/wt)*100).toFixed(1) : null;
+var devMain  = isPercent ? `${devAbs}%`  : `${devAbs}`;
+var riskMain = isPercent ? `${riskAbs}%` : `${riskAbs}`;
+var devSub   = devPct  ? `<span class="kpi-pct-sub">${devPct}%</span>`  : '';
+var riskSub  = riskPct ? `<span class="kpi-pct-sub">${riskPct}%</span>` : '';
+var wtDisp   = unit ? `${k.WeeklyTarget} <span class="kpi-unit-tag">${unit}</span>` : k.WeeklyTarget;
+var mtDisp   = unit ? `${k.MonthlyTarget} <span class="kpi-unit-tag">${unit}</span>` : k.MonthlyTarget;
+return `<tr>
+<td class="kpi-name-cell">
+<span class="kpi-name">${k.KPIName}</span>
+
+</td>
+<td><span class="pill">${getSvcName(k.ServiceID)}</span></td>
+<td><span class="kpi-unit-badge">${unit||'\u2014'}</span></td>
+<td class="kpi-num-cell">${wtDisp}</td>
+<td class="kpi-num-cell">${mtDisp}</td>
+<td><span class="badge ${k.PerformanceDirection==='higher'?'badge-success':'badge-warning'}">${k.PerformanceDirection==='higher'?'↑ Higher':'↓ Lower'}</span></td>
+<td class="kpi-threshold-cell kpi-warn"><span class="kpi-thresh-val">${devMain}</span>${devSub}</td>
+<td class="kpi-threshold-cell kpi-danger"><span class="kpi-thresh-val">${riskMain}</span>${riskSub}</td>
+<td>
+<div style="display:flex;gap:4px;">
+<button class="btn btn-icon" title="Edit" onclick="openEditKPIFromDeptModal('${k.KPIID}',${JSON.stringify(k).replace(/"/g,'&quot;')})">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+</button>
+<button class="btn btn-icon danger" title="Delete" onclick="delKPIFromDeptModal('${k.KPIID}')">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+</button>
+</div>
+</td>
+</tr>`;
+}).join('')}
+</tbody>
+</table>` :
+`<div class="table-empty" style="padding:40px 20px;">No KPIs found for this view. Click "+ Add KPI" to create one.</div>`;
+var modalHtml = `
+<div class="dept-modal-header-bar">
+<div>
+<div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.07em;font-weight:600;margin-bottom:4px;">${dept.DeptName || 'Department'}</div>
+<div style="font-size:13px;color:var(--text-secondary);">${kpis.length} total KPI${kpis.length!==1?'s':''} &nbsp;·&nbsp; ${deptSvcs.length} service${deptSvcs.length!==1?'s':''}</div>
+</div>
+<button class="btn btn-primary btn-sm" onclick="openCreateKPIForDept('${deptId}')">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+Add KPI
+</button>
+</div>
+${deptSvcs.length > 1 ? tabsHtml : ''}
+<div class="table-wrap">${tableHtml}</div>
+`;
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+openModal(`KPI Library \u2014 ${dept.DeptName||''}`, modalHtml);
+}
+
+function switchDeptModalTab(svcId) {
+window._deptModalActiveSvc = svcId;
+var deptId = window._deptModalDeptId;
+if (deptId) openDeptKPIView(deptId);
+}
+
+function openCreateKPIForDept(deptId) {
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getKPIClusters')]).then(([depts, svcs, clusters]) => {
+window._kpiClusters = clusters.data||[];
+window._kpiAllDepts = depts.data||[]; window._kpiAllSvcs = svcs.data||[];
+var prefilled = { DeptID: deptId };
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box';
+openModal('Add KPI', `
+<form onsubmit="submitCreateKPIFromDeptModal(event,'${deptId}')">
+${kpiForm(prefilled, depts.data||[], svcs.data||[])}
+<div class="form-actions">
+<button type="button" class="btn btn-secondary" onclick="openDeptKPIView('${deptId}')">Back</button>
+<button type="submit" class="btn btn-primary" id="kf-create-btn">Add KPI</button>
+</div>
+</form>
+`);
+setTimeout(() => {
+kpiFormComputePct();
+var deptSel = document.getElementById('kf-dept');
+if (deptSel) { deptSel.value = deptId; kpiFormDeptChange(); deptSel.disabled = true; }
+}, 80);
+});
+}
+
+function submitCreateKPIFromDeptModal(e, deptId) {
+e.preventDefault();
+e.stopPropagation();
+var btn = document.getElementById('kf-create-btn');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Adding...'; }
+gsr('createKPI', kpiFormData(), State.user.id).then(res => {
+toast(res.success?'KPI added successfully.':res.message, res.success?'success':'error');
+if (res.success) {
+gsr('getKPIMaster').then(kpiRes => {
+window._kpiAllData = kpiRes.data || [];
+window._deptModalActiveSvc = '';
+openDeptKPIView(deptId);
+});
+} else if (btn) { btn.disabled = false; btn.textContent = 'Add KPI'; }
+});
+}
+
+function openEditKPIFromDeptModal(id, kpi) {
+var deptId = window._deptModalDeptId;
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getKPIClusters')]).then(([depts, svcs, clusters]) => {
+window._kpiClusters = clusters.data||[];
+window._kpiAllDepts = depts.data||[]; window._kpiAllSvcs = svcs.data||[];
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box';
+openModal('Edit KPI', `
+<form onsubmit="submitEditKPIFromDeptModal(event,'${id}','${deptId}')">
+${kpiForm(kpi, depts.data||[], svcs.data||[])}
+<div class="form-actions">
+<button type="button" class="btn btn-secondary" onclick="openDeptKPIView('${deptId}')">Back</button>
+<button type="submit" class="btn btn-primary" id="kf-submit-btn">Save Changes</button>
+</div>
+</form>
+`);
+setTimeout(() => kpiFormComputePct(), 80);
+});
+}
+
+function submitEditKPIFromDeptModal(e, id, deptId) {
+e.preventDefault();
+e.stopPropagation();
+var btn = document.getElementById('kf-submit-btn');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+gsr('updateKPI', id, kpiFormData(), State.user.id).then(res => {
+toast(res.success?'KPI updated successfully.':res.message, res.success?'success':'error');
+if (res.success) {
+gsr('getKPIMaster').then(kpiRes => {
+window._kpiAllData = kpiRes.data || [];
+openDeptKPIView(deptId);
+});
+} else if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+});
+}
+
+function delKPIFromDeptModal(id) {
+if (!confirm('Delete this KPI? This action cannot be undone.')) return;
+gsr('deleteKPI', id, State.user.id).then(res => {
+toast(res.success?'KPI deleted.':res.message, res.success?'success':'error');
+if (res.success) {
+gsr('getKPIMaster').then(kpiRes => {
+window._kpiAllData = kpiRes.data || [];
+openDeptKPIView(window._deptModalDeptId);
+});
+}
+});
+}
+
+function kpiTableRow(k, getDeptName, getSvcName) {
+var unit = (k.Unit||'').trim();
+var isPercent = unit === '%';
+var wt = parseFloat(k.WeeklyTarget)||0;
+var devAbs  = parseFloat(k.DeviationThreshold)||0;
+var riskAbs = parseFloat(k.AtRiskThreshold)||0;
+var devPct  = isPercent ? null : (wt ? ((devAbs/wt)*100).toFixed(1) : null);
+var riskPct = isPercent ? null : (wt ? ((riskAbs/wt)*100).toFixed(1) : null);
+var devMainVal  = isPercent ? `${devAbs}%`  : `${devAbs}`;
+var riskMainVal = isPercent ? `${riskAbs}%` : `${riskAbs}`;
+var devSub   = devPct  ? `<span class="kpi-pct-sub">${devPct}%</span>`  : '';
+var riskSub  = riskPct ? `<span class="kpi-pct-sub">${riskPct}%</span>` : '';
+var wtDisp   = unit ? `${k.WeeklyTarget} <span class="kpi-unit-tag">${unit}</span>` : k.WeeklyTarget;
+var mtDisp   = unit ? `${k.MonthlyTarget} <span class="kpi-unit-tag">${unit}</span>` : k.MonthlyTarget;
+return `<tr data-dept="${k.DeptID||''}" data-svc="${k.ServiceID||''}" data-name="${(k.KPIName||'').toLowerCase()}">
+<td class="kpi-name-cell">
+<span class="kpi-name">${k.KPIName}</span>
+
+</td>
+<td><span class="kpi-unit-badge">${unit||'\u2014'}</span></td>
+<td class="kpi-num-cell">${wtDisp}</td>
+<td class="kpi-num-cell">${mtDisp}</td>
+<td><span class="badge ${k.PerformanceDirection==='higher'?'badge-success':'badge-warning'}">${k.PerformanceDirection==='higher'?'↑ Higher':'↓ Lower'}</span></td>
+<td class="kpi-threshold-cell kpi-warn">
+<span class="kpi-thresh-val">${devMainVal}</span>${devSub}
+</td>
+<td class="kpi-threshold-cell kpi-danger">
+<span class="kpi-thresh-val">${riskMainVal}</span>${riskSub}
+</td>
+<td>
+<div style="display:flex;gap:4px;">
+<button class="btn btn-icon" title="Edit" onclick="openEditKPI('${k.KPIID}',${JSON.stringify(k).replace(/"/g,'&quot;')})">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+</button>
+<button class="btn btn-icon danger" title="Delete" onclick="delKPI('${k.KPIID}')">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+</button>
+</div>
+</td>
+</tr>`;
+}
+
+function kpiForm(kpi, depts, svcs) {
+kpi = kpi || {}; depts = depts || window._kpiAllDepts || []; svcs = svcs || window._kpiAllSvcs || [];
+var dirs = ['higher','lower'];
+var units = ['%','number','hours','minutes','count','score','days','tickets','calls'];
+var curDept = kpi.DeptID || '';
+var filteredSvcs = curDept ? svcs.filter(s => s.DeptID === curDept) : svcs;
+var isPercent = (kpi.Unit||'') === '%';
+return `
+<div class="form-row">
+<div class="form-group">
+<label class="form-label">Department</label>
+<select class="form-control" id="kf-dept" onchange="kpiFormDeptChange()" required>
+<option value="">Select Department</option>
+${depts.map(d=>`<option value="${d.DeptID}" ${d.DeptID===curDept?'selected':''}>${d.DeptName}</option>`).join('')}
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">Service</label>
+<select class="form-control" id="kf-svc" required>
+<option value="">Select Service</option>
+${svcs.map(s=>`<option value="${s.ServiceID}" data-dept="${s.DeptID}" ${s.ServiceID===kpi.ServiceID?'selected':''} ${(curDept && s.DeptID!==curDept)?'style="display:none"':''}>${s.ServiceName}</option>`).join('')}
+</select>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">KPI Name</label><input class="form-control" id="kf-name" value="${kpi.KPIName||''}" required></div>
+<div class="form-group">
+<label class="form-label">Unit</label>
+<select class="form-control" id="kf-unit" onchange="kpiFormUnitChange()" required>
+${units.map(u=>`<option value="${u}" ${u===(kpi.Unit||'')?'selected':''}>${u}</option>`).join('')}
+</select>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">Cluster</label>
+<div style="display:flex;gap:8px;">
+<select class="form-control" id="kf-cluster" onchange="kpiClusterChange()">
+<option value="">\u2014 No Cluster \u2014</option>
+${(window._kpiClusters||[]).map(function(cl){ return '<option value="'+cl+'"'+(cl===(kpi.Cluster||'')?'selected':'')+'>'+cl+'</option>'; }).join('')}
+<option value="__new__">+ Add new cluster\u2026</option>
+</select>
+<input class="form-control" id="kf-cluster-new" placeholder="New cluster name" style="display:none;flex:1;">
+</div>
+<div class="form-hint">Groups KPIs together across departments (e.g. Productivity, Quality)</div>
+</div>
+<div class="form-group"><label class="form-label">Description</label><textarea class="form-control" id="kf-desc" rows="2">${kpi.Description||''}</textarea></div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">Calculation Logic</label><input class="form-control" id="kf-calc" value="${kpi.CalculationLogic||''}"></div>
+<div class="form-group"><label class="form-label">Data Source</label><input class="form-control" id="kf-src" value="${kpi.DataSource||''}"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">Performance Direction</label>
+<select class="form-control" id="kf-dir">${dirs.map(d=>`<option ${d===kpi.PerformanceDirection?'selected':''}>${d}</option>`).join('')}</select>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">Weekly Target</label><input class="form-control" id="kf-wt" type="number" step="0.01" value="${kpi.WeeklyTarget||''}" oninput="kpiFormComputePct()" required></div>
+<div class="form-group"><label class="form-label">Monthly Target</label><input class="form-control" id="kf-mt" type="number" step="0.01" value="${kpi.MonthlyTarget||''}" required></div>
+</div>
+<div id="kf-threshold-section">
+<div id="kf-pct-hint" style="background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text-secondary);display:${isPercent?'none':'flex'};align-items:center;gap:8px;">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+Enter the threshold as an <strong style="color:var(--text-primary);">absolute value</strong> (same unit as the target). The percentage will be auto-computed.
+</div>
+<div class="form-row">
+<div class="form-group">
+<label class="form-label" id="kf-dev-label">Deviation Threshold <span id="kf-dev-unit-hint">(${isPercent?'%':'value'})</span></label>
+<input class="form-control" id="kf-dev" type="number" step="0.01" value="${kpi.DeviationThreshold||10}" oninput="kpiFormComputePct()" required>
+<div class="form-hint" id="kf-dev-pct" style="display:${isPercent?'none':'block'};margin-top:4px;"></div>
+</div>
+<div class="form-group">
+<label class="form-label" id="kf-risk-label">At-Risk MAX Threshold <span id="kf-risk-unit-hint">(${isPercent?'%':'value'})</span></label>
+<input class="form-control" id="kf-risk" type="number" step="0.01" value="${kpi.AtRiskThreshold||25}" oninput="kpiFormComputePct()" required>
+<div class="form-hint" id="kf-risk-pct" style="display:${isPercent?'none':'block'};margin-top:4px;"></div>
+</div>
+</div>
+</div>
+`;
+}
+
+function kpiFormDeptChange() {
+var deptId = (document.getElementById('kf-dept')||{}).value || '';
+var svcSel = document.getElementById('kf-svc');
+if (!svcSel) return;
+Array.from(svcSel.options).forEach(opt => {
+if (!opt.value) { opt.style.display = ''; return; }
+opt.style.display = (deptId && opt.dataset.dept !== deptId) ? 'none' : '';
+});
+if (svcSel.value && svcSel.options[svcSel.selectedIndex] && svcSel.options[svcSel.selectedIndex].style.display === 'none') svcSel.value = '';
+}
+
+function kpiFormUnitChange() {
+var unit = (document.getElementById('kf-unit')||{}).value || '';
+var isPercent = unit === '%';
+var hint = document.getElementById('kf-pct-hint');
+var devPct  = document.getElementById('kf-dev-pct');
+var riskPct = document.getElementById('kf-risk-pct');
+var devHint  = document.getElementById('kf-dev-unit-hint');
+var riskHint = document.getElementById('kf-risk-unit-hint');
+if (hint)     hint.style.display     = isPercent ? 'none' : 'flex';
+if (devPct)   devPct.style.display   = isPercent ? 'none' : 'block';
+if (riskPct)  riskPct.style.display  = isPercent ? 'none' : 'block';
+if (devHint)  devHint.textContent    = `(${isPercent ? '%' : 'value'})`;
+if (riskHint) riskHint.textContent   = `(${isPercent ? '%' : 'value'})`;
+kpiFormComputePct();
+}
+
+function kpiFormComputePct() {
+var unit = (document.getElementById('kf-unit')||{}).value || '';
+var isPercent = unit === '%';
+if (isPercent) return;
+var wt      = parseFloat((document.getElementById('kf-wt')||{}).value) || 0;
+var devVal  = parseFloat((document.getElementById('kf-dev')||{}).value) || 0;
+var riskVal = parseFloat((document.getElementById('kf-risk')||{}).value) || 0;
+var devPctEl  = document.getElementById('kf-dev-pct');
+var riskPctEl = document.getElementById('kf-risk-pct');
+if (devPctEl)  devPctEl.textContent  = wt ? `\u2248 ${((devVal/wt)*100).toFixed(1)}% of weekly target` : '';
+if (riskPctEl) riskPctEl.textContent = wt ? `\u2248 ${((riskVal/wt)*100).toFixed(1)}% of weekly target` : '';
+}
+
+
+function kpiClusterChange() {
+  var sel = document.getElementById('kf-cluster');
+  var inp = document.getElementById('kf-cluster-new');
+  if (!sel || !inp) return;
+  if (sel.value === '__new__') {
+    inp.style.display = '';
+    inp.focus();
+  } else {
+    inp.style.display = 'none';
+    inp.value = '';
+  }
+}
+
+function kpiFormData() {
+  var clSel = document.getElementById('kf-cluster');
+  var clInp = document.getElementById('kf-cluster-new');
+  var cluster = '';
+  if (clSel) {
+    cluster = clSel.value === '__new__'
+      ? (clInp ? clInp.value.trim() : '')
+      : clSel.value;
+  }
+  return {
+    cluster: cluster,
+    deptId:document.getElementById('kf-dept').value,
+    serviceId:document.getElementById('kf-svc').value,
+    name:document.getElementById('kf-name').value,
+    description:document.getElementById('kf-desc').value,
+    calculationLogic:document.getElementById('kf-calc').value,
+    dataSource:document.getElementById('kf-src').value,
+    unit:document.getElementById('kf-unit').value,
+    weeklyTarget:document.getElementById('kf-wt').value,
+    monthlyTarget:document.getElementById('kf-mt').value,
+    performanceDirection:document.getElementById('kf-dir').value,
+    deviationThreshold:document.getElementById('kf-dev').value,
+    atRiskThreshold:document.getElementById('kf-risk').value
+  };
+}
+function openCreateKPI() {
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getKPIClusters')]).then(([depts, svcs, clusters]) => {
+window._kpiAllDepts = depts.data||[]; window._kpiAllSvcs = svcs.data||[];
+window._kpiClusters = clusters.data||[];
+openModal('New KPI', `<form onsubmit="submitCreateKPI(event)">${kpiForm({}, depts.data||[], svcs.data||[])}<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" id="kf-create-btn">Create KPI</button></div></form>`);
+setTimeout(() => kpiFormComputePct(), 100);
+});
+}
+function submitCreateKPI(e) {
+e.preventDefault();
+e.stopPropagation();
+var btn = document.getElementById('kf-create-btn');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+gsr('createKPI', kpiFormData(), State.user.id).then(res => {
+toast(res.success?'KPI created successfully.':res.message, res.success?'success':'error');
+if (res.success) { closeModal(); window._deptModalActiveSvc = ''; renderKPIMaster(); }
+else if (btn) { btn.disabled = false; btn.textContent = 'Create KPI'; }
+});
+}
+function openEditKPI(id, kpi) {
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getKPIClusters')]).then(([depts, svcs, clusters]) => {
+window._kpiAllDepts = depts.data||[]; window._kpiAllSvcs = svcs.data||[];
+window._kpiClusters = clusters.data||[];
+openModal('Edit KPI', `<form onsubmit="submitEditKPI(event,'${id}')">${kpiForm(kpi, depts.data||[], svcs.data||[])}<div class="form-actions"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button><button type="submit" class="btn btn-primary" id="kf-submit-btn">Save Changes</button></div></form>`);
+setTimeout(() => kpiFormComputePct(), 100);
+});
+}
+function submitEditKPI(e, id) {
+e.preventDefault();
+e.stopPropagation();
+var btn = document.getElementById('kf-submit-btn');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+gsr('updateKPI', id, kpiFormData(), State.user.id).then(res => {
+toast(res.success?'KPI updated successfully.':res.message, res.success?'success':'error');
+if (res.success) { closeModal(); renderKPIMaster(); }
+else if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+});
+}
+function delKPI(id) {
+if (!confirm('Delete this KPI? This action cannot be undone.')) return;
+gsr('deleteKPI', id, State.user.id).then(res => { toast(res.success?'KPI deleted.':res.message, res.success?'success':'error'); if(res.success) renderKPIMaster(); });
+}
+
+var IMPORT_COLS = ['clientName','clientEmail','deptName','serviceName','vaName','tlName','startDate','status'];
+var IMPORT_HEADERS = ['Client Name *','Client Email','Department *','Service *','VA Full Name','TL Full Name','Start Date (YYYY-MM-DD)','Status (Active/Inactive)'];
+var IMPORT_EXAMPLE = [
+['John Smith','john@example.com','Customer Service','Billing Support','Jane Doe','Mike Rivera','2025-01-15','Active'],
+['Maria Garcia','maria@example.com','Technical Support','Tier 1','Alex Kim','Sam Lee','2025-02-01','Active']
+];
+
+function openImportConnections() {
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+openModal('Import Connections', buildImportStep1());
+}
+
+function buildImportStep1(){toast("Feature coming soon","info");}
+
+function importPasteChanged() {
+var val = (document.getElementById('import-paste')||{}).value || '';
+var btn = document.getElementById('import-next-btn');
+if (btn) btn.disabled = !val.trim();
+}
+
+function handleImportFile(input) {
+var file = input.files[0];
+if (!file) return;
+var reader = new FileReader();
+reader.onload = function(e) {
+var text = e.target.result;
+var textarea = document.getElementById('import-paste');
+if (textarea) {
+var lines = text.trim().split('\n');
+var firstCell = (lines[0]||'').split(/[,\t]/)[0].trim().toLowerCase();
+var startsWithHeader = firstCell.includes('client') || firstCell.includes('name');
+textarea.value = (startsWithHeader ? lines.slice(1) : lines).join('\n');
+importPasteChanged();
+}
+};
+reader.readAsText(file);
+var zone = document.getElementById('import-upload-zone');
+if (zone) { zone.classList.add('loaded'); zone.querySelector('.import-upload-text').textContent = '\u2713 ' + file.name; }
+}
+
+function parseImportText(raw) {
+var lines = raw.trim().split('\n').filter(l => l.trim());
+return lines.map(function(line) {
+var delim = line.includes('\t') ? '\t' : ',';
+var cols = line.split(delim).map(function(c){ return c.trim().replace(/^"|"$/g,'').trim(); });
+var row = {};
+IMPORT_COLS.forEach(function(key, i){ row[key] = cols[i] || ''; });
+return row;
+});
+}
+
+function downloadImportTemplate() {
+var header = IMPORT_HEADERS.join(',');
+var rows   = IMPORT_EXAMPLE.map(r => r.map(c => `"${c}"`).join(','));
+var csv    = [header, ...rows].join('\n');
+var blob   = new Blob([csv], { type: 'text/csv' });
+var url    = URL.createObjectURL(blob);
+var a      = document.createElement('a');
+a.href = url; a.download = 'connections_import_template.csv';
+document.body.appendChild(a); a.click();
+document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function importGoToPreview() {
+var raw = (document.getElementById('import-paste')||{}).value || '';
+if (!raw.trim()) return;
+var rows;
+try { rows = parseImportText(raw); } catch(e) { showImportError('Could not parse input: ' + e.message); return; }
+if (!rows.length) { showImportError('No data rows found.'); return; }
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getVAConnectionUsers')]).then(([depts, svcs, users]) => {
+var allDepts = depts.data||[];
+var allSvcs  = svcs.data||[];
+var allUsers = users.data||[];
+var vas  = allUsers.filter(u => u.Role === 'Virtual Assistant');
+var tls  = allUsers.filter(u => u.Role === 'Team Leader');
+var validated = rows.map(function(row, i) {
+var errors = [];
+if (!row.clientName) errors.push('Client Name is required');
+var dept = allDepts.find(d => d.DeptName.toLowerCase().trim() === row.deptName.toLowerCase().trim());
+var svc  = allSvcs.find(s  => s.ServiceName.toLowerCase().trim() === row.serviceName.toLowerCase().trim());
+var va   = row.vaName ? vas.find(u => (u.FirstName+' '+u.LastName).toLowerCase().trim() === row.vaName.toLowerCase().trim()) : true;
+var tl   = row.tlName ? tls.find(u => (u.FirstName+' '+u.LastName).toLowerCase().trim() === row.tlName.toLowerCase().trim()) : true;
+if (!dept) errors.push(`Department "${row.deptName}" not found`);
+if (!svc)  errors.push(`Service "${row.serviceName}" not found`);
+if (row.vaName && !va)   errors.push(`VA "${row.vaName}" not found`);
+if (row.tlName && !tl)   errors.push(`TL "${row.tlName}" not found`);
+if (row.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(row.startDate)) errors.push('Start Date must be YYYY-MM-DD');
+if (row.status && !['Active','Inactive'].includes(row.status)) errors.push('Status must be Active or Inactive');
+return { ...row, _row: i+1, _valid: errors.length === 0, _errors: errors };
+});
+window._importRows = validated;
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+openModal('Import Connections \u2014 Preview', buildImportStep2(validated));
+});
+}
+
+function buildImportStep2(){toast("Feature coming soon","info");}
+
+function showImportError(msg) {
+var el = document.getElementById('import-parse-error');
+if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+}
+
+function runImportConnections() {
+var validRows = (window._importRows || []).filter(r => r._valid);
+if (!validRows.length) return;
+var body = document.getElementById('modal-body');
+if (body) body.innerHTML = `
+<div style="text-align:center;padding:48px 24px;">
+<div class="spinner" style="margin:0 auto 20px;"></div>
+<div style="font-size:15px;font-weight:600;margin-bottom:8px;">Importing ${validRows.length} connection${validRows.length!==1?'s':''}...</div>
+<div style="font-size:13px;color:var(--text-muted);">This may take a moment. Please do not close this window.</div>
+</div>`;
+var payload = validRows.map(function(r) {
+return { clientName:r.clientName, clientEmail:r.clientEmail, deptName:r.deptName,
+serviceName:r.serviceName, vaName:r.vaName, tlName:r.tlName,
+startDate:r.startDate, status:r.status||'Active' };
+});
+gsr('bulkCreateConnections', payload, State.user.id).then(function(res) {
+window._importRows = null;
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+if (res.success) {
+buildImportResultsView(res);
+} else {
+if (body) body.innerHTML = `<div class="import-error-bar">${res.message}</div>`;
+}
+});
+}
+
+function buildImportResultsView(){toast("Feature coming soon","info");}
+
+function openCreateConnection() {
+Promise.all([gsr('getDepartments'), gsr('getServices',''), gsr('getVAConnectionUsers')]).then(([depts,svcs,users]) => {
+var vas = (users.data||[]).filter(function(u){ return u.Role==='Virtual Assistant'; });
+window._allDepts = depts.data||[]; window._allSvcs = svcs.data||[];
+openModal('New Connection',
+'<form onsubmit="submitCreateConn(event)">'
++ '<div class="form-row">'
++ '<div class="form-group"><label class="form-label">Client Name *</label><input class="form-control" id="nc-client" required autocomplete="off"></div>'
++ '<div class="form-group"><label class="form-label">Client Email</label><input class="form-control" id="nc-email" type="email" autocomplete="off"></div>'
++ '</div>'
++ '<div class="form-row">'
++ '<div class="form-group"><label class="form-label">Department *</label>'
++ '<select class="form-control" id="nc-dept" onchange="filterSvcsByDept(this.value)" required>'
++ '<option value="">\u2014 Select \u2014</option>'
++ (depts.data||[]).map(function(d){ return '<option value="'+d.DeptID+'">'+d.DeptName+'</option>'; }).join('')
++ '</select></div>'
++ '<div class="form-group"><label class="form-label">Service *</label>'
++ '<select class="form-control" id="nc-svc" required>'
++ '<option value="">\u2014 Select department first \u2014</option>'
++ (svcs.data||[]).map(function(s){ return '<option value="'+s.ServiceID+'" data-dept="'+s.DeptID+'">'+s.ServiceName+'</option>'; }).join('')
++ '</select></div>'
++ '</div>'
++ '<div class="form-row">'
++ '<div class="form-group"><label class="form-label">VA / Agent</label>'
++ '<select class="form-control" id="nc-va"><option value="">\u2014 Select VA \u2014</option>'
++ vas.map(function(v){ return '<option value="'+v.UserID+'">'+v.Name+'</option>'; }).join('')
++ '</select></div>'
++ '<div class="form-group"><label class="form-label">Start Date</label><input class="form-control" id="nc-start" type="date" value="'+new Date().toISOString().split('T')[0]+'" required></div>'
++ '</div>'
++ '<div class="form-group"><label class="form-label">Status</label>'
++ '<select class="form-control" id="nc-status"><option>Active</option><option>Inactive</option></select>'
++ '</div>'
++ '<div class="form-actions">'
++ '<button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
++ '<button type="submit" class="btn btn-primary" id="nc-submit-btn">'
++ '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>'
++ 'Save Connection'
++ '</button>'
++ '</div>'
++ '</form>', 'modal-lg');
+});
+}
+function filterSvcsByDept(deptId) {
+var svcSel = document.getElementById('nc-svc');
+if (!svcSel) return;
+Array.from(svcSel.options).forEach(function(opt) {
+if (!opt.value) return;
+opt.hidden = !!(deptId && opt.dataset.dept !== deptId);
+});
+if (svcSel.value && (svcSel.options[svcSel.selectedIndex]||{}).hidden) svcSel.value = '';
+}
+function submitCreateConn(e) {
+e.preventDefault();
+e.stopPropagation();
+var btn = document.getElementById('nc-submit-btn');
+if (btn && btn.disabled) return;
+if (btn) {
+btn.disabled = true;
+btn.innerHTML = '<div class="inline-spinner"></div> Saving...';
+}
+var data = {
+clientName: document.getElementById('nc-client').value,
+clientEmail: document.getElementById('nc-email').value,
+deptId: document.getElementById('nc-dept').value,
+serviceId: document.getElementById('nc-svc').value,
+vaUserId: document.getElementById('nc-va').value,
+teamLeaderUserId: '',
+startDate: document.getElementById('nc-start').value,
+status: document.getElementById('nc-status').value
+};
+gsr('createVAConnection', data, State.user.id).then(function(res) {
+if (res && res.success) {
+closeModal();
+toast('Connection saved successfully.', 'success');
+renderConnections();
+} else {
+toast((res && res.message) || 'Save failed. Please try again.', 'error');
+if (btn) {
+btn.disabled = false;
+btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Connection';
+}
+}
+});
+}
+
+function openKPIConfig(connId) { openConnectionDetail(connId); }
+window.renderDepartments = renderDepartments;
+window.renderKPIMaster   = renderKPIMaster;
+
+</script>

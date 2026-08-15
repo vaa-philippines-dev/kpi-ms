@@ -1,9 +1,36 @@
-import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, AlertTriangle, XCircle, Bell } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { currentPeriodStart } from "@/lib/period";
+import { getWeekStartDay } from "@/lib/settings";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import type { Prisma } from "@/generated/prisma/client";
+
+// Flags connections that don't yet have a KpiConfig row for every KPI
+// applicable to their department/service — mirrors legacy
+// getManagerNotifications()'s "N connections missing KPI config".
+async function getManagerNotifications(scope: Prisma.ConnectionWhereInput) {
+  const connections = await prisma.connection.findMany({
+    where: scope,
+    include: { vaUser: true, kpiConfigs: true },
+  });
+  const kpiDefs = await prisma.kpiDefinition.findMany();
+
+  const missingConfig = connections.filter((conn) => {
+    const applicable = kpiDefs.filter(
+      (k) =>
+        k.departmentId === conn.departmentId &&
+        (k.serviceId === null || k.serviceId === conn.serviceId),
+    );
+    const configuredIds = new Set(conn.kpiConfigs.map((c) => c.kpiDefinitionId));
+    return applicable.some((k) => !configuredIds.has(k.id));
+  });
+
+  return { missingConfig };
+}
 
 const TILES = [
   {
@@ -27,35 +54,41 @@ const TILES = [
 ] as const;
 
 export default async function DashboardOverviewPage() {
-  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY);
+  const session = await requireSession();
+  const scope = connectionScopeWhere(session);
+  const weekStartDay = await getWeekStartDay();
+  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
   const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
+  const isManager = ["ADMIN", "DM", "OM"].includes(session.role);
 
-  const summaries = await prisma.performanceSummary.findMany({
-    where: {
-      OR: [
-        { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
-        { period: KpiPeriod.MONTHLY, periodStart: monthlyStart },
-      ],
-    },
-    include: { connection: { include: { department: true } } },
-  });
+  const [summaries, notifications] = await Promise.all([
+    prisma.performanceSummary.findMany({
+      where: {
+        connection: scope,
+        OR: [
+          { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
+          { period: KpiPeriod.MONTHLY, periodStart: monthlyStart },
+        ],
+      },
+      include: { connection: { include: { department: true } } },
+    }),
+    isManager ? getManagerNotifications(scope) : Promise.resolve(null),
+  ]);
 
-  const counts = {
+  const emptyCounts = () => ({
     [PerformanceStatus.ON_TARGET]: 0,
     [PerformanceStatus.AT_RISK]: 0,
     [PerformanceStatus.CRITICAL]: 0,
-  };
+    [PerformanceStatus.NO_DATA]: 0,
+  });
+  const counts = emptyCounts();
   const byDepartment = new Map<string, typeof counts>();
 
   for (const s of summaries) {
     counts[s.status]++;
     const deptName = s.connection.department.name;
     if (!byDepartment.has(deptName)) {
-      byDepartment.set(deptName, {
-        [PerformanceStatus.ON_TARGET]: 0,
-        [PerformanceStatus.AT_RISK]: 0,
-        [PerformanceStatus.CRITICAL]: 0,
-      });
+      byDepartment.set(deptName, emptyCounts());
     }
     byDepartment.get(deptName)![s.status]++;
   }
@@ -66,6 +99,30 @@ export default async function DashboardOverviewPage() {
         title="Overview"
         description="Weekly / monthly performance across all departments."
       />
+
+      {notifications && notifications.missingConfig.length > 0 && (
+        <div className="mb-6 max-w-4xl rounded-lg border border-warning/30 bg-warning/10 p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-warning">
+            <Bell className="size-4" />
+            {notifications.missingConfig.length} connection
+            {notifications.missingConfig.length === 1 ? "" : "s"} missing KPI
+            config
+          </div>
+          <ul className="mt-2 space-y-1 text-xs text-muted">
+            {notifications.missingConfig.map((c) => (
+              <li key={c.id}>
+                {c.vaUser.name ?? c.vaUser.email} · {c.clientName}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/dashboard/connections"
+            className="mt-2 inline-block text-xs text-accent hover:underline"
+          >
+            Go to Connections →
+          </Link>
+        </div>
+      )}
 
       {summaries.length === 0 ? (
         <ComingSoon note="No performance data for the current period yet — it's computed automatically as submissions come in." />

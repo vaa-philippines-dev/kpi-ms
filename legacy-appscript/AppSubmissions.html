@@ -1,0 +1,898 @@
+<script>
+// ============================================================
+// AppSubmissions.html \u2014 Submission Tracker Frontend (v2)
+// ============================================================
+
+window._subState = {
+  period:    'weekly',
+  periodKey: null,
+  userSet:   false,
+  deptFilter: '',
+  teamFilter: '',
+  svcFilter:  ''
+};
+
+// ── Entry point ────────────────────────────────────────────────────────────
+
+// ── Team Submission Report Modal ──────────────────────────────────────────
+function openTeamSubmissionReport() {
+  var box = document.getElementById('modal-box');
+  if (box) box.className = 'modal-box modal-xl';
+  var toolbarHtml = '<div style="display:flex;align-items:center;gap:10px;padding:10px 0 12px;border-bottom:1px solid var(--border);margin-bottom:14px;flex-wrap:wrap;">'
+    + '<span style="font-size:12px;font-weight:600;color:var(--text-muted);white-space:nowrap;">Department:</span>'
+    + '<select id="tsr-dept" onchange="_tsrDeptChange()" style="height:30px;font-size:12px;color:var(--text);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;min-width:160px;cursor:pointer;">'
+    + '<option value="">Loading\u2026</option>'
+    + '</select>'
+    + '<span style="font-size:12px;font-weight:600;color:var(--text-muted);white-space:nowrap;margin-left:8px;">Sort by:</span>'
+    + '<select id="tsr-sort" onchange="_tsrRender()" style="height:30px;font-size:12px;color:var(--text);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;min-width:160px;cursor:pointer;">'
+    + '<option value="team">Team Number</option>'
+    + '<option value="desc">Highest Rate First</option>'
+    + '<option value="asc">Lowest Rate First</option>'
+    + '</select></div>';
+  var overallHtml = '<div id="tsr-overall" style="margin-bottom:16px;"><div style="padding:16px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div></div>';
+  var bodyHtml    = '<div id="tsr-body"><div style="padding:30px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div></div>';
+  openModal('Team Submission Report', toolbarHtml + overallHtml + bodyHtml);
+
+  window._tsrPeriod = window._subState && window._subState.period === 'monthly' ? 'monthly' : 'weekly';
+  if (State.currentPage === 'analytics') {
+    // Opened from Performance Analytics — default to whatever department the main table is scoped/filtered to
+    window._tsrInitialDept = window._perfSideActiveDept || window._perfDeptFilter || window._perfDeptIdFilter || '';
+    if (window._perfPeriod) window._tsrPeriod = window._perfPeriod === 'monthly' ? 'monthly' : 'weekly';
+  } else {
+    window._tsrInitialDept = (window._subState && window._subState.deptFilter) || '';
+  }
+  // Use the selected week from global period bar (or subState) as the anchor
+  window._tsrAnchor = (window._globalPeriod && window._globalPeriod.periodKey)
+                    || (window._subState && window._subState.periodKey)
+                    || '';
+
+  _tsrLoad(window._tsrInitialDept);
+}
+
+// ── (Re)load the report for a given department, rebuilding the dept dropdown from the response ──
+function _tsrLoad(deptId) {
+  var overallEl = document.getElementById('tsr-overall');
+  var bodyEl    = document.getElementById('tsr-body');
+  if (overallEl) overallEl.innerHTML = '<div style="padding:16px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>';
+  if (bodyEl)    bodyEl.innerHTML    = '<div style="padding:30px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>';
+
+  gsr('getTeamSubmissionReport', State.user.id, State.user.role, deptId||'', window._tsrPeriod, window._tsrAnchor)
+  .then(function(res) {
+    var body = document.getElementById('tsr-body');
+    if (!body) return;
+    if (!res || !res.success) {
+      body.innerHTML = '<div class="table-empty">Failed: '+(res&&res.message||'error')+'</div>';
+      return;
+    }
+    // Populate the department dropdown once, from the role-scoped options the backend returned
+    var deptSel = document.getElementById('tsr-dept');
+    if (deptSel && !deptSel.getAttribute('data-populated')) {
+      var opts = res.deptOptions || [];
+      var activeId = res.activeDeptId || deptId || '';
+      deptSel.innerHTML = '<option value="">All Departments</option>'
+        + opts.map(function(d){
+            return '<option value="'+d.deptId+'"'+(String(d.deptId)===String(activeId)?' selected':'')+'>'+d.deptName+'</option>';
+          }).join('');
+      // If the caller passed a value that isn't a real DeptID (e.g. a dept NAME
+      // inferred from the main table), try to match it by name instead.
+      if (activeId && deptSel.value !== String(activeId)) {
+        var byName = opts.find(function(d){ return d.deptName === activeId; });
+        if (byName) deptSel.value = byName.deptId;
+      }
+      deptSel.setAttribute('data-populated', '1');
+    }
+    window._tsrData = res.data || [];
+    _tsrRenderOverall(res.data || []);
+    _tsrRender();
+  });
+}
+
+function _tsrDeptChange() {
+  var deptSel = document.getElementById('tsr-dept');
+  var deptId  = deptSel ? deptSel.value : '';
+  _tsrLoad(deptId);
+}
+
+
+function _tsrRenderOverall(data) {
+  var el = document.getElementById('tsr-overall');
+  if (!el || !data.length) { if (el) el.style.display='none'; return; }
+  var weekMap = {};
+  data.forEach(function(team) {
+    (team.weeks||[]).forEach(function(w) {
+      if (!weekMap[w.week]) weekMap[w.week] = {week:w.week, submitted:0, total:0};
+      weekMap[w.week].submitted += (w.submitted||0);
+      weekMap[w.week].total     += (w.total||0);
+    });
+  });
+  var weeks = Object.keys(weekMap).sort().map(function(k){ return weekMap[k]; });
+  if (!weeks.length) { el.style.display='none'; return; }
+
+  var W=560, H=140, PL=36, PR=16, PT=12, PB=28, n=weeks.length;
+  var cW=W-PL-PR, cH=H-PT-PB;
+  function cx(i){ return PL+(n>1?(i/(n-1))*cW:cW/2); }
+  function cy(v){ return PT+cH-(v*cH); }
+
+  // Gridlines
+  var grid='';
+  [0,0.25,0.5,0.75,1].forEach(function(frac){
+    var y=cy(frac), lbl=Math.round(frac*100)+'%';
+    grid+='<line x1="'+PL+'" y1="'+y+'" x2="'+(PL+cW)+'" y2="'+y+'" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>';
+    grid+='<text x="'+(PL-4)+'" y="'+(y+3)+'" text-anchor="end" font-size="9" fill="var(--text-muted)">'+lbl+'</text>';
+  });
+
+  // Points
+  var pts = weeks.map(function(w,i){
+    var rate = w.total ? w.submitted/w.total : 0;
+    return { x:cx(i), y:cy(rate), pct:Math.round(rate*100),
+             submitted:w.submitted, total:w.total, week:w.week,
+             lbl:w.week.slice(5) };
+  });
+
+  // Area + line path
+  var path='M'; pts.forEach(function(p,i){ path+=(i?'L':'')+p.x+' '+p.y+' '; });
+  var area='M '+pts[0].x+' '+(PT+cH)+' L'+pts[0].x+' '+pts[0].y+' ';
+  pts.slice(1).forEach(function(p){ area+='L'+p.x+' '+p.y+' '; });
+  area+='L'+pts[pts.length-1].x+' '+(PT+cH)+' Z';
+
+  // X axis labels
+  var xLabels='';
+  pts.forEach(function(p){
+    xLabels+='<text x="'+p.x+'" y="'+(PT+cH+16)+'" text-anchor="middle" font-size="9" fill="var(--text-muted)">'+p.lbl+'</text>';
+  });
+
+  // Interactive dots with hover tooltips (pure CSS, no JS events)
+  var TW=92, TH=52, TR=5;
+  var dots='';
+  pts.forEach(function(p,i){
+    // Clamp tooltip so it never overflows SVG edges
+    var tx = Math.min(Math.max(p.x - TW/2, PL), W - PR - TW);
+    var ty = (p.y - TH - 12 < PT) ? (p.y + 10) : (p.y - TH - 12);
+    var pctColor = p.pct>=80?'#10d48e':p.pct>=50?'#f5a623':'#ff4d6a';
+    var isLast = (i === pts.length-1);
+    var r = isLast ? 6 : 4;
+    var labelY = Math.max(10, p.y - (isLast ? 16 : 10));
+    dots += '<g class="tsr-g">'
+      // Large transparent hit area
+      + '<circle cx="'+p.x+'" cy="'+p.y+'" r="12" fill="transparent"/>'
+      // Halo behind the latest/selected dot
+      + (isLast ? '<circle cx="'+p.x+'" cy="'+p.y+'" r="'+(r+4)+'" fill="'+pctColor+'" opacity="0.18"/>' : '')
+      // Always-visible % label
+      + '<text x="'+p.x+'" y="'+labelY+'" text-anchor="middle" font-size="'+(isLast?11:9)+'" font-weight="'+(isLast?800:600)+'" fill="'+pctColor+'">'+p.pct+'%</text>'
+      // Visible dot
+      + '<circle class="tsr-dot" cx="'+p.x+'" cy="'+p.y+'" r="'+r+'" fill="'+pctColor+'" stroke="var(--bg-secondary,#111)" stroke-width="'+(isLast?2:1.5)+'"/>'
+      // Tooltip (hidden via CSS, shown on g:hover)
+      + '<g class="tsr-tt" pointer-events="none">'
+      + '<rect x="'+tx+'" y="'+ty+'" width="'+TW+'" height="'+TH+'" rx="'+TR+'" fill="var(--bg-elevated,#1c1c2e)" stroke="var(--border)" stroke-width="1"/>'
+      // Week
+      + '<text x="'+(tx+TW/2)+'" y="'+(ty+14)+'" text-anchor="middle" font-size="9" font-weight="600" fill="var(--text-muted)">'+p.week+'</text>'
+      // Rate (big)
+      + '<text x="'+(tx+TW/2)+'" y="'+(ty+32)+'" text-anchor="middle" font-size="16" font-weight="800" fill="'+pctColor+'">'+p.pct+'%</text>'
+      // Submitted / Total
+      + '<text x="'+(tx+TW/2)+'" y="'+(ty+47)+'" text-anchor="middle" font-size="9" fill="var(--text-muted)">'+p.submitted+' of '+p.total+' submitted</text>'
+      + '</g>'
+      + '</g>';
+  });
+
+  el.innerHTML = '<style>'
+    + '.tsr-g .tsr-tt{display:none}'
+    + '.tsr-g:hover .tsr-tt{display:block}'
+    + '.tsr-g:hover .tsr-dot{r:6}'
+    + '</style>'
+    + '<div class="card" style="margin-bottom:14px;">'
+    + '<div class="card-header" style="padding-bottom:4px;">'
+    + '<div class="card-title">Overall Submission Trend</div>'
+    + '<div class="card-subtitle">All teams combined \u2014 past 6 weeks \u00b7 hover a point for details</div>'
+    + '</div>'
+    + '<div style="padding:4px 12px 10px;">'
+    + '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;overflow:visible;">'
+    + grid
+    + '<defs><linearGradient id="tsr-grad" x1="0" y1="0" x2="0" y2="1">'
+    + '<stop offset="0%" stop-color="var(--on-target)" stop-opacity="0.2"/>'
+    + '<stop offset="100%" stop-color="var(--on-target)" stop-opacity="0.01"/>'
+    + '</linearGradient></defs>'
+    + '<path d="'+area+'" fill="url(#tsr-grad)"/>'
+    + '<path d="'+path+'" fill="none" stroke="var(--on-target)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
+    + xLabels
+    + dots   // dots LAST so they render on top of line
+    + '</svg></div></div>';
+}
+function _tsrRender() {
+  var body = document.getElementById('tsr-body');
+  if (!body) return;
+  var data = (window._tsrData || []).slice();
+  var sort = (document.getElementById('tsr-sort')||{value:'desc'}).value;
+  if (sort === 'team') {
+    data.sort(function(a,b){
+      var na = parseInt(String(a.teamNumber||'999').replace(/\D/g,''))||999;
+      var nb = parseInt(String(b.teamNumber||'999').replace(/\D/g,''))||999;
+      return na - nb;
+    });
+  } else {
+    data.sort(function(a,b){ return sort==='desc' ? b.avgRate-a.avgRate : a.avgRate-b.avgRate; });
+  }
+  if (!data.length) { body.innerHTML='<div class="table-empty">No team data available.</div>'; return; }
+
+  var rows = data.map(function(team) {
+    var barW = Math.round((team.avgRate||0) * 100);
+    var barColor = barW >= 80 ? 'var(--on-target)' : barW >= 50 ? 'var(--at-risk)' : 'var(--critical)';
+    // Sparkline: 6 weekly bars — the last one is the currently selected/anchor period
+    var weeks = team.weeks || [];
+    var maxW = Math.max.apply(null, weeks.map(function(w){ return w.total||1; }).concat([1]));
+    var selIdx = weeks.length - 1;
+    var curWeek = weeks[selIdx] || {submitted:0,total:0};
+    var curPct  = curWeek.total ? Math.round((curWeek.submitted/curWeek.total)*100) : 0;
+    var curColor = curPct>=80?'var(--on-target)':curPct>=50?'var(--at-risk)':'var(--critical)';
+    var sparkBars = weeks.map(function(w,i) {
+      var pct = w.total ? Math.round((w.submitted/w.total)*100) : 0;
+      var h = Math.max(4, Math.round((pct/100)*32));
+      var bc = pct>=80?'var(--on-target)':pct>=50?'var(--at-risk)':'var(--critical)';
+      var isSel = (i === selIdx);
+      return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:32px;">'
+        + '<div style="font-size:7px;font-weight:700;color:'+bc+';margin-bottom:1px;visibility:'+(isSel?'visible':'hidden')+';">'+pct+'%</div>'
+        + '<div title="'+w.week+': '+pct+'% ('+w.submitted+'/'+w.total+')'+(isSel?' \u2014 Selected period':'')+'" style="width:'+(isSel?'70%':'100%')+';background:'+bc+';height:'+h+'px;border-radius:2px;min-height:3px;'+(isSel?'outline:1.5px solid var(--text);outline-offset:1px;':'')+'"></div>'
+        + '</div>';
+    }).join('');
+    var weekLabels = weeks.map(function(w,i){
+      var isSel = (i === selIdx);
+      return '<div style="flex:1;font-size:8px;color:'+(isSel?'var(--text);font-weight:700;':'var(--text-muted);')+'text-align:center;overflow:hidden;">'+String(w.week||'').slice(5)+(isSel?' \u25B2':'')+'</div>';
+    }).join('');
+
+    var _tNum = String(team.teamNumber||'').trim();
+    var _tLabel = (_tNum && _tNum !== '0') ? 'Team '+_tNum.padStart(2,'0') : 'Teamless';
+    var row = '<tr>';
+    row += '<td style="min-width:140px;font-weight:600;font-size:12px;">'+_tLabel;
+    row += '<br><span style="font-size:10px;color:var(--text-muted);font-weight:400;">'+team.teamLeader+'</span></td>';
+    row += '<td style="min-width:80px;max-width:90px;">';
+    row += '<div style="display:flex;flex-direction:column;gap:2px;">';
+    row += '<div style="display:flex;align-items:flex-end;gap:1px;height:40px;">'+sparkBars+'</div>';
+    row += '<div style="display:flex;gap:1px;">'+weekLabels+'</div>';
+    row += '</div></td>';
+    row += '<td style="text-align:center;font-size:13px;font-weight:700;color:'+curColor+';">'+curPct+'%'
+      + '<div style="font-size:10px;font-weight:400;color:var(--text-muted);">'+curWeek.submitted+'/'+curWeek.total+'</div></td>';
+    row += '<td style="min-width:160px;">';
+    row += '<div style="display:flex;align-items:center;gap:8px;">';
+    row += '<div style="flex:1;background:var(--border);border-radius:4px;height:8px;overflow:hidden;">';
+    row += '<div style="width:'+barW+'%;background:'+barColor+';height:100%;border-radius:4px;"></div></div>';
+    row += '<span style="font-size:12px;font-weight:700;color:'+barColor+';min-width:36px;text-align:right;">'+barW+'%</span>';
+    row += '</div></td>';
+    row += '<td style="font-size:12px;color:var(--text-muted);text-align:center;">'+team.submitted+'/'+team.total+'</td>';
+    row += '</tr>';
+    return row;
+  }).join('');
+
+  var tableHtml = '<div class="table-wrap" style="max-height:70vh;overflow-y:auto;">';
+  tableHtml += '<table class="data-table"><thead style="position:sticky;top:0;z-index:2;background:var(--bg-secondary);">';
+  tableHtml += '<tr><th>Team</th><th>Weekly Trend</th><th>This Period %</th><th>Avg Rate</th><th>Submitted/Total</th></tr>';
+  tableHtml += '</thead><tbody>'+rows+'</tbody></table></div>';
+  body.innerHTML = tableHtml;
+}
+function renderSubmissions() {
+  // Sync from global period selector
+  var gp = window._globalPeriod || {};
+  var st = window._subState;
+  if (gp.period)    st.period    = gp.period;
+  if (gp.periodKey) st.periodKey = gp.periodKey;
+  if (!st.periodKey) {
+    var now = new Date();
+    st.periodKey = st.period==='monthly'
+      ? now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')
+      : getMondayStr(now);
+  }
+  // Register listener for global period changes
+  if (!window._gpListeners) window._gpListeners = {};
+  window._gpListeners['submissions'] = function() {
+    var gp2 = window._globalPeriod || {};
+    st.period    = gp2.period    || st.period;
+    st.periodKey = gp2.periodKey || st.periodKey;
+    st.userSet   = true;
+    _subLoad();
+  };
+  set('page-content','<div style="padding:40px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+  _subRenderShell();
+  _subLoad();
+}
+window.renderSubmissions = renderSubmissions;
+
+// ── Shell ──────────────────────────────────────────────────────────────────
+function _subRenderShell() {
+  var st        = window._subState;
+  var isAdmin   = State.user.role==='Administrator';
+  var periodLabel = _subPeriodLabel(st.periodKey, st.period);
+  var atCurrent   = _subIsAtCurrent();
+
+  var toggleHtml =
+    '<div style="display:flex;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);overflow:hidden;">'
+    +'<button onclick="_subSetPeriod(\'weekly\')" style="border:none;border-radius:0;font-size:12px;font-weight:600;padding:5px 16px;cursor:pointer;'+(st.period==='weekly'?'background:var(--primary);color:#fff;':'background:transparent;color:#9ca3af;')+'">Weekly</button>'
+    +'<button onclick="_subSetPeriod(\'monthly\')" style="border:none;border-radius:0;font-size:12px;font-weight:600;padding:5px 16px;cursor:pointer;'+(st.period==='monthly'?'background:var(--primary);color:#fff;':'background:transparent;color:#9ca3af;')+'">Monthly</button>'
+    +'</div>';
+
+  // Build week/month dropdown from available periods
+  var periods  = window._subPeriods || [st.periodKey];
+  var curKey   = st.periodKey;
+  var opts     = periods.map(function(p){
+    var lbl = _subPeriodLabel(p, st.period);
+    return '<option value="'+p+'"'+(p===curKey?' selected':'')+'>'+lbl+'</option>';
+  }).join('');
+
+  var navHtml =
+    '<button class="btn btn-secondary" style="padding:5px 10px;" onclick="_subNav(-1)">'
+    +'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>'
+    +'<select id="sub-period-select" class="form-control" style="height:32px;font-size:12px;font-weight:600;width:240px;max-width:240px;padding:0 8px;cursor:pointer;" onchange="_subPickPeriod(this.value)">'
+    +opts+'</select>'
+    +'<button class="btn btn-secondary" id="sub-nav-next" style="padding:5px 10px;"'+(atCurrent?' disabled':'')+' onclick="_subNav(1)">'
+    +'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>'
+    +'<button class="btn btn-secondary" style="font-size:12px;padding:5px 10px;" onclick="_subGoToday()">Today</button>';
+
+  var teamRptBtn = (State.user.role==='Administrator'||State.user.role==='Manager')
+    ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px;margin-left:auto;" onclick="openTeamSubmissionReport()">Team Report</button>'
+    : '';
+
+  var html =
+    '<div class="section-header" style="margin-bottom:16px;">'
+    +'<span class="section-title">Submission Tracker</span>'
+    +teamRptBtn+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 260px;gap:16px;align-items:start;">'
+    +'<div>'
+
+    +'<div id="sub-main-panel"><div style="padding:32px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div></div>'
+    +'</div>'
+    +'<div id="sub-side-panel"></div>'
+    +'</div>';
+  set('page-content', html);
+}
+
+// ── Load + Render ──────────────────────────────────────────────────────────
+function _subLoad() {
+  var st   = window._subState;
+  var main = document.getElementById('sub-main-panel');
+  var side = document.getElementById('sub-side-panel');
+  if (!main) return;
+  main.innerHTML = '<div style="padding:32px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>';
+  if (side) side.innerHTML = '';
+
+  gsr('getSubmissionsData', State.user.id, State.user.role, st.periodKey, st.period==='monthly')
+  .then(function(res) {
+    if (!res||!res.success) {
+      main.innerHTML = '<div class="table-empty" style="color:var(--danger);">Error: '+(res&&res.message||'Unknown')+'</div>';
+      return;
+    }
+
+    // Cache for filter use
+    window._subResCache = res;
+
+    // ── Scorecards ──────────────────────────────────────────────────────
+    var pct = res.totConns>0 ? Math.round(res.totSubmitted/res.totConns*100) : 0;
+    var cards =
+      '<div class="stat-grid" style="margin-bottom:16px;" id="sub-scorecards">'
+      +_subStatCard('Submitted', res.totSubmitted+' / '+res.totConns, pct+'%', 'on-target', statIcon('connections'), 'submitted')
+      +_subStatCard('Pending',   res.totPending+'', '', res.totPending>0?'at-risk':'on-target', statIcon('warning'), 'not_submitted')
+      +_subStatCard('VAs Complete', res.vasDone+' / '+res.vasTotal, '', 'total', statIcon('target'), 'vas_done')
+      +'</div>';
+
+    var isAdmin = State.user.role==='Administrator';
+    var isMgr   = State.user.role==='Manager';
+
+    var isAdmin = State.user.role==='Administrator';
+    var isMgr   = State.user.role==='Manager';
+
+    // Build filter selects — one set only, in card header, with readable text
+    var selectStyle = 'height:28px;font-size:12px;color:var(--text);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;cursor:pointer;';
+
+    // Style for all selects — option text forced black for readability in picker
+    var selStyle = 'height:28px;font-size:12px;color:var(--text);background:var(--bg-secondary);'      +'border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;cursor:pointer;';
+    var optStyle = 'color:#111;background:#fff;'; // native options: always dark text on white
+
+    // 1. Dept select (admin only)
+    var deptSel = '';
+    if (isAdmin) {
+      var dOpts = '<option value="" style="'+optStyle+'">All Departments</option>'
+        + res.deptSummary.map(function(d){
+            return '<option value="'+d.id+'" style="'+optStyle+'"'+(st.deptFilter===d.id?' selected':'')+'>'+d.name+'</option>';
+          }).join('');
+      deptSel = '<select id="sub-dept-filter" style="'+selStyle+'min-width:150px;" onchange="_subDeptChange()">'+dOpts+'</select>';
+    }
+
+    // 2. Service select — filtered by dept, order: dept→svc→team
+    var svcSel = '';
+    if (isAdmin||isMgr) {
+      var svcSeen = {};
+      res.vaRows.forEach(function(va) {
+        if (st.deptFilter && va.deptId !== st.deptFilter) return;
+        va.conns.forEach(function(cn) { if(cn.svcId && !svcSeen[cn.svcId]) svcSeen[cn.svcId]=cn.svcName; });
+      });
+      var sOpts = '<option value="" style="'+optStyle+'">All Services</option>';
+      Object.keys(svcSeen).sort(function(a,b){ return svcSeen[a].localeCompare(svcSeen[b]); })
+        .forEach(function(id){ sOpts+='<option value="'+id+'" style="'+optStyle+'"'+(st.svcFilter===id?' selected':'')+'>'+svcSeen[id]+'</option>'; });
+      svcSel = '<select id="sub-svc-filter" style="'+selStyle+'min-width:130px;" onchange="_subApplyFilters()">'+sOpts+'</select>';
+    }
+
+    // 3. Team select — filtered by dept, disabled if no dept selected
+    var teamSel = '';
+    if (isAdmin||isMgr) {
+      var tFiltered = res.teamSummary.filter(function(t){ return !st.deptFilter || String(t.deptId||'')===st.deptFilter; });
+      var tOpts = '<option value="" style="'+optStyle+'">All Teams</option>'
+        + tFiltered.map(function(t){
+            return '<option value="'+t.id+'" style="'+optStyle+'"'+(st.teamFilter===t.id?' selected':'')+'>'+t.name+'</option>';
+          }).join('');
+      var teamDisabled = (!st.deptFilter && isAdmin) ? ' disabled' : '';
+      teamSel = '<select id="sub-team-filter" style="'+selStyle+'min-width:130px;'+(teamDisabled?'opacity:0.4;cursor:not-allowed;':'')+'"'+teamDisabled+' onchange="_subApplyFilters()">'+tOpts+'</select>';
+    }
+
+    // 4. Status select
+    var statusSel = '<select id="sub-status-filter" style="'+selStyle+'min-width:120px;" onchange="_subApplyFilters()">'
+      +'<option value="" style="'+optStyle+'">All Status</option>'
+      +'<option value="Submitted" style="'+optStyle+'"'+(st.statusFilter==='Submitted'?' selected':'')+'>Submitted</option>'
+      +'<option value="Pending" style="'+optStyle+'"'+(st.statusFilter==='Pending'?' selected':'')+'>Pending</option>'
+      +'</select>';
+
+    var filtersHtml = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0 4px;">'
+      +deptSel+svcSel+teamSel+statusSel+'</div>';
+
+    var dtHtml =
+      '<div class="card">'
+      +'<div class="card-header" style="padding-bottom:0;">'
+      +'<div class="card-title">VA Submission Detail</div>'
+      +'</div>'
+      +filtersHtml
+      +'<div id="sub-dt-wrap"></div>'
+      +'</div>';
+
+    main.innerHTML = cards + dtHtml;
+
+    _subRenderTable(res);
+    _subRenderSide(res);
+  });
+}
+
+// ── Apply filters without reloading from backend ──────────────────────────
+function _subRebuildFilters(res) {
+  // Re-render svc and team dropdowns based on current deptFilter
+  var st = window._subState;
+  var optStyle = 'color:#111;background:#fff;';
+  var selStyle = 'height:28px;font-size:12px;color:var(--text);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;cursor:pointer;';
+
+  // Svc
+  var svcEl = document.getElementById('sub-svc-filter');
+  if (svcEl) {
+    var svcSeen = {};
+    res.vaRows.forEach(function(va) {
+      if (st.deptFilter && va.deptId !== st.deptFilter) return;
+      va.conns.forEach(function(cn) { if(cn.svcId&&!svcSeen[cn.svcId]) svcSeen[cn.svcId]=cn.svcName; });
+    });
+    var sOpts = '<option value="" style="'+optStyle+'">All Services</option>';
+    Object.keys(svcSeen).sort(function(a,b){ return svcSeen[a].localeCompare(svcSeen[b]); })
+      .forEach(function(id){ sOpts+='<option value="'+id+'" style="'+optStyle+'">'+svcSeen[id]+'</option>'; });
+    svcEl.innerHTML = sOpts;
+  }
+
+  // Team
+  var teamEl = document.getElementById('sub-team-filter');
+  if (teamEl) {
+    var tFiltered = res.teamSummary.filter(function(t){ return !st.deptFilter || String(t.deptId||'')===st.deptFilter; });
+    var tOpts = '<option value="" style="'+optStyle+'">All Teams</option>'
+      + tFiltered.map(function(t){ return '<option value="'+t.id+'" style="'+optStyle+'">'+t.name+'</option>'; }).join('');
+    teamEl.innerHTML = tOpts;
+    teamEl.disabled  = !st.deptFilter;
+    teamEl.style.opacity = st.deptFilter ? '' : '0.4';
+    teamEl.style.cursor  = st.deptFilter ? 'pointer' : 'not-allowed';
+  }
+}
+
+function _subApplyFilters() {
+  var st  = window._subState;
+  var res = window._subResCache;
+  if (!res) return;
+  st.deptFilter   = (document.getElementById('sub-dept-filter')   ||{}).value || '';
+  st.teamFilter   = (document.getElementById('sub-team-filter')   ||{}).value || '';
+  st.svcFilter    = (document.getElementById('sub-svc-filter')    ||{}).value || '';
+  st.statusFilter = (document.getElementById('sub-status-filter') ||{}).value || '';
+  _subRenderTable(res);
+  _subRenderSide(res);
+}
+
+function _subSvcFilterChange() {
+  _subApplyFilters();
+}
+
+
+function _subDeptChange() {
+  var st = window._subState;
+  var deptEl = document.getElementById('sub-dept-filter');
+  st.deptFilter  = deptEl ? deptEl.value : '';
+  st.svcFilter   = '';
+  st.teamFilter  = '';
+  // Reload data (uses cache implicitly by re-calling gsr — but we need fresh filter options)
+  // Simplest correct approach: re-trigger _subLoad which rebuilds filter HTML from cached res
+  var res = window._subResCache;
+  if (!res) return;
+  // Rebuild filter HTML inline (same logic as _subLoad but without re-fetching)
+  _subRebuildFilters(res);
+  _subRenderTable(res);
+  _subRenderSide(res);
+}
+
+
+// ── Render DataTable from cached res ──────────────────────────────────────
+function _subRenderTable(res) {
+  var st    = window._subState;
+  var dtData = [];
+  res.vaRows.forEach(function(va) {
+    if (st.deptFilter && va.deptId!==st.deptFilter) return;
+    if (st.teamFilter && va.teamId!==st.teamFilter) return;
+    va.conns.forEach(function(conn) {
+      if (st.svcFilter    && conn.svcId!==st.svcFilter)     return;
+      if (st.statusFilter && (conn.isNA || conn.isPaused)) return;
+      if (st.statusFilter && (st.statusFilter==='Submitted') !== conn.submitted) return;
+      if (st.deptFilter && conn.deptId!==st.deptFilter) return;
+      dtData.push({
+        _vaId:      va.vaId,
+        _submitted: conn.submitted,
+        _isNA:      !!conn.isNA,
+        _isPaused:  !!conn.isPaused,
+        _deptId:    va.deptId,
+        _teamId:    va.teamId,
+        _svcId:     conn.svcId,
+        VAName:     va.vaName,
+        Team:       va.teamName,
+        Client:     conn.clientName+(conn.secondary?'\n'+conn.secondary:''),
+        DeptSvc:    conn.deptName+(conn.svcName && conn.svcName!==conn.deptName ? '|||'+conn.svcName : ''),
+        Status:     conn.isNA ? 'Not Applicable' : conn.isPaused ? 'Paused' : (conn.submitted ? 'Submitted' : 'Pending'),
+        _subCount:  conn.subCount
+      });
+    });
+  });
+
+  function recompute(visData) {
+    var countable = visData.filter(function(r){ return !r._isNA && !r._isPaused; });
+    var fSub=0, fTot=countable.length;
+    var vaMap2={};
+    countable.forEach(function(r){
+      if (r._submitted) fSub++;
+      if (!vaMap2[r._vaId]) vaMap2[r._vaId]={s:0,t:0};
+      vaMap2[r._vaId].t++;
+      if (r._submitted) vaMap2[r._vaId].s++;
+    });
+    var vDone=Object.values(vaMap2).filter(function(v){return v.t>0&&v.s===v.t;}).length;
+    var vTot=Object.keys(vaMap2).length;
+    var pct2=fTot>0?Math.round(fSub/fTot*100):0;
+    var sc=document.getElementById('sub-scorecards');
+    if (sc) sc.innerHTML=
+       _subStatCard('Submitted',fSub+' / '+fTot,pct2+'%','on-target',statIcon('connections'),'submitted')
+      +_subStatCard('Pending',(fTot-fSub)+'','',(fTot-fSub)>0?'at-risk':'on-target',statIcon('warning'),'not_submitted')
+      +_subStatCard('VAs Complete',vDone+' / '+vTot,'','total',statIcon('target'),'vas_done');
+  }
+
+  renderDataTable({
+    containerId:  'sub-dt-wrap',
+    defaultLimit: 25,
+    limitOptions: [10,25,50,100],
+    emptyMessage: 'No records match the current filters.',
+    data:         dtData,
+    onFilter:     recompute,
+    columns: [
+      { key:'VAName',     label:'Virtual Assistant', sortable:true, filterable:true },
+      { key:'Team',       label:'Team',              sortable:true, filterable:false },
+      { key:'Client',     label:'Client',            sortable:true, filterable:true,
+        render:function(v){ var p=v.split('\n'); return '<strong>'+p[0]+'</strong>'+(p[1]?'<div style="font-size:11px;color:var(--text-muted);">'+p[1]+'</div>':''); }
+      },
+      { key:'DeptSvc', label:'Department / Service', sortable:true, filterable:false,
+        render:function(v){
+          var parts=v.split('|||');
+          return '<span style="font-size:12px;">'+parts[0]+'</span>'
+            +(parts[1]?'<div style="font-size:11px;color:var(--text-muted);margin-top:1px;">'+parts[1]+'</div>':'');
+        }
+      },
+      { key:'Status',     label:'Status',     sortable:true, filterable:false,
+        render:function(v,row){
+          var badge = v==='Not Applicable'
+            ? '<span class="badge badge-muted" title="Newly added this period — not counted">Not Applicable</span>'
+            : v==='Paused'
+            ? '<span class="badge badge-muted" title="Connection was paused during this period — not counted">Paused</span>'
+            : v==='Submitted'
+            ? '<span class="badge badge-success" style="display:inline-flex;align-items:center;gap:4px;">'
+              +'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>Submitted</span>'
+            : '<span class="badge badge-warning">Pending</span>';
+          var dup = (row._subCount||0)>1
+            ? ' <span title="'+row._subCount+' submissions" style="font-size:10px;color:var(--at-risk);cursor:help;">⚠ ×'+row._subCount+'</span>'
+            : '';
+          return badge+dup;
+        }
+      }
+    ]
+  });
+}
+
+// ── Side panel ────────────────────────────────────────────────────────────
+function _subRenderSide(res) {
+  var side = document.getElementById('sub-side-panel');
+  if (!side) return;
+  var st      = window._subState;
+  var isAdmin = State.user.role==='Administrator';
+
+  // No dept filter -> Department Summary; dept selected -> Team Summary filtered to that dept
+  var showDeptSummary = isAdmin && !st.deptFilter;
+
+  if (showDeptSummary) {
+    var dRows = res.deptSummary || [];
+    var dTbody = dRows.map(function(r) {
+      var pct = r.total>0?Math.round(r.submitted/r.total*100):0;
+      var col = pct===100?'var(--on-target)':pct>=50?'var(--at-risk)':'var(--critical)';
+      return '<tr>'
+        +'<td style="font-size:11px;padding:5px 8px;">'+r.name+'</td>'
+        +'<td style="text-align:right;padding:5px 8px;white-space:nowrap;">'
+        +'<span style="font-size:12px;font-weight:600;">'+r.submitted+'/'+r.total+'</span> '
+        +'<span style="font-size:10px;font-weight:700;color:'+col+';">(' +pct+'%)</span>'
+        +'</td></tr>';
+    }).join('');
+    side.innerHTML =
+      '<div class="card">'
+      +'<div class="card-header" style="padding-bottom:4px;"><div class="card-title">Department Summary</div></div>'
+      +'<div class="table-wrap"><table style="font-size:11px;">'
+      +'<thead><tr>'
+      +'<th style="font-size:10px;padding:4px 8px;">Department</th>'
+      +'<th style="font-size:10px;padding:4px 8px;text-align:right;">Sub / Total</th>'
+      +'</tr></thead>'
+      +'<tbody>'+dTbody+'</tbody>'
+      +'</table></div></div>';
+    return;
+  }
+
+  // Team summary — filter to selected dept
+  var tRows = (res.teamSummary || []).filter(function(t) {
+    if (!st.deptFilter) return true;
+    return String(t.deptId||'') === String(st.deptFilter);
+  });
+
+  if (!tRows.length) {
+    side.innerHTML = '<div class="card">'
+      +'<div class="card-header"><div class="card-title">Team Summary</div></div>'
+      +'<div class="table-empty" style="padding:12px;font-size:11px;">No teams found.</div>'
+      +'</div>';
+    return;
+  }
+
+  var tTbody = tRows.map(function(r) {
+    var pct = r.total>0?Math.round(r.submitted/r.total*100):0;
+    var col = pct===100?'var(--on-target)':pct>=50?'var(--at-risk)':'var(--critical)';
+    var teamCell = '<td style="padding:5px 8px;">'
+      +'<div style="font-size:11px;font-weight:700;color:var(--text);">'+r.name+'</div>'
+      +(r.leader && r.leader!=='\u2014'
+        ? '<div style="font-size:10px;color:var(--text-muted);margin-top:1px;">'+r.leader+'</div>'
+        : '')
+      +'</td>';
+    return '<tr>'
+      +teamCell
+      +'<td style="text-align:right;padding:5px 8px;white-space:nowrap;vertical-align:middle;">'
+      +'<span style="font-size:12px;font-weight:600;">'+r.submitted+'/'+r.total+'</span><br>'
+      +'<span style="font-size:10px;font-weight:700;color:'+col+';">(' +pct+'%)</span>'
+      +'</td></tr>';
+  }).join('');
+
+  side.innerHTML =
+    '<div class="card">'
+    +'<div class="card-header" style="padding-bottom:4px;"><div class="card-title">Team Summary</div></div>'
+    +'<div class="table-wrap"><table style="font-size:11px;">'
+    +'<thead><tr>'
+    +'<th style="font-size:10px;padding:4px 8px;">Team</th>'
+    +'<th style="font-size:10px;padding:4px 8px;text-align:right;">Sub / Total</th>'
+    +'</tr></thead>'
+    +'<tbody>'+tTbody+'</tbody>'
+    +'</table></div></div>';
+}
+
+// ── Stat card ──────────────────────────────────────────────────────────────
+function _subStatCard(label,value,sub,cls,icon,filter) {
+  return '<div class="stat-card '+cls+'" style="cursor:pointer;" onclick="_subOpenDetail(\''+filter+'\')" title="Click to view detail">'
+    +'<div class="stat-label">'+label+'</div>'
+    +'<div class="stat-value">'+value+'</div>'
+    +(sub?'<div style="font-size:12px;opacity:0.75;margin-top:2px;">'+sub+'</div>':'')
+    +'<div class="stat-icon">'+icon+'</div>'
+    +'</div>';
+}
+
+// ── Modal detail ──────────────────────────────────────────────────────────
+function _subOpenDetail(filter) {
+  var st  = window._subState;
+  var box = document.getElementById('modal-box');
+  if (box) box.className='modal-box modal-960';
+  var title = filter==='submitted'?'Submitted Connections':filter==='not_submitted'?'Pending Connections':'All Connections';
+  openModal(title,'<div style="padding:32px;text-align:center;"><div class="spinner" style="margin:0 auto;"></div></div>');
+  var sf = (filter==='vas_done')?'':filter;
+  gsr('getSubmissionDetail',State.user.id,State.user.role,st.periodKey,st.period==='monthly',sf)
+  .then(function(res){
+    var body=document.getElementById('modal-body');
+    if (!body) return;
+    var list=(res&&res.data)||[];
+    if (filter==='vas_done') {
+      var vaSubs={},vaTotal={};
+      list.forEach(function(r){
+        vaTotal[r.vaName]=(vaTotal[r.vaName]||0)+1;
+        if (r.submitted) vaSubs[r.vaName]=(vaSubs[r.vaName]||0)+1;
+      });
+      list=list.filter(function(r){ return r.submitted&&vaSubs[r.vaName]===vaTotal[r.vaName]; });
+    }
+    body.innerHTML='<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Period: <strong>'+st.periodKey+'</strong></div><div id="sub-modal-dt"></div>';
+    renderDataTable({
+      containerId:'sub-modal-dt',
+      defaultLimit:25,limitOptions:[10,25,50],
+      emptyMessage:'No records.',
+      data:list,
+      columns:[
+        {key:'vaName',   label:'VA',         sortable:true,filterable:true},
+        {key:'teamName', label:'Team',        sortable:true},
+        {key:'clientName',label:'Client',    sortable:true,filterable:true,
+          render:function(v,row){return '<strong>'+v+'</strong>'+(row.secondary?'<div style="font-size:11px;color:var(--text-muted);">'+row.secondary+'</div>':'');}},
+        {key:'deptName', label:'Department / Service', sortable:true,
+          render:function(v,row){
+            return '<span style="font-size:12px;">'+v+'</span>'
+              +(row.svcName?'<div style="font-size:11px;color:var(--text-muted);margin-top:1px;">'+row.svcName+'</div>':'');
+          }
+        },
+        {key:'submitted',label:'Status',      sortable:true,
+          render:function(v,row){
+            var b=v?'<span class="badge badge-success">Submitted</span>':'<span class="badge badge-warning">Pending</span>';
+            return b+((row.subCount||0)>1?' <span style="font-size:10px;color:var(--at-risk);">\u26A0 \u00D7'+row.subCount+'</span>':'');
+          }}
+      ]
+    });
+  });
+}
+
+// ── Navigation helpers ─────────────────────────────────────────────────────
+function _subSetPeriod(period) {
+  var st=window._subState; st.period=period; st.userSet=false;
+  st.deptFilter=''; st.teamFilter=''; st.svcFilter='';
+  renderSubmissions();
+}
+function _subNav(dir) {
+  var st=window._subState, key=st.periodKey;
+  if (st.period==='monthly') {
+    var parts=key.split('-'),d=new Date(parseInt(parts[0]),parseInt(parts[1])-1+dir,1);
+    key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  } else {
+    // Always snap to Monday when navigating
+    var d2=new Date(key+'T00:00:00'); d2.setDate(d2.getDate()+dir*7); key=getMondayStr(d2);
+  }
+  var now=new Date();
+  var cur=st.period==='monthly'
+    ?now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')
+    :getMondayStr(now);
+  if (key>cur) key=cur;
+  st.periodKey=key; st.userSet=true;
+  _subUpdateNav();
+  _subLoad();
+}
+
+function _subPickPeriod(key) {
+  var st=window._subState;
+  if (!key) return;
+  // Use the key exactly as stored in the dropdown — it's already the correct Monday date string
+  // DO NOT call getMondayStr on it — that can shift by 1 day due to timezone conversion
+  st.periodKey = st.period==='monthly' ? key.slice(0,7) : key.slice(0,10);
+  st.userSet = true;
+  _subUpdateNav();
+  _subLoad();
+}
+
+function _subUpdateNav() {
+  var st  = window._subState;
+  var sel = document.getElementById('sub-period-select');
+  if (sel) {
+    // Sync dropdown to current key
+    var found = false;
+    for (var i=0; i<sel.options.length; i++) {
+      if (sel.options[i].value===st.periodKey) { sel.selectedIndex=i; found=true; break; }
+    }
+    // If period not in dropdown (navigated to a week with no data), add it
+    if (!found && st.periodKey) {
+      var opt=document.createElement('option');
+      opt.value=st.periodKey;
+      opt.textContent=_subPeriodLabel(st.periodKey,st.period);
+      opt.selected=true;
+      sel.insertBefore(opt,sel.firstChild);
+    }
+  }
+  var nb=document.getElementById('sub-nav-next');
+  if (nb) nb.disabled=_subIsAtCurrent();
+}
+function _subGoToday() {
+  var st=window._subState,now=new Date();
+  st.periodKey=st.period==='monthly'
+    ?now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')
+    :getMondayStr(now);
+  st.userSet=false;
+  _subUpdateNav();
+  _subLoad();
+}
+function _subPeriodLabel(key,period) {
+  if (!key || typeof key !== 'string' || key.length < 7) return key || '';
+  try {
+    if (period==='monthly') {
+      var d=new Date(key.slice(0,7)+'-01T00:00:00');
+      if (isNaN(d.getTime())) return key;
+      return d.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+    }
+    var safeKey = key.slice(0,10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(safeKey)) return safeKey;
+    // The key should already be a Monday (from getMondayStr/getAvailableSubmissionPeriods)
+    // Use it directly as Monday start — do NOT call getMondayStr again
+    // (calling getMondayStr on a period from the sheet could shift by 1 day if timezone differs)
+    var s = new Date(safeKey+'T00:00:00');
+    if (isNaN(s.getTime())) return safeKey;
+    // Verify it's Monday; if not, snap
+    if (s.getDay() !== 1) {
+      var diff = s.getDay()===0 ? -6 : 1-s.getDay();
+      s.setDate(s.getDate()+diff);
+    }
+    var e = new Date(s.getTime());
+    e.setDate(e.getDate()+6); // Sunday
+    var fmt=function(dt){return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});};
+    return fmt(s)+' \u2013 '+fmt(e); // Mon \u2013 Sun
+  } catch(ex) { return key || ''; }
+}
+function _subIsAtCurrent() {
+  var st=window._subState,now=new Date();
+  var cur=st.period==='monthly'?now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'):getMondayStr(now);
+  return (st.periodKey||'')>=cur;
+}
+
+// ── Diagnostic ────────────────────────────────────────────────────────────
+function _runSubTest() {
+  toast('Running test\u2026','info');
+  gsr('testSubmissions').then(function(res){
+    if (!res||!res.success){openModal('Test Failed','<pre style="font-size:11px;">'+JSON.stringify(res,null,2)+'</pre>');return;}
+    var lines=[
+      'Timezone:           '+res.timezone,
+      'Current week:       '+res.thisWeek,
+      'Sheet rows:         '+res.sheetLastRow,
+      'Rows for this week: '+res.matchCount,
+      'Active connections: '+res.activeConnCount,
+      'Matched:            '+res.matchedConnCount,
+      '','Active conn IDs (sample):'
+    ].concat((res.sampleActive||[]).map(function(id){return '  '+id;}))
+    .concat(['','Summary conn IDs (sample):'])
+    .concat((res.sampleSummaryIds||[]).map(function(id){return '  '+id;}))
+    .concat(['','Weeks in sheet:'])
+    .concat((res.allWeeksStored||[]).map(function(w){return '  '+w+' \u2192 '+(res.weekCounts[w]||0)+' rows';}))
+    .concat(['','Sheet rows (sample):'])
+    .concat((res.sampleRows||[]).slice(0,3).map(function(r){return '  cid='+r.cid+' wsd='+r.normalized;}));
+    var verdict=res.matchedConnCount>0
+      ?'\n\n\u2705 '+res.matchedConnCount+' / '+res.activeConnCount+' matched.'
+      :'\n\n\u26A0 0 matched \u2014 run backfillWeeklySummary() in GAS editor.';
+    openModal('Submission Test','<pre style="font-family:monospace;font-size:11px;line-height:1.7;background:var(--bg-secondary);padding:14px;border-radius:8px;overflow:auto;max-height:70vh;white-space:pre;">'+lines.join('\n')+verdict+'</pre>');
+  });
+}
+
+function _inspectSheet() {
+  toast('Inspecting sheet\u2026','info');
+  gsr('inspectSummarySheet').then(function(res){
+    if (!res||!res.success){
+      openModal('Inspect Failed','<pre style="font-size:11px;white-space:pre-wrap;">'+JSON.stringify(res,null,2)+'</pre>');
+      return;
+    }
+    var lines=[
+      'Current week: '+res.thisWeek,
+      'Rows for this week: '+res.thisWeekCount,
+      'Active connections: '+res.activeConnCount,
+      'Matched: '+res.matchedCount,
+      '',
+      '--- Sample rows (cid / wsd_raw / wsd_parsed / status) ---'
+    ];
+    (res.sampleRows||[]).forEach(function(r){
+      lines.push('  row'+r.row+' | cid='+r.cid_raw+' | raw='+r.wsd_raw+' | type='+r.wsd_type+' | parsed='+r.wsd_parsed+' | status='+r.status);
+    });
+    lines.push('','--- Active conn IDs (sample) ---');
+    (res.activeConnSample||[]).forEach(function(id){ lines.push('  '+id); });
+    lines.push('','--- Summary conn IDs this week (sample) ---');
+    if (!res.matchedCount) lines.push('  \u26A0 NONE MATCHED');
+    (res.summaryConnSample||[]).forEach(function(id){ lines.push('  '+id); });
+    lines.push('','--- All weeks in sheet (most recent) ---');
+    (res.allWeeks||[]).forEach(function(w){ lines.push('  '+w+' \u2192 '+(res.weekCounts[w]||0)+' rows'); });
+    var verdict = res.matchedCount>0
+      ? '\n\u2705 '+res.matchedCount+' matched!'
+      : '\n\u26A0 0 matched \u2014 ID mismatch or no data for this week';
+    openModal('Sheet Inspector', '<pre style="font-family:monospace;font-size:10px;line-height:1.6;background:var(--bg-secondary);padding:14px;border-radius:8px;overflow:auto;max-height:80vh;white-space:pre;">'+lines.join('\n')+verdict+'</pre>');
+  });
+}
+</script>

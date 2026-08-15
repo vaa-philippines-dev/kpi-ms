@@ -37,11 +37,13 @@ export default async function KpiLibraryPage() {
             <TableHead>
               <tr>
                 <Th>Name</Th>
+                <Th>Cluster</Th>
                 <Th>Department</Th>
                 <Th>Direction</Th>
                 <Th>Period</Th>
                 <Th>Target</Th>
-                <Th>Deviation %</Th>
+                <Th>At Risk %</Th>
+                <Th>Critical %</Th>
                 {isAdmin && <Th />}
               </tr>
             </TableHead>
@@ -49,7 +51,7 @@ export default async function KpiLibraryPage() {
               {kpis.length === 0 && (
                 <Tr>
                   <Td
-                    colSpan={isAdmin ? 7 : 6}
+                    colSpan={isAdmin ? 9 : 8}
                     className="py-6 text-center text-muted"
                   >
                     No KPIs defined yet.
@@ -59,13 +61,14 @@ export default async function KpiLibraryPage() {
               {kpis.map((kpi) =>
                 isAdmin ? (
                   <Tr key={kpi.id}>
-                    <Td colSpan={7} className="!py-2">
+                    <Td colSpan={9} className="!py-2">
                       <form
                         action={updateKpiDefinition}
-                        className="grid grid-cols-7 items-center gap-2"
+                        className="grid grid-cols-9 items-center gap-2"
                       >
                         <input type="hidden" name="id" value={kpi.id} />
                         <Input name="name" defaultValue={kpi.name} className="py-1" />
+                        <Input name="cluster" defaultValue={kpi.cluster} className="py-1" />
                         <Select
                           name="departmentId"
                           defaultValue={kpi.departmentId}
@@ -107,6 +110,13 @@ export default async function KpiLibraryPage() {
                           defaultValue={kpi.deviationThresholdPct}
                           className="py-1"
                         />
+                        <Input
+                          name="criticalThresholdPct"
+                          type="number"
+                          step="any"
+                          defaultValue={kpi.criticalThresholdPct}
+                          className="py-1"
+                        />
                         <TextAction type="submit">Save</TextAction>
                       </form>
                     </Td>
@@ -114,6 +124,7 @@ export default async function KpiLibraryPage() {
                 ) : (
                   <Tr key={kpi.id}>
                     <Td>{kpi.name}</Td>
+                    <Td className="text-muted">{kpi.cluster}</Td>
                     <Td className="text-muted">{kpi.department.name}</Td>
                     <Td className="text-muted">
                       {kpi.direction === KpiDirection.HIGHER_IS_BETTER
@@ -123,6 +134,7 @@ export default async function KpiLibraryPage() {
                     <Td className="text-muted">{kpi.period}</Td>
                     <Td className="text-muted">{kpi.targetValue}</Td>
                     <Td className="text-muted">{kpi.deviationThresholdPct}%</Td>
+                    <Td className="text-muted">{kpi.criticalThresholdPct}%</Td>
                   </Tr>
                 ),
               )}
@@ -154,6 +166,7 @@ export default async function KpiLibraryPage() {
                   required
                   className="sm:col-span-2"
                 />
+                <Input name="cluster" placeholder="Cluster" required />
                 <Select name="departmentId" required defaultValue="">
                   <option value="" disabled>
                     Department
@@ -190,7 +203,13 @@ export default async function KpiLibraryPage() {
                   name="deviationThresholdPct"
                   type="number"
                   step="any"
-                  placeholder="Deviation % (default 99)"
+                  placeholder="At Risk % (default 10)"
+                />
+                <Input
+                  name="criticalThresholdPct"
+                  type="number"
+                  step="any"
+                  placeholder="Critical % (default 25)"
                 />
                 <Button type="submit">Add KPI</Button>
               </form>

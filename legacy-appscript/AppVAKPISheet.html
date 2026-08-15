@@ -1,0 +1,303 @@
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// VA KPI Sheet — spreadsheet-style view of every VA connection's KPI actuals,
+// targets, and status, grouped by KPI Cluster. Scoped by role:
+//   Administrator → all (with a department picker, since KPI columns are
+//                   department-specific)
+//   Manager       → own department only
+//   Team Leader   → own team only (including their own client connections)
+// ═══════════════════════════════════════════════════════════════════════
+
+function renderVAKPISheet() {
+  VAA_LOG && VAA_LOG.info("VKS", "renderVAKPISheet()");
+  var role     = State.user.role;
+  var isAdmin  = role === 'Administrator';
+  var isManager= role === 'Manager';
+  var isTL     = role === 'Team Leader';
+
+  var gp = window._globalPeriod || {};
+  var week   = window._analyticsWeek || gp.periodKey || getMondayStr(new Date());
+  var period = window._vaKpiPeriod   || gp.period    || 'weekly';
+  window._vaKpiPeriod = period;
+  window._analyticsWeek = week;
+
+  var pc = document.getElementById('page-content');
+  if (pc) pc.innerHTML = '<div class="loading-overlay"><div class="inline-spinner"></div></div>';
+
+  var deptsPromise = isAdmin ? gsr('getDepartments') : Promise.resolve({data:[]});
+  var teamIdPromise = isTL ? gsr('getTLTeamId', State.user.id) : Promise.resolve('');
+
+  Promise.all([deptsPromise, teamIdPromise]).then(function(setupRes) {
+    var allDepts = (setupRes[0]||{}).data || [];
+    window._vaKpiDeptsList = allDepts;
+    // getTLTeamId returns a raw string (not {success,data})
+    var tlTeamId = setupRes[1] || '';
+    window._vaKpiTeamId = tlTeamId;
+
+    var deptId = isManager ? (State.user.department||'')
+               : isAdmin   ? (window._vaKpiDeptFilter || (allDepts[0] && allDepts[0].DeptID) || '')
+               : '';
+    if (isAdmin) window._vaKpiDeptFilter = deptId;
+    var teamId = isTL ? tlTeamId : '';
+
+    _loadVAKPISheet(week, period, deptId, teamId);
+  }).catch(function(err) {
+    console.error('[VKS] setup FAILED:', err && err.message ? err.message : err);
+    if (pc) pc.innerHTML = '<div class="empty-state"><h3>Failed to load VA KPI Sheet</h3><p style="color:var(--text-muted);font-size:12px;">'+(err&&err.message?err.message:'Unknown error.')+'</p></div>';
+  });
+}
+
+function _loadVAKPISheet(week, period, deptId, teamId) {
+  gsr('getVAKPISheetData', State.user.id, State.user.role, deptId||'', teamId||'', week, period)
+    .then(function(res) {
+      window._vaKpiSheetRes = res;
+      _renderVAKPISheetPage(res);
+    })
+    .catch(function(err) {
+      console.error('[VKS] load FAILED:', err && err.message ? err.message : err);
+      var pc = document.getElementById('page-content');
+      if (pc) pc.innerHTML = '<div class="empty-state"><h3>Failed to load VA KPI Sheet</h3><p style="color:var(--text-muted);font-size:12px;">'+(err&&err.message?err.message:'Unknown error.')+'</p></div>';
+    });
+}
+
+function _vksStatusBadge(status, compact) {
+  var map = { 'On Target':'badge-success', 'At Risk':'badge-warning', 'Critical':'badge-danger', 'No Data':'badge-muted' };
+  if (compact) {
+    return '<span class="badge vks-badge-compact '+(map[status]||'badge-muted')+'">'+(status||'No Data')+'</span>';
+  }
+  return '<span class="badge '+(map[status]||'badge-muted')+'" style="font-size:10px;white-space:nowrap;">'+(status||'No Data')+'</span>';
+}
+
+// Trend arrow: direction (up/down) always reflects which way the NUMBER moved;
+// color reflects whether that movement is favorable for THIS KPI (some KPIs are
+// "higher is better", others "lower is better"). Only the arrow glyph itself is
+// colored — it's a small trend indicator attached to THIS WEEK's actual value,
+// not a separate "previous week" data point.
+function _vksTrendArrow(actual, prevActual, direction) {
+  if (actual===null||actual===undefined||actual===''||prevActual===null||prevActual===undefined||prevActual==='') return '';
+  var a = parseFloat(actual), p = parseFloat(prevActual);
+  if (isNaN(a) || isNaN(p) || a === p) {
+    return '<span style="color:var(--text-muted);font-size:10px;" title="No change vs previous period">\u2014</span>';
+  }
+  var wentUp = a > p;
+  var higherIsBetter = (direction || 'higher') === 'higher';
+  var favorable = wentUp ? higherIsBetter : !higherIsBetter;
+  var color = favorable ? 'var(--on-target)' : 'var(--critical)';
+  var arrow = wentUp ? '\u25B2' : '\u25BC';
+  return '<span style="color:'+color+';font-size:10px;font-weight:700;" title="Previous period: '+prevActual+'">'+arrow+'</span>';
+}
+
+function _renderVAKPISheetPage(res) {
+  var role    = State.user.role;
+  var isAdmin = role === 'Administrator';
+  var period  = window._vaKpiPeriod || 'weekly';
+
+  if (!res || !res.success) {
+    var pc0 = document.getElementById('page-content');
+    if (pc0) pc0.innerHTML = '<div class="empty-state"><h3>Failed to load VA KPI Sheet</h3><p style="color:var(--text-muted);font-size:12px;">'+(res&&res.message||'Unknown error.')+'</p></div>';
+    return;
+  }
+
+  var clusters = res.clusters || [];
+  var rows     = res.rows || [];
+
+  // ── Department picker (Admin only — KPI columns are department-specific) ──
+  var deptSelectHtml = '';
+  if (isAdmin) {
+    var allDepts = window._vaKpiDeptsList || [];
+    deptSelectHtml = '<select id="vks-dept-sel" onchange="_vksDeptChange()" '
+      + 'style="height:32px;font-size:12px;color:var(--text-primary);background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;min-width:180px;cursor:pointer;">'
+      + allDepts.map(function(d){
+          return '<option value="'+d.DeptID+'"'+(String(d.DeptID)===String(window._vaKpiDeptFilter)?' selected':'')+'>'+d.DeptName+'</option>';
+        }).join('')
+      + '</select>';
+  }
+
+  var totalKpis = clusters.reduce(function(s,c){ return s+c.kpis.length; }, 0);
+
+  if (!clusters.length || !rows.length) {
+    document.getElementById('page-content').innerHTML =
+        '<div class="section-header" style="margin-bottom:16px;">'
+      + '<span class="section-title">VA KPI Sheet</span>'
+      + '<div style="display:flex;gap:8px;margin-left:auto;align-items:center;">' + deptSelectHtml + '</div>'
+      + '</div>'
+      + '<div class="empty-state"><h3>No data for this period</h3>'
+      + '<p style="color:var(--text-muted);font-size:12px;">No active VA connections or configured KPIs found'+(isAdmin?' for this department.':'.')+'</p></div>';
+    return;
+  }
+
+  // ── Fixed column widths via colgroup — keeps every KPI's Actual/Status pair
+  // the same width regardless of how long its name or cluster name is; long
+  // names wrap onto 2 lines instead of stretching the column.
+  var colgroup = '<colgroup>'
+    + '<col style="width:160px;">'
+    + '<col style="width:140px;">'
+    + '<col style="width:138px;">'
+    + clusters.map(function(cl){
+        return cl.kpis.map(function(){ return '<col style="width:100px;"><col style="width:100px;">'; }).join('');
+      }).join('')
+    + '</colgroup>';
+
+  // ── Header row 1: VA / Client / Overall Status (rowspan 2) + cluster group headers (colspan) ──
+  var headRow1 = '<tr>'
+    + '<th class="vks-th-sticky vks-th-sticky-1" rowspan="2">VA Name</th>'
+    + '<th class="vks-th-sticky vks-th-sticky-2" rowspan="2">Client</th>'
+    + '<th class="vks-th-sticky vks-th-sticky-3" rowspan="2">Overall Status</th>'
+    + clusters.map(function(cl){
+        return '<th colspan="'+(cl.kpis.length*2)+'" class="vks-cluster-head vks-cluster-start" title="'+cl.cluster+'"><div class="vks-clamp2">'+cl.cluster+'</div></th>';
+      }).join('')
+    + '</tr>';
+
+  // ── Header row 2: one merged header per KPI (spans its Actual + Status cells) ──
+  var headRow2 = '<tr>'
+    + clusters.map(function(cl){
+        return cl.kpis.map(function(k, ki){
+          return '<th colspan="2" class="vks-th-sub'+(ki===0?' vks-cluster-start':'')+'" title="'+k.name+'"><div class="vks-clamp2">'+k.name+'</div></th>';
+        }).join('');
+      }).join('')
+    + '</tr>';
+
+  // ── Data rows ──
+  var bodyRows = rows.map(function(r){
+    var cells = clusters.map(function(cl){
+      return cl.kpis.map(function(k, ki){
+        var startCls = ki===0 ? ' vks-cluster-start' : '';
+        var kv = r.kpis[k.kpiId];
+        if (!kv || kv.na) {
+          return '<td class="vks-td vks-td-kpi vks-td-nobrdr'+startCls+'" style="text-align:center;color:var(--text-muted);">N/A</td>'
+               + '<td class="vks-td vks-td-kpi" style="text-align:center;">'+_vksStatusBadge('No Data', true)+'</td>';
+        }
+        var actualTxt = (kv.actual===null||kv.actual===undefined||kv.actual==='') ? '\u2014' : kv.actual;
+        var targetTxt = (kv.target===null||kv.target===undefined||kv.target==='') ? '\u2014' : kv.target;
+        var trendHtml = _vksTrendArrow(kv.actual, kv.prevActual, k.direction);
+        return '<td class="vks-td vks-td-kpi vks-td-nobrdr'+startCls+'">'
+             + '<div style="font-weight:700;font-size:12px;display:flex;align-items:center;gap:4px;">'+actualTxt+(trendHtml?' '+trendHtml:'')+'</div>'
+             + '<div style="font-size:10px;color:var(--text-muted);">Target: '+targetTxt+'</div>'
+             + '</td>'
+             + '<td class="vks-td vks-td-kpi" style="text-align:center;">'+_vksStatusBadge(kv.status, true)+'</td>';
+      }).join('');
+    }).join('');
+
+    return '<tr>'
+      + '<td class="vks-td vks-td-sticky vks-td-sticky-1"><strong>'+r.vaName+'</strong></td>'
+      + '<td class="vks-td vks-td-sticky vks-td-sticky-2">'+r.clientName+'</td>'
+      + '<td class="vks-td vks-td-sticky vks-td-sticky-3">'
+      + '<div style="display:flex;align-items:center;justify-content:center;gap:6px;">'
+      + _vksStatusBadge(r.overallStatus)
+      + '<button class="vks-intv-btn" title="Log intervention for this connection" onclick="openAddIntervention(\''+r.connId+'\')">'
+      + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>'
+      + '</button>'
+      + '</div>'
+      + '</td>'
+      + cells
+      + '</tr>';
+  }).join('');
+
+  document.getElementById('page-content').innerHTML =
+      '<div class="section-header" style="margin-bottom:16px;">'
+    + '<span class="section-title">VA KPI Sheet</span>'
+    + '<div style="display:flex;gap:8px;margin-left:auto;align-items:center;">'
+    + deptSelectHtml
+    + '<button class="btn btn-secondary btn-sm" id="vks-export-btn" onclick="_vksExport()">Export to Excel</button>'
+    + '</div>'
+    + '</div>'
+    + '<div class="card-subtitle" style="margin-bottom:10px;">'+rows.length+' connection'+(rows.length!==1?'s':'')+' \u00b7 '+totalKpis+' KPI'+(totalKpis!==1?'s':'')+' across '+clusters.length+' cluster'+(clusters.length!==1?'s':'')+'</div>'
+    + '<div class="card" style="padding:0;overflow:hidden;background:var(--bg-input);backdrop-filter:none;-webkit-backdrop-filter:none;">'
+    + '<div class="vks-scroll">'
+    + '<table class="vks-table">'
+    + colgroup
+    + '<thead>' + headRow1 + headRow2 + '</thead>'
+    + '<tbody>' + bodyRows + '</tbody>'
+    + '</table>'
+    + '</div>'
+    + '</div>';
+}
+
+function _vksDeptChange() {
+  var sel = document.getElementById('vks-dept-sel');
+  window._vaKpiDeptFilter = sel ? sel.value : '';
+  renderVAKPISheet();
+}
+
+function _vksExport() {
+  var btn = document.getElementById('vks-export-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Exporting\u2026'; }
+  var week   = window._analyticsWeek || (window._globalPeriod && window._globalPeriod.periodKey) || getMondayStr(new Date());
+  var period = window._vaKpiPeriod || 'weekly';
+  var deptId = window._vaKpiDeptFilter || '';
+  var teamId = window._vaKpiTeamId || '';
+  gsr('exportVAKPISheet', State.user.id, State.user.role, deptId, teamId, week, period).then(function(res) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export to Excel'; }
+    if (res && res.success) {
+      if (typeof toast === 'function') toast('Export ready \u2014 opening in a new tab.', 'success');
+      window.open(res.url, '_blank');
+    } else {
+      if (typeof toast === 'function') toast(res && res.message || 'Export failed.', 'error');
+    }
+  }).catch(function(err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export to Excel'; }
+    if (typeof toast === 'function') toast(err && err.message || 'Export failed.', 'error');
+  });
+}
+
+// ── Wire the global period bar so changing week/month reloads this page ──
+(function() {
+  if (!window._gpListeners) window._gpListeners = {};
+  window._gpListeners['va-kpi-sheet'] = function() {
+    var gp = window._globalPeriod || {};
+    if (gp.period)    window._vaKpiPeriod   = gp.period;
+    if (gp.periodKey) window._analyticsWeek = gp.periodKey;
+    if (typeof renderVAKPISheet === 'function') renderVAKPISheet();
+  };
+})();
+</script>
+
+<style>
+.vks-scroll { overflow: auto; max-height: 75vh; }
+.vks-table { border-collapse: separate; border-spacing: 0; font-size: 12px; table-layout: fixed; }
+.vks-table th, .vks-table td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); padding: 6px 10px; }
+/* KPI sub-columns: fixed equal width so every "Actual/Target" + "Status" pair lines up */
+.vks-th-sub, .vks-td-kpi { width: 100px; min-width: 100px; max-width: 100px; }
+.vks-td-nobrdr { border-right: none; }
+.vks-cluster-start { border-left: 2px solid var(--text-muted) !important; }
+.vks-badge-compact {
+  padding: 2px 6px; font-size: 8.5px; letter-spacing: 0.01em; gap: 0; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vks-badge-compact::before { display: none; }
+.vks-clamp2 {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  white-space: normal; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.25;
+}
+.vks-cluster-head {
+  background: var(--bg-header); color: var(--text-primary); font-weight: 700; text-align: center;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; position: sticky; top: 0; z-index: 3;
+}
+.vks-th-sub {
+  background: var(--bg-header); color: var(--text-primary); font-weight: 600; font-size: 10.5px; text-align: left;
+  position: sticky; top: 44px; z-index: 3; vertical-align: top;
+}
+.vks-th-sticky { background: var(--bg-header); color: var(--text-primary); font-weight: 700; text-align: left; position: sticky; top: 0; z-index: 4; white-space: normal; word-wrap: break-word; vertical-align: top; padding-top: 10px; }
+.vks-td { background: var(--bg-input); color: var(--text-primary); vertical-align: middle; }
+.vks-td-sticky { position: sticky; z-index: 2; background: var(--bg-input); }
+.vks-th-sticky-1, .vks-th-sticky-2, .vks-th-sticky-3 { position: sticky; z-index: 5; background: var(--bg-header); }
+.vks-th-sticky-1, .vks-td-sticky-1 { left: 0; min-width: 160px; }
+.vks-th-sticky-2, .vks-td-sticky-2 { left: 160px; min-width: 140px; }
+.vks-th-sticky-3, .vks-td-sticky-3 { left: 300px; min-width: 138px; }
+
+.vks-intv-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-right: 6px; vertical-align: middle;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--bg-surface);
+  color: var(--text-secondary); cursor: pointer; flex-shrink: 0;
+}
+.vks-intv-btn:hover { background: var(--on-target); border-color: var(--on-target); color: #fff; }
+
+/* More visible scrollbars (Chrome/Edge/Safari + Firefox) */
+.vks-scroll { scrollbar-width: auto; scrollbar-color: var(--text-muted) var(--bg-surface); }
+.vks-scroll::-webkit-scrollbar { width: 14px; height: 14px; }
+.vks-scroll::-webkit-scrollbar-track { background: var(--bg-surface); }
+.vks-scroll::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 8px; border: 3px solid var(--bg-surface); }
+.vks-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+.vks-scroll::-webkit-scrollbar-corner { background: var(--bg-surface); }
+</style>

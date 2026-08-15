@@ -12,10 +12,12 @@ export function DashboardSidebar({
   email,
   role,
   submissionsToday,
+  appName,
 }: {
   email: string;
   role: string;
   submissionsToday: number;
+  appName: string;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -27,7 +29,12 @@ export function DashboardSidebar({
       }`}
     >
       <div className="relative flex items-center justify-center px-3 py-4">
-        {!collapsed && <LogoBadge className="h-6" />}
+        {!collapsed && (
+          <div className="flex items-center gap-2">
+            <LogoBadge className="h-6" />
+            <span className="text-xs font-medium text-muted">{appName}</span>
+          </div>
+        )}
         <button
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}

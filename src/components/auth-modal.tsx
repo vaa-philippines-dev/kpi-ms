@@ -8,10 +8,12 @@ import { signInWithGoogle } from "@/app/sign-in/actions";
 
 export function AuthModal({
   open,
-  onClose,
+  onClose = () => {},
+  redirectTo = "/dashboard",
 }: {
   open: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  redirectTo?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -57,7 +59,7 @@ export function AuthModal({
         <p className="mt-2 text-sm text-muted">
           Sign in with your @vaaphilippines.com Google account to continue.
         </p>
-        <form action={signInWithGoogle} className="mt-8">
+        <form action={signInWithGoogle.bind(null, redirectTo)} className="mt-8">
           <button
             type="submit"
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-surface-border bg-background px-5 py-2.5 text-sm font-medium transition hover:bg-surface-hover"

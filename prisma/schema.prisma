@@ -24,6 +24,7 @@ enum PerformanceStatus {
   ON_TARGET
   AT_RISK
   CRITICAL
+  NO_DATA
 }
 
 enum UserRole {
@@ -31,11 +32,27 @@ enum UserRole {
   DM
   OM
   SERVICE_MANAGER
+  VA
+}
+
+enum ConnectionStatus {
+  ACTIVE
+  PAUSED
+  END_OF_CONTRACT
+  END_OF_PROJECT
+  PENDING
+}
+
+enum ConnectionType {
+  REGULAR
+  PROJECT_BASED
 }
 
 model Department {
   id             String          @id @default(cuid())
   name           String          @unique
+  services       Service[]
+  teams          Team[]
   kpiDefinitions KpiDefinition[]
   connections    Connection[]
   users          User[]
@@ -43,40 +60,168 @@ model Department {
   updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
 }
 
+model Service {
+  id             String          @id @default(cuid())
+  name           String
+  department     Department      @relation(fields: [departmentId], references: [id])
+  departmentId   String
+  isActive       Boolean         @default(true)
+  kpiDefinitions KpiDefinition[]
+  connections    Connection[]
+  users          User[]
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([departmentId])
+}
+
+model Team {
+  id            String       @id @default(cuid())
+  name          String
+  department    Department   @relation(fields: [departmentId], references: [id])
+  departmentId  String
+  teamLeader    User?        @relation("TeamLeader", fields: [teamLeaderId], references: [id])
+  teamLeaderId  String?
+  tempLeader1   User?        @relation("TeamTempLeader1", fields: [tempLeader1Id], references: [id])
+  tempLeader1Id String?
+  tempLeader2   User?        @relation("TeamTempLeader2", fields: [tempLeader2Id], references: [id])
+  tempLeader2Id String?
+  isActive      Boolean      @default(true)
+  members       User[]       @relation("TeamMembers")
+  connections   Connection[]
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([departmentId])
+}
+
 model KpiDefinition {
   id                    String               @id @default(cuid())
   name                  String
+  cluster               String
   department            Department           @relation(fields: [departmentId], references: [id])
   departmentId          String
+  service               Service?             @relation(fields: [serviceId], references: [id])
+  serviceId             String?
   direction             KpiDirection
   period                KpiPeriod
   targetValue           Float
-  // Below 100% is "At Risk"; below this is "Critical" (meeting default: 99%).
-  deviationThresholdPct Float                @default(99)
+  // On-Target boundary: |actual-target|/target <= this % (legacy default 10%).
+  deviationThresholdPct Float                @default(10)
+  // At-Risk/Critical boundary: above this %, status is Critical (legacy default 25%).
+  criticalThresholdPct  Float                @default(25)
   submissionRecords     SubmissionRecord[]
   performanceSummaries  PerformanceSummary[]
+  kpiConfigs            KpiConfig[]
   createdAt             DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
+  @@index([serviceId])
 }
 
 // Stand-in for the real Workforce Management (WFM) system until Phase 5
 // wires up the live integration (see lib/wfm/).
 model Connection {
-  id                   String               @id @default(cuid())
-  externalWfmId        String?              @unique
-  vaName               String
-  vaEmail              String
+  id                   String                  @id @default(cuid())
+  externalWfmId        String?                 @unique
+  vaUser               User                    @relation("VaConnections", fields: [vaUserId], references: [id])
+  vaUserId             String
   clientName           String
-  department           Department           @relation(fields: [departmentId], references: [id])
+  department           Department              @relation(fields: [departmentId], references: [id])
   departmentId         String
+  service              Service?                @relation(fields: [serviceId], references: [id])
+  serviceId            String?
+  team                 Team?                   @relation(fields: [teamId], references: [id])
+  teamId               String?
+  status               ConnectionStatus        @default(ACTIVE)
+  connectionType       ConnectionType          @default(REGULAR)
+  statusEvents         ConnectionStatusEvent[]
+  kpiConfigs           KpiConfig[]
   submissions          Submission[]
   performanceSummaries PerformanceSummary[]
-  createdAt            DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime             @updatedAt @db.Timestamptz(3)
+  interventions        Intervention[]
+  createdAt            DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
+  @@index([vaUserId])
+  @@index([teamId])
+}
+
+model ConnectionStatusEvent {
+  id           String           @id @default(cuid())
+  connection   Connection       @relation(fields: [connectionId], references: [id])
+  connectionId String
+  status       ConnectionStatus
+  changedBy    User             @relation(fields: [changedById], references: [id])
+  changedById  String
+  changedAt    DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([connectionId])
+}
+
+// Per-connection override of a KpiDefinition's targets/thresholds.
+model KpiConfig {
+  id                    String             @id @default(cuid())
+  connection            Connection         @relation(fields: [connectionId], references: [id])
+  connectionId          String
+  kpiDefinition         KpiDefinition      @relation(fields: [kpiDefinitionId], references: [id])
+  kpiDefinitionId       String
+  targetValue           Float?
+  deviationThresholdPct Float?
+  criticalThresholdPct  Float?
+  isApplicable          Boolean            @default(true)
+  version               Int                @default(1)
+  history               KpiConfigHistory[]
+  updatedBy             User               @relation(fields: [updatedById], references: [id])
+  updatedById           String
+  updatedAt             DateTime           @updatedAt @db.Timestamptz(3)
+  createdAt             DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@unique([connectionId, kpiDefinitionId])
+  @@index([kpiDefinitionId])
+}
+
+model KpiConfigHistory {
+  id           String    @id @default(cuid())
+  kpiConfig    KpiConfig @relation(fields: [kpiConfigId], references: [id])
+  kpiConfigId  String
+  fieldChanged String
+  oldValue     String?
+  newValue     String?
+  changedBy    User      @relation(fields: [changedById], references: [id])
+  changedById  String
+  changedAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([kpiConfigId])
+}
+
+model Intervention {
+  id           String     @id @default(cuid())
+  connection   Connection @relation(fields: [connectionId], references: [id])
+  connectionId String
+  type         String
+  description  String
+  actionTaken  String?
+  outcome      String?
+  createdBy    User       @relation(fields: [createdById], references: [id])
+  createdById  String
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
+
+  @@index([connectionId])
+}
+
+// Generic key/value store — currently only INTERVENTION_TYPES (comma-separated).
+model Setting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  updatedBy   User     @relation(fields: [updatedById], references: [id])
+  updatedById String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model Submission {
@@ -98,7 +243,8 @@ model SubmissionRecord {
   submissionId    String
   kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id])
   kpiDefinitionId String
-  value           Float
+  value           Float?
+  noData          Boolean       @default(false)
 
   @@index([submissionId])
   @@index([kpiDefinitionId])
@@ -113,9 +259,9 @@ model PerformanceSummary {
   kpiDefinitionId String
   period          KpiPeriod
   periodStart     DateTime          @db.Timestamptz(3)
-  actualValue     Float
+  actualValue     Float?
   targetValue     Float
-  pct             Float
+  pct             Float?
   status          PerformanceStatus
   updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
 
@@ -124,14 +270,32 @@ model PerformanceSummary {
 }
 
 model User {
-  id           String      @id @default(cuid())
-  email        String      @unique
-  name         String?
-  role         UserRole    @default(SERVICE_MANAGER)
-  department   Department? @relation(fields: [departmentId], references: [id])
-  departmentId String?
-  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime    @updatedAt @db.Timestamptz(3)
+  id                String                  @id @default(cuid())
+  email             String                  @unique
+  name              String?
+  role              UserRole                @default(SERVICE_MANAGER)
+  isActive          Boolean                 @default(true)
+  lastLogin         DateTime?               @db.Timestamptz(3)
+  loginCount        Int                     @default(0)
+  department        Department?             @relation(fields: [departmentId], references: [id])
+  departmentId      String?
+  service           Service?                @relation(fields: [serviceId], references: [id])
+  serviceId         String?
+  team              Team?                   @relation("TeamMembers", fields: [teamId], references: [id])
+  teamId            String?
+  ledTeams          Team[]                  @relation("TeamLeader")
+  tempLedTeams1     Team[]                  @relation("TeamTempLeader1")
+  tempLedTeams2     Team[]                  @relation("TeamTempLeader2")
+  vaConnections     Connection[]            @relation("VaConnections")
+  statusChanges     ConnectionStatusEvent[]
+  kpiConfigsUpdated KpiConfig[]
+  kpiConfigHistory  KpiConfigHistory[]
+  interventions     Intervention[]
+  settingsUpdated   Setting[]
+  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
+  @@index([serviceId])
+  @@index([teamId])
 }

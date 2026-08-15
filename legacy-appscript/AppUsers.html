@@ -1,0 +1,712 @@
+<script>
+function renderUsers() {
+  VAA_LOG && VAA_LOG.info("USERS", "renderUsers()");
+Promise.all([gsr('getUsers', State.user.id), gsr('getDepartments'), gsr('getServices','')]).then(function(results) {
+var users  = (results[0]||{}).data || [];
+var depts  = (results[1]||{}).data || [];
+var svcs   = (results[2]||{}).data || [];
+var deptMap = {};
+var svcMap  = {};
+depts.forEach(function(d){ deptMap[d.DeptID] = d.DeptName; });
+svcs.forEach(function(s){ svcMap[s.ServiceID] = s.ServiceName; });
+// Managers see only their department's users
+if (State.user.role === 'Manager' && State.user.department) {
+  users = users.filter(function(u){
+    return String(u.Department||'') === String(State.user.department||'');
+  });
+}
+window._allUsers   = users;
+window._deptMap    = deptMap;
+window._svcMapUser = svcMap;
+var canManageUsers = ['Administrator','Manager'].includes(State.user.role);
+
+var deptOpts = '<option value="">All Departments</option>'
+  + depts.map(function(d){ return '<option value="'+d.DeptID+'">'+d.DeptName+'</option>'; }).join('');
+var svcOpts = '<option value="">All Services</option>'
+  + svcs.map(function(s){ return '<option value="'+s.ServiceID+'">'+s.ServiceName+'</option>'; }).join('');
+
+var ROLES = ['Virtual Assistant','Team Leader','Manager','CS Specialist','Administrator'];
+var roleCounts = {};
+ROLES.forEach(function(r){
+  roleCounts[r] = users.filter(function(u){ return u.Role === r; }).length;
+});
+
+var tabs = ROLES.map(function(r, i) {
+  return '<button class="tab'+(i===0?' active':'')+'" onclick="switchUserTab(\''+r+'\',this)">'+r+' <span style="font-size:11px;opacity:0.7;">('+roleCounts[r]+')</span></button>';
+}).join('');
+
+var panels = ROLES.map(function(r, i) {
+  return '<div id="utab-'+r.replace(/\s/g,'_')+'" class="'+(i===0?'':'hidden')+'" data-role="'+r+'"></div>';
+}).join('');
+
+set('page-content',
+'<div class="section-header">'
++ '<span class="section-title">Users <span style="color:var(--text-muted);font-weight:400;font-size:13px;">('+users.length+')</span></span>'
++ '<div style="display:flex;gap:8px;">'
++ (State.user.role === 'Administrator' ? '<button class="btn btn-secondary" onclick="openImportUsers()">'
+  + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'
+  + ' Import</button>' : '')
++ (canManageUsers ? '<button class="btn btn-primary" onclick="openCreateUser()">+ New User</button>' : '')
++ '</div></div>'
++ '<div class="filter-bar" style="margin-bottom:0;flex-wrap:wrap;gap:8px;">'
++ '<input type="text" id="user-search" placeholder="Search name or email..." oninput="filterUsers()" style="flex:1;min-width:160px;">'
++ '<select id="user-dept-filter" class="form-control" onchange="filterUsers()" style="width:180px;">'+deptOpts+'</select>'
++ '<select id="user-svc-filter" class="form-control" onchange="filterUsers()" style="width:180px;">'+svcOpts+'</select>'
++ '</div>'
++ '<div class="tabs" id="user-role-tabs" style="margin-top:14px;margin-bottom:0;">'+tabs+'</div>'
++ '<div id="user-panels">'+panels+'</div>');
+
+// Render all tab panels
+ROLES.forEach(function(r) { renderUserPanel(r, users, deptMap); });
+window._activeUserRole = ROLES[0];
+});
+}
+
+function switchUserTab(role, btn) {
+document.querySelectorAll('#user-role-tabs .tab').forEach(function(t){ t.classList.remove('active'); });
+btn.classList.add('active');
+var ROLES = ['Virtual Assistant','Team Leader','Manager','CS Specialist','Administrator'];
+ROLES.forEach(function(r) {
+  var panel = document.getElementById('utab-'+r.replace(/\s/g,'_'));
+  if (panel) panel.classList.toggle('hidden', r !== role);
+});
+window._activeUserRole = role;
+}
+
+function filterUsers() {
+var q    = ((document.getElementById('user-search')||{}).value||'').toLowerCase();
+var dept = (document.getElementById('user-dept-filter')||{}).value||'';
+var svc  = (document.getElementById('user-svc-filter')||{}).value||'';
+var all  = window._allUsers || [];
+var dm   = window._deptMap  || {};
+var ROLES = ['Virtual Assistant','Team Leader','Manager','CS Specialist','Administrator'];
+ROLES.forEach(function(r) {
+  var data = all.filter(function(u){ return u.Role === r; });
+  if (q)    data = data.filter(function(u){ return ((u.FirstName||'')+' '+(u.LastName||'')+' '+(u.Email||'')).toLowerCase().indexOf(q) >= 0; });
+  if (dept) data = data.filter(function(u){ return u.Department === dept; });
+  if (svc)  data = data.filter(function(u){ return u.ServiceID === svc; });
+  renderUserPanel(r, data, dm);
+  // tab count update handled separately
+  if (false) {}
+});
+}
+
+function renderLoginActivity() {
+  VAA_LOG && VAA_LOG.info("USERS", "renderLoginActivity()");
+  var isAdmin = State.user.role === 'Administrator';
+
+  Promise.all([gsr('getLoginActivity', State.user.id, State.user.role, window._loginActDeptFilter||''), gsr('getDepartments')])
+  .then(function(results) {
+    var res   = results[0] || {};
+    var depts = (results[1]||{}).data || [];
+    window._loginActDepts = depts;
+
+    var pc = document.getElementById('page-content');
+    if (!res.success) {
+      pc.innerHTML = '<div class="empty-state"><h3>Unable to load login activity</h3>'
+        + '<p style="color:var(--text-muted);font-size:12px;">'+(res.message||'Unauthorized.')+'</p></div>';
+      return;
+    }
+    var rows = res.data || [];
+    window._loginActData = rows;
+
+    var neverLoggedIn = rows.filter(function(r){ return !r.LastLogin; }).length;
+    var totalLogins = rows.reduce(function(s,r){ return s + (r.LoginCount||0); }, 0);
+
+    var deptSelectHtml = isAdmin
+      ? '<select id="la-dept-sel" onchange="_laDeptChange()" style="height:32px;font-size:12px;color:var(--text);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-xs);padding:0 8px;min-width:180px;cursor:pointer;">'
+        + '<option value="">All Departments</option>'
+        + depts.map(function(d){ return '<option value="'+d.DeptID+'"'+(String(d.DeptID)===String(window._loginActDeptFilter)?' selected':'')+'>'+d.DeptName+'</option>'; }).join('')
+        + '</select>'
+      : '';
+
+    pc.innerHTML =
+        '<div class="section-header" style="margin-bottom:16px;">'
+      + '<span class="section-title">Login Activity</span>'
+      + '<div style="display:flex;gap:8px;margin-left:auto;align-items:center;">' + deptSelectHtml + '</div>'
+      + '</div>'
+      + '<div class="stat-grid" style="margin-bottom:16px;">'
+      + '<div class="stat-card total"><div class="stat-label">Users</div><div class="stat-value">'+rows.length+'</div></div>'
+      + '<div class="stat-card on-target"><div class="stat-label">Total Logins</div><div class="stat-value">'+totalLogins+'</div></div>'
+      + '<div class="stat-card critical"><div class="stat-label">Never Logged In</div><div class="stat-value">'+neverLoggedIn+'</div></div>'
+      + '</div>'
+      + '<div class="card"><div id="la-dt-wrap"></div></div>';
+
+    renderDataTable({
+      containerId:'la-dt-wrap', defaultLimit:25, limitOptions:[25,50,100],
+      emptyMessage:'No users found.', data:rows,
+      defaultSort:{key:'LastLogin', dir:'desc'},
+      columns:[
+        { key:'Name', label:'Name', sortable:true, filterable:true,
+          render:function(v,row){ return '<strong>'+v+'</strong><div style="font-size:11px;color:var(--text-muted);">'+row.Email+'</div>'; } },
+        { key:'Role', label:'Role', sortable:true, filterable:'select' },
+        { key:'Department', label:'Department', sortable:true, filterable:'select' },
+        { key:'LoginCount', label:'Login Count', sortable:true, filterable:false,
+          render:function(v){ return '<span style="font-weight:700;">'+(v||0)+'</span>'; } },
+        { key:'LastLogin', label:'Last Login', sortable:true, filterable:false,
+          render:function(v){
+            if (!v) return '<span class="badge badge-muted">Never</span>';
+            try { return new Date(v).toLocaleString('en-US', {year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
+            catch(e) { return String(v).slice(0,10); }
+          } },
+        { key:'IsActive', label:'Status', sortable:true, filterable:false,
+          render:function(v){ return v ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Inactive</span>'; } }
+      ]
+    });
+  })
+  .catch(function(err) {
+    console.error('[LoginActivity] FAILED:', err && err.message ? err.message : err);
+    var pc = document.getElementById('page-content');
+    if (pc) pc.innerHTML = '<div class="empty-state"><h3>Failed to load login activity</h3><p style="color:var(--text-muted);font-size:12px;">'+(err&&err.message?err.message:'Unknown error.')+'</p></div>';
+  });
+}
+
+function _laDeptChange() {
+  var sel = document.getElementById('la-dept-sel');
+  window._loginActDeptFilter = sel ? sel.value : '';
+  renderLoginActivity();
+}
+
+function renderUserPanel(role, users, deptMap) {
+  VAA_LOG && VAA_LOG.debug("USERS", "renderUserPanel: role=" + role + " count=" + users.filter(function(u){return u.Role===role;}).length);
+  var panel = document.getElementById('utab-'+role.replace(/\s/g,'_'));
+  if (!panel) return;
+  var roleUsers = users.filter(function(u){ return u.Role === role; });
+  var svcMap = window._svcMapUser || {};
+  var dtId = 'user-dt-' + role.replace(/\s/g,'_');
+  panel.innerHTML = '<div class="card" style="padding:0;overflow:hidden;border-top:none;border-radius:0 0 var(--radius) var(--radius);">'
+    + '<div id="'+dtId+'"></div></div>';
+  var tableData = roleUsers.map(function(u) {
+    return {
+      _uid:      u.UserID,
+      _raw:      u,
+      Name:      (u.FirstName||'') + ' ' + (u.LastName||''),
+      Email:     u.Email || '\u2014',
+      Department:deptMap[u.Department] || u.Department || '\u2014',
+      Service:   svcMap[u.ServiceID]   || '',
+      Status:    (u.IsActive===true||u.IsActive==='TRUE') ? 'Active' : 'Inactive',
+    };
+  });
+  renderDataTable({
+    containerId:  dtId,
+    defaultLimit: 10,
+    limitOptions: [10, 25, 50, 100],
+    emptyMessage: 'No ' + role + ' users found.',
+    data: tableData,
+    columns: [
+      { key:'Name',       label:'Name',       sortable:true, filterable:true,
+        render: function(v){ return '<strong>'+v+'</strong>'; } },
+      { key:'Email',      label:'Email',      sortable:true, filterable:true,
+        render: function(v){ return '<span style="font-size:12px;color:var(--text-muted);">'+v+'</span>'; } },
+      { key:'Department', label:'Dept / Service', sortable:true, filterable:'select', filterPlaceholder:'All Departments',
+        render:function(v,row){
+          return '<span style="font-size:12px;">'+v+'</span>'
+            +(row.Service?'<div style="font-size:11px;color:var(--text-muted);">'+row.Service+'</div>':'');
+        }},
+      { key:'Status',     label:'Status',     sortable:true, filterable:'select',    filterPlaceholder:'All Statuses',
+        render: function(v){ return v==='Active'?'<span class="badge badge-success">Active</span>':'<span class="badge badge-muted">Inactive</span>'; } },
+
+      { key:'_uid', label:'Actions', sortable:false, filterable:false,
+        render: function(v, row) {
+          var u = row._raw;
+          var isActive = u.IsActive===true||u.IsActive==='TRUE';
+          var uSafe = JSON.stringify(u).replace(/"/g,'&quot;');
+          return '<div style="display:flex;gap:4px;">'
+            + '<button class="btn btn-icon" title="Edit" onclick="openEditUser(\''+v+'\','+uSafe+')">'
+            + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>'
+            + ((['Administrator','Manager'].indexOf(State.user.role)>=0 && (['Virtual Assistant','Team Leader'].indexOf(u.Role)>=0 || State.user.role==='Administrator'))
+              ? '<button class="btn btn-icon" title="Reset Password" onclick="resetPwd(\''+v+'\')">'
+                + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>'
+              : '')
+
+            + '</div>';
+        }
+      }
+    ]
+  });
+}
+
+function renderUserGrouped(users, deptMap) {
+// Legacy alias \u2014 re-render all panels
+var ROLES = ['Virtual Assistant','Team Leader','Manager','CS Specialist','Administrator'];
+ROLES.forEach(function(r) { renderUserPanel(r, users, deptMap||window._deptMap||{}); });
+}
+
+function renderUserTable(users, deptMap) {
+deptMap = deptMap || window._deptMap || {};
+var tbody = document.getElementById('user-tbody');
+if (!tbody) return;
+if (!users.length) { tbody.innerHTML = '<tr><td colspan="8" class="table-empty">No users found.</td></tr>'; return; }
+tbody.innerHTML = users.map(u => {
+var deptName = deptMap[u.Department] || u.Department || '\u2014';
+return `
+<tr>
+<td><strong>${u.FirstName} ${u.LastName}</strong></td>
+<td>${u.Email}</td>
+<td><span class="badge badge-info">${u.Role}</span></td>
+<td>${deptName}</td>
+<td>${(window._svcMapUser||{})[u.ServiceID] || u.ServiceID || '\u2014'}</td>
+<td>${(u.IsActive===true||u.IsActive==='TRUE') ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Inactive</span>'}</td>
+<td>${formatDate(u.LastLogin)||'Never'}</td>
+<td>
+<div style="display:flex;gap:4px">
+<button class="btn btn-icon" onclick="openEditUser('${u.UserID}', ${JSON.stringify(u).replace(/"/g,'&quot;')})" title="Edit">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+</button>
+<button class="btn btn-icon" onclick="resetPwd('${u.UserID}')" title="Reset Password">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+</button>
+<button class="btn btn-icon danger" onclick="toggleActive('${u.UserID}')" title="Toggle Active">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/>${(u.IsActive===true||u.IsActive==='TRUE') ? '<line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>' : '<polyline points="20 6 9 17 4 12"/>'}</svg>
+</button>
+</div>
+</td>
+</tr>`;
+}).join('');
+}
+
+function filterUserTable(q) { filterUsers(); } function _oldFilterUserTable(q) {
+var users = (window._allUsers||[]).filter(u => (u.FirstName+' '+u.LastName+' '+u.Email).toLowerCase().includes(q.toLowerCase()));
+renderUserTable(users);
+}
+
+var USER_IMPORT_HEADERS = ['First Name *','Last Name *','Email *','Role *','Department','Service'];
+var USER_IMPORT_COLS    = ['firstName','lastName','email','role','deptName','serviceName'];
+var USER_ROLES_LIST     = ['Administrator','Manager','Team Leader','CS Specialist','Virtual Assistant'];
+var USER_IMPORT_EXAMPLE = [
+['Jane','Doe','jane.doe@company.com','Virtual Assistant','Customer Service','Billing Support'],
+['Mark','Rivera','mark.r@company.com','Team Leader','Operations','']
+];
+
+function openImportUsers() {
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+openModal('Import Users', buildUserImportStep1());
+}
+
+function buildUserImportStep1() {
+var unitOpts = USER_ROLES_LIST.map(function(r){ return '<code style="background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:3px;font-size:11px;">'+r+'</code>'; }).join(' ');
+return '<div class="import-stepper">'
+  + '<div class="import-step active"><span class="import-step-num">1</span><span class="import-step-label">Prepare Data</span></div>'
+  + '<div class="import-step-line"></div>'
+  + '<div class="import-step"><span class="import-step-num">2</span><span class="import-step-label">Preview &amp; Validate</span></div>'
+  + '<div class="import-step-line"></div>'
+  + '<div class="import-step"><span class="import-step-num">3</span><span class="import-step-label">Import</span></div>'
+  + '</div>'
+  + '<div class="import-col-map">'
+  +   '<div class="import-col-map-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Column order \u2014 paste or upload CSV matching these columns exactly:</div>'
+  +   '<div class="import-col-pills">'
+  +     USER_IMPORT_HEADERS.map(function(h,i){ return '<span class="import-col-pill '+(h.includes('*')?'required':'')+'">'+( i+1)+'. '+h+'</span>'; }).join('')
+  +   '</div>'
+  +   '<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">Valid roles: '+unitOpts+'<br>Default password is <strong style="color:var(--text-secondary);">1234</strong> \u2014 user must change on first login.</div>'
+  + '</div>'
+  + '<div style="display:flex;gap:12px;margin-bottom:12px;align-items:flex-start;">'
+  +   '<label class="import-upload-zone" id="user-import-upload-zone" style="flex:0 0 180px;cursor:pointer;">'
+  +     '<input type="file" id="user-import-file" accept=".csv,.txt" style="display:none" onchange="handleUserImportFile(this)">'
+  +     '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'
+  +     '<span class="import-upload-text">Drop CSV or <strong>browse</strong></span>'
+  +     '<span class="import-upload-hint">Header row auto-skipped</span>'
+  +   '</label>'
+  +   '<div class="import-divider-or"><span>or</span></div>'
+  +   '<div style="flex:1;display:flex;flex-direction:column;gap:6px;">'
+  +     '<label class="form-label">Paste tab- or comma-separated data</label>'
+  +     '<textarea class="form-control import-paste-area" id="user-import-paste" rows="7" placeholder="Paste rows here (without header row)..." oninput="userImportPasteChanged()"></textarea>'
+  +   '</div>'
+  + '</div>'
+  + '<div style="margin-bottom:16px;">'
+  +   '<button class="btn btn-secondary btn-sm" onclick="downloadUserImportTemplate()">'
+  +     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+  +     'Download Template CSV'
+  +   '</button>'
+  + '</div>'
+  + '<div id="user-import-parse-error" class="import-error-bar hidden"></div>'
+  + '<div class="form-actions">'
+  +   '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+  +   '<button class="btn btn-primary" id="user-import-next-btn" onclick="userImportGoToPreview()" disabled>Preview &amp; Validate <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>'
+  + '</div>';
+}
+
+function userImportPasteChanged() {
+var val = (document.getElementById('user-import-paste')||{}).value || '';
+var btn = document.getElementById('user-import-next-btn');
+if (btn) btn.disabled = !val.trim();
+}
+
+function handleUserImportFile(input) {
+var file = input.files[0]; if (!file) return;
+var reader = new FileReader();
+reader.onload = e => {
+var lines = e.target.result.trim().split('\n');
+var firstCell = (lines[0]||'').split(/[,\t]/)[0].trim().toLowerCase();
+var isHeader  = firstCell.includes('first') || firstCell.includes('name') || firstCell.includes('email');
+var textarea  = document.getElementById('user-import-paste');
+if (textarea) { textarea.value = (isHeader ? lines.slice(1) : lines).join('\n'); userImportPasteChanged(); }
+var zone = document.getElementById('user-import-upload-zone');
+if (zone) { zone.classList.add('loaded'); zone.querySelector('.import-upload-text').textContent = '\u2713 ' + file.name; }
+};
+reader.readAsText(file);
+}
+
+function downloadUserImportTemplate() {
+var header = USER_IMPORT_HEADERS.join(',');
+var rows   = USER_IMPORT_EXAMPLE.map(r => r.map(c => `"${c}"`).join(','));
+var csv    = [header, ...rows].join('\n');
+var a      = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv],{type:'text/csv'})), download:'users_import_template.csv' });
+document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function parseUserImportText(raw) {
+return raw.trim().split('\n').filter(l => l.trim()).map(line => {
+var delim = line.includes('\t') ? '\t' : ',';
+var cols  = line.split(delim).map(c => c.trim().replace(/^"|"$/g,'').trim());
+var row   = {};
+USER_IMPORT_COLS.forEach((key,i) => { row[key] = cols[i] || ''; });
+return row;
+});
+}
+
+function userImportGoToPreview() {
+var raw = (document.getElementById('user-import-paste')||{}).value || '';
+if (!raw.trim()) return;
+var rows;
+try { rows = parseUserImportText(raw); } catch(e) { showUserImportError('Could not parse: ' + e.message); return; }
+if (!rows.length) { showUserImportError('No data rows found.'); return; }
+Promise.all([gsr('getDepartments'), gsr('getServices','')]).then(([deptRes, svcRes]) => {
+var allDepts = deptRes.data || [];
+var allSvcs  = svcRes.data  || [];
+var validated = rows.map((row, i) => {
+var errors = [];
+if (!row.email)     errors.push('Email is required');
+if (!row.firstName) errors.push('First Name is required');
+if (!row.lastName)  errors.push('Last Name is required');
+if (!row.role || !USER_ROLES_LIST.includes(row.role)) errors.push(`Role "${row.role}" is invalid`);
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email||'')) errors.push('Email format is invalid');
+if (row.deptName && !allDepts.find(d => d.DeptName.toLowerCase().trim() === row.deptName.toLowerCase().trim()))
+errors.push(`Department "${row.deptName}" not found`);
+if (row.serviceName && !allSvcs.find(s => s.ServiceName.toLowerCase().trim() === row.serviceName.toLowerCase().trim()))
+errors.push(`Service "${row.serviceName}" not found`);
+return { ...row, _row:i+1, _valid:errors.length===0, _errors:errors };
+});
+window._userImportRows = validated;
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+openModal('Import Users \u2014 Preview', buildUserImportStep2(validated));
+});
+}
+
+function buildUserImportStep2(rows) {
+var validCount   = rows.filter(function(r){ return r._valid; }).length;
+var invalidCount = rows.length - validCount;
+var stepHtml = '<div class="import-stepper">'
+  + '<div class="import-step done"><span class="import-step-num">\u2713</span><span class="import-step-label">Prepare Data</span></div>'
+  + '<div class="import-step-line done"></div>'
+  + '<div class="import-step active"><span class="import-step-num">2</span><span class="import-step-label">Preview &amp; Validate</span></div>'
+  + '<div class="import-step-line"></div>'
+  + '<div class="import-step"><span class="import-step-num">3</span><span class="import-step-label">Import</span></div>'
+  + '</div>';
+var summaryHtml = '<div class="import-summary-bar">'
+  + '<div class="import-summary-item total"><span class="import-summary-num">'+rows.length+'</span><span class="import-summary-label">Total</span></div>'
+  + '<div class="import-summary-item success"><span class="import-summary-num">'+validCount+'</span><span class="import-summary-label">Ready</span></div>'
+  + (invalidCount ? '<div class="import-summary-item error"><span class="import-summary-num">'+invalidCount+'</span><span class="import-summary-label">Errors</span></div>' : '')
+  + '</div>';
+var rowsHtml = rows.map(function(r) {
+  var statusBadge = r._valid
+    ? '<span class="badge badge-success">Valid</span>'
+    : '<span class="badge badge-danger" title="'+r._errors.join('; ')+'">Error</span>';
+  var errorRow = !r._valid
+    ? '<tr class="import-row-error-detail"><td colspan="7"><div class="import-row-errors">'+r._errors.map(function(e){ return '<span class="import-row-error-msg">\u26A0 '+e+'</span>'; }).join('')+'</div></td></tr>'
+    : '';
+  return '<tr class="'+(r._valid?'':'import-row-error')+'">'
+    + '<td class="mono" style="font-size:11px;color:var(--text-muted);">'+r._row+'</td>'
+    + '<td>'+statusBadge+'</td>'
+    + '<td>'+( r.firstName||'\u2014')+'</td>'
+    + '<td>'+(r.lastName||'\u2014')+'</td>'
+    + '<td style="font-size:12px;">'+(r.email||'\u2014')+'</td>'
+    + '<td>'+(r.role||'\u2014')+'</td>'
+    + '<td>'+(r.deptName||'\u2014')+'</td>'
+    + '<td>'+(r.serviceName||'\u2014')+'</td>'
+    + '</tr>' + errorRow;
+}).join('');
+var tableHtml = '<div class="table-wrap" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">'
+  + '<table class="import-preview-table">'
+  + '<thead><tr><th>#</th><th>Status</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Role</th><th>Department</th><th>Service</th></tr></thead>'
+  + '<tbody>'+rowsHtml+'</tbody>'
+  + '</table></div>';
+var noteHtml = '<div class="import-note-bar '+(invalidCount?'warning':'success')+'" style="margin-top:12px;">'
+  + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+(invalidCount?'<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>':'<polyline points="20 6 9 17 4 12"/>')+'</svg>'
+  + (invalidCount ? 'Error rows will be skipped. <strong>'+validCount+'</strong> valid row'+(validCount!==1?'s':'')+' will be imported.' : 'All <strong>'+validCount+'</strong> row'+(validCount!==1?'s are':' is')+' valid and ready.')
+  + '</div>';
+return stepHtml + summaryHtml + tableHtml + noteHtml
+  + '<div class="form-actions">'
+  + '<button class="btn btn-secondary" onclick="openImportUsers()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg> Back</button>'
+  + '<button class="btn btn-primary" '+(validCount===0?'disabled':'')+' onclick="runImportUsers()">Import '+validCount+' User'+(validCount!==1?'s':'')+'</button>'
+  + '</div>';
+}
+
+function showUserImportError(msg) {
+var el = document.getElementById('user-import-parse-error');
+if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+}
+
+function runImportUsers() {
+var validRows = (window._userImportRows||[]).filter(function(r){ return r._valid; });
+if (!validRows.length) return;
+var body = document.getElementById('modal-body');
+if (body) body.innerHTML = '<div style="text-align:center;padding:48px 24px;"><div class="spinner" style="margin:0 auto 20px;"></div><div style="font-size:15px;font-weight:600;margin-bottom:8px;">Importing '+validRows.length+' user'+(validRows.length!==1?'s':'')+'...</div><div style="font-size:13px;color:var(--text-muted);">Please do not close this window.</div></div>';
+var payload = validRows.map(function(r){ return { firstName:r.firstName, lastName:r.lastName, email:r.email, role:r.role, deptName:r.deptName||'', serviceName:r.serviceName||'' }; });
+gsr('bulkCreateUsers', payload, State.user.id).then(function(res) {
+window._userImportRows = null;
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-xl';
+var title = document.getElementById('modal-title');
+if (title) title.textContent = 'Import Complete';
+var b = document.getElementById('modal-body');
+if (!b) return;
+var failRows = (res.results||[]).filter(function(r){ return !r.success; });
+var failTable = failRows.length
+  ? '<div class="table-wrap" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:12px;"><table class="import-preview-table"><thead><tr><th>Row</th><th>Email</th><th>Result</th></tr></thead><tbody>'
+    + failRows.map(function(r){ return '<tr class="import-row-error"><td class="mono" style="font-size:11px;color:var(--text-muted);">'+r.row+'</td><td>'+(r.email||'\u2014')+'</td><td><span class="badge badge-danger">'+r.message+'</span></td></tr>'; }).join('')
+    + '</tbody></table></div>'
+  : '';
+b.innerHTML = '<div class="import-stepper">'
+  + '<div class="import-step done"><span class="import-step-num">\u2713</span><span class="import-step-label">Prepare Data</span></div>'
+  + '<div class="import-step-line done"></div>'
+  + '<div class="import-step done"><span class="import-step-num">\u2713</span><span class="import-step-label">Preview &amp; Validate</span></div>'
+  + '<div class="import-step-line done"></div>'
+  + '<div class="import-step active"><span class="import-step-num">3</span><span class="import-step-label">Import</span></div>'
+  + '</div>'
+  + '<div class="import-summary-bar">'
+  + '<div class="import-summary-item success"><span class="import-summary-num">'+(res.imported||0)+'</span><span class="import-summary-label">Imported</span></div>'
+  + (res.failed ? '<div class="import-summary-item error"><span class="import-summary-num">'+res.failed+'</span><span class="import-summary-label">Failed</span></div>' : '')
+  + '</div>'
+  + failTable
+  + '<div class="form-actions">'
+  + '<button class="btn btn-secondary" onclick="openImportUsers()">Import More</button>'
+  + '<button class="btn btn-primary" onclick="closeModal();renderUsers();">Done \u2014 View Users</button>'
+  + '</div>';
+});
+}
+
+function openCreateUser() {
+  VAA_LOG && VAA_LOG.info('USERS', 'openCreateUser()');
+  var isManager = State.user.role === 'Manager';
+  // Don't trust State.user.department blindly — it can be stale/unset on the
+  // client session. Fetch the authoritative department from the server the
+  // same way Performance Analytics and the Manager Dashboard already do.
+  var deptLookup = isManager ? gsr('getManagerDeptId', State.user.id) : Promise.resolve({data: State.user.department});
+  Promise.all([gsr('getDepartments'), gsr('getServices',''), deptLookup]).then(function(results) {
+    var depts = (results[0] && results[0].data) || [];
+    var svcs  = (results[1] && results[1].data) || [];
+    var mgrDeptId = (results[2] && (typeof results[2] === 'string' ? results[2] : results[2].data)) || State.user.department || '';
+    console.log('[USERS] openCreateUser: isManager='+isManager+' mgrDeptId='+mgrDeptId);
+    var roles = isManager
+      ? ['Team Leader','Virtual Assistant']
+      : ['Administrator','Manager','Team Leader','CS Specialist','Virtual Assistant'];
+    var deptName = (depts.find(function(d){ return d.DeptID===mgrDeptId; })||{}).DeptName || mgrDeptId || '\u2014';
+    var deptFieldHtml = isManager
+      ? (mgrDeptId
+          ? ('<input class="form-control" value="'+deptName+'" readonly style="background:var(--bg-secondary);color:var(--text-muted);">'
+             +'<input type="hidden" id="nu-dept" value="'+mgrDeptId+'">')
+          : ('<div style="font-size:12px;color:var(--critical);padding:6px 0;">No department is set on your account \u2014 contact an Administrator before creating users.</div>'
+             +'<input type="hidden" id="nu-dept" value="">'))
+      : '<select class="form-control" id="nu-dept" onchange="filterUserSvcDropdown(\'nu-dept\',\'nu-svc\')">'  
+        +'<option value="">\u2014 None \u2014</option>'
+        +depts.map(function(d){ return '<option value="'+d.DeptID+'">'+d.DeptName+'</option>'; }).join('')
+        +'</select>';
+    var svcList = isManager ? svcs.filter(function(s){ return s.DeptID===mgrDeptId; }) : svcs;
+    var svcOpts = '<option value="">\u2014 None \u2014</option>'
+      + svcList.map(function(s){ return '<option value="'+s.ServiceID+'" data-dept="'+s.DeptID+'">'+s.ServiceName+'</option>'; }).join('');
+    var roleOpts = roles.map(function(r){ return '<option>'+r+'</option>'; }).join('');
+    openModal('Create New User',
+      '<form onsubmit="submitCreateUser(event)">'
+      +'<div class="form-row">'
+      +'<div class="form-group"><label class="form-label">First Name</label><input class="form-control" id="nu-fn" required></div>'
+      +'<div class="form-group"><label class="form-label">Last Name</label><input class="form-control" id="nu-ln" required></div>'
+      +'</div>'
+      +'<div class="form-group"><label class="form-label">Work Email</label><input class="form-control" id="nu-email" type="email" required></div>'
+      +'<div class="form-row">'
+      +'<div class="form-group"><label class="form-label">Role</label>'
+      +'<select class="form-control" id="nu-role">'+roleOpts+'</select></div>'
+      +'<div class="form-group"><label class="form-label">Department</label>'
+      +deptFieldHtml+'</div>'
+      +'</div>'
+      +'<div class="form-group"><label class="form-label">Service</label>'
+      +'<select class="form-control" id="nu-svc">'+svcOpts+'</select></div>'
+      +'<div class="form-hint">Default password is <strong>1234</strong>. User must change on first login.</div>'
+      +'<div class="form-actions">'
+      +'<button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button type="submit" class="btn btn-primary">Create User</button>'
+      +'</div></form>'
+    );
+  }).catch(function(err) {
+    console.error('[openCreateUser] FAILED:', err && err.message ? err.message : err);
+    toast('Failed to open Create User form: ' + (err && err.message ? err.message : 'unknown error'), 'error');
+  });
+}
+
+function submitCreateUser(event) {
+  event.preventDefault(); // CRITICAL: prevent native form submit (causes page reload/logout)
+  var fn    = (document.getElementById('nu-fn')    || {value:''}).value.trim();
+  var ln    = (document.getElementById('nu-ln')    || {value:''}).value.trim();
+  var email = (document.getElementById('nu-email') || {value:''}).value.trim();
+  var role  = (document.getElementById('nu-role')  || {value:''}).value;
+  var dept  = (document.getElementById('nu-dept')  || {value:''}).value;
+  var svc   = (document.getElementById('nu-svc')   || {value:''}).value;
+  if (!fn || !ln || !email || !role) { toast('Please fill in all required fields.', 'warning'); return; }
+  var btn = document.querySelector('#modal-body button[type=submit]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating\u2026'; }
+  gsr('createUser', { firstName:fn, lastName:ln, email:email, role:role, department:dept, serviceId:svc }, State.user.id)
+    .then(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Create User'; }
+      if (res && res.success) {
+        toast(res.message || 'User created successfully.', 'success');
+        closeModal();
+        renderUsers(); // refresh table \u2014 does NOT log out
+      } else {
+        toast((res && res.message) || 'Failed to create user.', 'error');
+      }
+    });
+}
+
+function openEditUser(userId, user) {
+var roles = ['Administrator','Manager','Team Leader','CS Specialist','Virtual Assistant'];
+Promise.all([gsr('getDepartments'), gsr('getServices','')]).then(([deptRes, svcRes]) => {
+var depts = deptRes.data || [];
+var svcs  = svcRes.data  || [];
+openModal('Edit User', `
+<form onsubmit="submitEditUser(event,'${userId}')">
+<div class="form-row">
+<div class="form-group"><label class="form-label">First Name</label><input class="form-control" id="eu-fn" value="${user.FirstName||''}" required></div>
+<div class="form-group"><label class="form-label">Last Name</label><input class="form-control" id="eu-ln" value="${user.LastName||''}" required></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">Role</label>
+<select class="form-control" id="eu-role">${roles.map(r=>`<option ${r===user.Role?'selected':''}>${r}</option>`).join('')}</select>
+</div>
+<div class="form-group"><label class="form-label">Department</label>
+<select class="form-control" id="eu-dept" onchange="filterUserSvcDropdown('eu-dept','eu-svc')">
+<option value="">\u2014 None \u2014</option>
+${depts.map(d=>`<option value="${d.DeptID}" ${d.DeptID===user.Department?'selected':''}>${d.DeptName}</option>`).join('')}
+</select>
+</div>
+</div>
+<div class="form-group"><label class="form-label">Service</label>
+<select class="form-control" id="eu-svc">
+<option value="">\u2014 None \u2014</option>
+${svcs.map(s=>`<option value="${s.ServiceID}" data-dept="${s.DeptID}" ${s.ServiceID===user.ServiceID?'selected':''}>${s.ServiceName}</option>`).join('')}
+</select>
+</div>
+<div class="form-group"><label class="form-label">Status</label>
+<select class="form-control" id="eu-status">
+<option value="active" ${(user.IsActive===true||user.IsActive==='TRUE')?'selected':''}>Active</option>
+<option value="inactive" ${(user.IsActive===false||user.IsActive==='FALSE'||!user.IsActive)?'selected':''}>Inactive</option>
+</select></div>
+<div class="form-actions">
+<button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+<button type="submit" class="btn btn-primary">Save Changes</button>
+</div>
+</form>
+`);
+setTimeout(() => filterUserSvcDropdown('eu-dept','eu-svc'), 50);
+});
+}
+
+function submitEditUser(e, userId) {
+e.preventDefault();
+// Show saving state on submit button
+var submitBtn = e.target.querySelector('button[type="submit"]');
+if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving…'; }
+var statusVal = (document.getElementById('eu-status')||{value:'active'}).value;
+var data = {
+firstName:  document.getElementById('eu-fn').value,
+lastName:   document.getElementById('eu-ln').value,
+role:       document.getElementById('eu-role').value,
+department: document.getElementById('eu-dept').value,
+serviceId:  document.getElementById('eu-svc').value,
+isActive:   statusVal !== 'inactive'
+};
+gsr('updateUser', userId, data, State.user.id).then(res => {
+  toast(res.success ? 'User updated.' : res.message, res.success ? 'success' : 'error');
+  if (res.success) { closeModal(); renderUsers(); }
+  else if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Save Changes'; }
+});
+}
+
+function filterUserSvcDropdown(deptSelId, svcSelId) {
+var deptId = (document.getElementById(deptSelId)||{}).value || '';
+var svcSel = document.getElementById(svcSelId);
+if (!svcSel) return;
+Array.from(svcSel.options).forEach(opt => {
+if (!opt.value) { opt.hidden = false; return; }
+opt.hidden = deptId ? opt.dataset.dept !== deptId : false;
+});
+if (svcSel.value && (svcSel.options[svcSel.selectedIndex]||{}).hidden) svcSel.value = '';
+}
+
+function resetPwd(userId) {
+if (!confirm('Reset this user\'s password to the default (1234)?')) return;
+gsr('adminResetPassword', userId, State.user.id).then(res => {
+toast(res.success ? res.message : res.message, res.success ? 'success' : 'error');
+});
+}
+
+function toggleActive(userId) {
+gsr('toggleUserActive', userId, State.user.id).then(res => {
+toast(res.success ? 'User status updated.' : res.message, res.success ? 'success' : 'error');
+if (res.success) renderUsers();
+});
+}
+window.renderUsers = renderUsers;
+
+// ── Customers Administration (standalone placeholder module) ───────────────
+// NOTE: Not yet connected to any backend data source. The Customers database
+// will eventually be sourced from a separate Google Sheet. This page currently
+// renders with sample/placeholder data only, to establish the table structure:
+// CustomerID, CustomerName, Account Name, Account Status.
+function renderCustomersAdmin() {
+  VAA_LOG && VAA_LOG.info("CUSTOMERS", "renderCustomersAdmin() — standalone placeholder, not connected");
+
+  var sampleCustomers = [
+    { CustomerID: 'CUST_0001', CustomerName: 'Acme Logistics Co.',     AccountName: 'Acme Logistics — Primary',   AccountStatus: 'Active' },
+    { CustomerID: 'CUST_0002', CustomerName: 'Brightline Retail Inc.', AccountName: 'Brightline Retail — Main',   AccountStatus: 'Active' },
+    { CustomerID: 'CUST_0003', CustomerName: 'Coastal Realty Group',   AccountName: 'Coastal Realty — East',      AccountStatus: 'Pending' },
+    { CustomerID: 'CUST_0004', CustomerName: 'Driftwood Hospitality',  AccountName: 'Driftwood Hospitality — HQ', AccountStatus: 'Inactive' }
+  ];
+
+  var STATUS_CLS = { Active:'badge-success', Pending:'badge-warning', Inactive:'badge-muted' };
+
+  var rowsHtml = sampleCustomers.map(function(c) {
+    return '<tr>'
+      + '<td style="font-size:12px;color:var(--text-muted);font-family:monospace;">'+c.CustomerID+'</td>'
+      + '<td><strong>'+c.CustomerName+'</strong></td>'
+      + '<td style="font-size:13px;">'+c.AccountName+'</td>'
+      + '<td><span class="badge '+(STATUS_CLS[c.AccountStatus]||'badge-muted')+'">'+c.AccountStatus+'</span></td>'
+      + '</tr>';
+  }).join('');
+
+  set('page-content',
+    '<div class="section-header" style="margin-bottom:16px;">'
+    + '<span class="section-title">Customers</span>'
+    + '<button class="btn btn-primary" disabled title="Not yet connected — data source pending" style="opacity:0.5;cursor:not-allowed;">+ New Customer</button>'
+    + '</div>'
+    + '<div class="card" style="margin-bottom:16px;padding:12px 16px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);">'
+    + '<div style="display:flex;align-items:flex-start;gap:10px;">'
+    + '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--at-risk)" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:700;color:var(--at-risk);margin-bottom:2px;">Not yet connected</div>'
+    + '<div style="font-size:12px;color:var(--text-secondary);">This module is a placeholder. The Customers database will be sourced from a separate Google Sheet once connected. The rows below are sample data showing the intended table structure.</div>'
+    + '</div></div></div>'
+    + '<div class="card">'
+    + '<div class="card-header"><div class="card-title">Customer Directory</div>'
+    + '<div class="card-subtitle">Sample data \u2014 not live</div></div>'
+    + '<div class="table-wrap">'
+    + '<table class="data-table">'
+    + '<thead><tr><th>Customer ID</th><th>Customer Name</th><th>Account Name</th><th>Account Status</th></tr></thead>'
+    + '<tbody>'+rowsHtml+'</tbody>'
+    + '</table></div></div>'
+  );
+}
+
+window.renderCustomersAdmin = renderCustomersAdmin;
+
+</script>

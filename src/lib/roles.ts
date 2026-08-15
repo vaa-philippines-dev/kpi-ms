@@ -5,6 +5,7 @@ export const ROLE_LABELS: Record<string, string> = {
   [UserRole.DM]: "DM",
   [UserRole.OM]: "OM",
   [UserRole.SERVICE_MANAGER]: "Service Manager",
+  [UserRole.VA]: "VA",
 };
 
 export function roleLabel(role: string): string {

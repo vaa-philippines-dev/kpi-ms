@@ -1,0 +1,411 @@
+<script>
+// ─── KPI CONFIGURATION PAGE ──────────────────────────────────
+function renderKPIConfig() {
+  VAA_LOG && VAA_LOG.info("KPICFG", "renderKPIConfig()");
+var canEdit = ['Administrator','Manager','Team Leader'].includes(State.user.role);
+set('page-content', '<div class="loading-overlay"><div class="inline-spinner"></div></div>');
+Promise.all([
+gsr('getVAConnections', State.user.id, State.user.role),
+gsr('getDepartments'),
+gsr('getServices', ''),
+gsr('getVAConnectionUsers')
+]).then(function(results) {
+var conns   = (results[0] || {}).data || [];
+var depts   = (results[1] || {}).data || [];
+var svcs    = (results[2] || {}).data || [];
+var users   = (results[3] || {}).data || [];
+var deptMap = {};  depts.forEach(function(d){ deptMap[d.DeptID]   = d.DeptName; });
+var svcMap  = {};  svcs.forEach(function(s){  svcMap[s.ServiceID]  = s.ServiceName; });
+var userMap = {};  users.forEach(function(u){ userMap[u.UserID]    = u.Name; });
+var cards = conns.map(function(conn) {
+var deptName = deptMap[conn.DeptID]           || conn.DeptID           || '\u2014';
+var svcName  = svcMap[conn.ServiceID]         || conn.ServiceID        || '\u2014';
+var vaName   = userMap[conn.VAUserID]         || conn.VAUserID         || '\u2014';
+var hasKPI   = conn.HasKPIConfig === true || conn.HasKPIConfig === 'TRUE';
+return '<div class="kpi-cfg-card">'
++ '<div class="kpi-cfg-card-header">'
++ '<div>'
++ '<div class="kpi-cfg-card-name">' + (conn.ClientName||'\u2014') + '</div>'
++ '<div class="kpi-cfg-card-meta">'
++ '<span class="pill">' + deptName + '</span>'
++ '<span class="pill">' + svcName + '</span>'
++ '<span style="color:var(--text-muted);font-size:12px;">VA: ' + vaName + '</span>'
++ '</div>'
++ '</div>'
++ '<div style="display:flex;align-items:center;gap:10px;">'
++ (hasKPI
+? '<span class="badge badge-success">Custom Config</span>'
+: '<span class="badge badge-warning">Using Defaults</span>')
++ (canEdit ? '<button class="btn btn-' + (hasKPI ? 'secondary' : 'primary') + ' btn-sm" onclick="openKPIConfigEditor(\'' + conn.ConnectionID + '\',\'view\')">'
++ (hasKPI ? 'View / Edit' : 'View Defaults')
++ '</button>' : '')
++ (canEdit && !hasKPI ? '<button class="btn btn-primary btn-sm" onclick="generateConnKPIConfig(\'' + conn.ConnectionID + '\')" title="Save current defaults as this Generate custom KPI config from defaults">'
++ '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Generate Config</button>' : '')
++ '</div>'
++ '</div>'
++ '</div>';
+}).join('');
+var dtData = conns.map(function(conn) {
+  var hasKPI = conn.HasKPIConfig === true || conn.HasKPIConfig === 'TRUE';
+  return {
+    ClientName:   conn.ClientName   || '\u2014',
+    VAName:       userMap[conn.VAUserID] || conn.VAUserID || '\u2014',
+    Department:   deptMap[conn.DeptID]   || conn.DeptID   || '\u2014',
+    Service:      svcMap[conn.ServiceID] || conn.ServiceID || '\u2014',
+    ConfigStatus: hasKPI ? 'Custom Config' : 'Using Defaults',
+    _connId:      conn.ConnectionID,
+    _hasKPI:      hasKPI,
+    _canEdit:     canEdit
+  };
+});
+set('page-content',
+  '<div class="section-header">'
+  + '<span class="section-title">KPI Configuration <span style="color:var(--text-muted);font-weight:400;font-size:13px;">('+conns.length+' connections)</span></span>'
+  + '</div>'
+  + '<div class="card" style="padding:0;"><div id="kpicfg-dt"></div></div>'
+);
+setTimeout(function() {
+  renderDataTable({
+    containerId:  'kpicfg-dt',
+    defaultLimit: 10,
+    limitOptions: [10, 25, 50, 100],
+    emptyMessage: 'No connections found.',
+    data: dtData,
+    columns: [
+      { key:'ClientName',   label:'Client',      sortable:true,  filterable:false },
+      { key:'VAName',       label:'VA',          sortable:true,  filterable:false },
+      { key:'Department',   label:'Department',  sortable:true,  filterable:'select' },
+      { key:'Service',      label:'Service',     sortable:true,  filterable:'select' },
+      { key:'ConfigStatus', label:'Config',      sortable:true,  filterable:'select',
+        render: function(v) {
+          return v === 'Custom Config'
+            ? '<span class="badge badge-success">Custom Config</span>'
+            : '<span class="badge badge-warning">Using Defaults</span>';
+        }
+      },
+      { key:'_connId', label:'Actions', sortable:false, filterable:false,
+        render: function(v, row) {
+          var btns = '';
+          if (row._canEdit) {
+            btns += '<button class="btn btn-secondary btn-sm" onclick="openKPIConfigEditor(\''+v+'\')">'
+              + (row._hasKPI ? 'View / Edit' : 'View Defaults') + '</button>';
+            if (!row._hasKPI) {
+              btns += ' <button class="btn btn-primary btn-sm" onclick="generateConnKPIConfig(\''+v+'\')">'
+                + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>'
+                + ' Generate</button>';
+            }
+          }
+          return '<div style="display:flex;gap:4px;flex-wrap:wrap;">'+btns+'</div>';
+        }
+      }
+    ]
+  });
+}, 50);
+});
+}
+
+function generateConnKPIConfig(connId) {
+  var btn = event && event.target ? event.target.closest('button') : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<div class="inline-spinner" style="width:12px;height:12px;"></div>'; }
+  gsr('initKPIConfig', connId, State.user.id).then(function(res) {
+    toast(res && res.success ? 'KPI configuration generated from defaults.' : (res && res.message || 'Failed'), res && res.success ? 'success' : 'error');
+    if (res && res.success) renderKPIConfig();
+    else if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Generate Config'; }
+  });
+}
+
+function openKPIConfigEditor(connId) {
+  VAA_LOG && VAA_LOG.info("KPICFG", "openKPIConfigEditor: " + connId);
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box modal-two-thirds';
+openModal('KPI Configuration', '<div class="loading-overlay"><div class="inline-spinner"></div></div>');
+window._currentConnId = connId;
+gsr('getKPIConfigForConn', connId).then(function(res) {
+res = res || {};
+var cfg = res.data || [];
+var hasConfig = res.hasConfig;
+var canEdit = ['Administrator','Manager','Team Leader'].includes(State.user.role);
+var body = document.getElementById('modal-body');
+if (!body) return;
+body.innerHTML = buildKPIConfigSection(cfg, hasConfig, connId, canEdit);
+});
+}
+
+function _buildKPIRow(row, canEdit) {
+  var isDefault = !row.ConfigID;
+  var wt = parseFloat(row.WeeklyTarget) || 0;
+  var isPercent = (row.Unit||'') === '%';
+  var devVal  = row.DeviationThreshold || '\u2014';
+  var riskVal = row.AtRiskThreshold    || '\u2014';
+  var devPct  = (!isPercent && wt && row.DeviationThreshold)
+    ? '<span class="kpi-pct-sub">' + (parseFloat(row.DeviationThreshold)/wt*100).toFixed(1) + '%</span>' : '';
+  var riskPct = (!isPercent && wt && row.AtRiskThreshold)
+    ? '<span class="kpi-pct-sub">' + (parseFloat(row.AtRiskThreshold)/wt*100).toFixed(1) + '%</span>' : '';
+  var applicable = row.IsApplicable === true || row.IsApplicable === 'TRUE';
+  var editBtn = (canEdit && row.ConfigID)
+    ? '<button class="btn btn-icon" title="Edit" onclick="openEditKPIConfig(\'' + row.ConfigID + '\',' + JSON.stringify(row).replace(/"/g,'&quot;') + ')">'
+      + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>'
+    : (canEdit ? '<span class="kpi-pct-sub">Default</span>' : '');
+  return '<tr' + (isDefault ? ' style="opacity:0.75;"' : '') + '>'
+    + '<td class="kpi-name-cell"><span class="kpi-name">' + (row.KPIName||'\u2014') + '</span>'
+    + (row.Description ? '<span class="kpi-desc">' + row.Description + '</span>' : '')
+    + (isDefault ? '<span class="kpi-pct-sub" style="display:block;">master default</span>' : '')
+    + '</td>'
+    + '<td class="kpi-num-cell">' + (row.WeeklyTarget||'\u2014') + '</td>'
+    + '<td class="kpi-num-cell">' + (row.MonthlyTarget||'\u2014') + '</td>'
+    + '<td class="kpi-threshold-cell kpi-warn"><span class="kpi-thresh-val">' + devVal + '</span>' + devPct + '</td>'
+    + '<td class="kpi-threshold-cell kpi-danger"><span class="kpi-thresh-val">' + riskVal + '</span>' + riskPct + '</td>'
+    + '<td>' + (applicable ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-muted">No</span>') + '</td>'
+    + (canEdit ? '<td>' + editBtn + '</td>' : '')
+    + '</tr>';
+}
+
+function buildKPIConfigSection(cfg, hasConfig, connId, canEdit) {
+  VAA_LOG && VAA_LOG.debug('KPICFG', 'buildKPIConfigSection: ' + (cfg||[]).length + ' KPIs hasConfig=' + hasConfig);
+  var statusBadge = hasConfig
+    ? '<span class="badge badge-success" style="margin-left:10px;">Custom Config</span>'
+    : '<span class="badge badge-warning" style="margin-left:10px;">Using Defaults</span>';
+  var actionBtn = '';
+  if (canEdit) {
+    actionBtn = hasConfig
+      ? '<button class="btn btn-secondary btn-sm" onclick="resetToDefaults(\'' + connId + '\')">Reset to Defaults</button>'
+      : '<button class="btn btn-primary btn-sm" onclick="saveDefaultKPIConfig(\'' + connId + '\')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg> Save as Config</button>';
+  }
+  var header = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'
+    + '<div><span style="font-size:14px;font-weight:700;">KPI Configuration</span>' + statusBadge + '</div>'
+    + actionBtn + '</div>';
+
+  if (!cfg.length) {
+    return header + '<div style="padding:24px;text-align:center;color:var(--text-muted);">No KPIs found for this connection.</div>';
+  }
+
+  var thead = '<thead><tr><th>KPI Name</th><th>Weekly Target</th><th>Monthly Target</th>'
+    + '<th>Deviation</th><th>At Risk MAX</th><th>Applicable</th>'
+    + (canEdit ? '<th></th>' : '') + '</tr></thead>';
+
+  // Group by Cluster
+  var clusterMap = {};
+  cfg.forEach(function(row) {
+    var cl = String(row.Cluster||'').trim() || '\u2014 No Cluster \u2014';
+    if (!clusterMap[cl]) clusterMap[cl] = [];
+    clusterMap[cl].push(row);
+  });
+  var clusters = Object.keys(clusterMap).sort(function(a,b){
+    if (a==='\u2014 No Cluster \u2014') return 1;
+    if (b==='\u2014 No Cluster \u2014') return -1;
+    return a.localeCompare(b);
+  });
+
+  if (clusters.length === 1) {
+    var rows = cfg.map(function(row){ return _buildKPIRow(row, canEdit); }).join('');
+    return header + '<div class="table-wrap" style="max-height:420px;overflow-y:auto;">'
+      + '<table class="dept-modal-table">' + thead + '<tbody>' + rows + '</tbody></table></div>';
+  }
+
+  var body = clusters.map(function(cl) {
+    var clRows   = clusterMap[cl];
+    var clId     = 'cfg_cl_' + cl.replace(/[^a-zA-Z0-9]/g,'_');
+    var allApply = clRows.every(function(r){ return r.IsApplicable===true||r.IsApplicable==='TRUE'; });
+    var rows     = clRows.map(function(row){ return _buildKPIRow(row, canEdit); }).join('');
+    var toggleBtn = canEdit
+      ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;height:22px;padding:1px 8px;" '
+        + 'onclick="event.stopPropagation();toast(\'Edit individual KPIs to change Applicable.\',\'info\')">'
+        + (allApply ? 'All Applicable' : clRows.filter(function(r){return r.IsApplicable===true||r.IsApplicable==='TRUE';}).length + ' / ' + clRows.length + ' Applicable')
+        + '</button>'
+      : '';
+    return '<div class="kpi-cfg-cluster">'
+      + '<div class="kpi-cfg-cluster-header" onclick="toggleCfgCluster(\'' + clId + '\')">'
+      + '<svg id="cfgchev-' + clId + '" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transition:transform .2s;flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>'
+      + '<span class="kpi-cfg-cluster-name">' + cl + '</span>'
+      + '<span class="kpi-svc-count-badge" style="margin-left:6px;">' + clRows.length + '</span>'
+      + '<div style="margin-left:auto;">' + toggleBtn + '</div>'
+      + '</div>'
+      + '<div id="cfgbody-' + clId + '">'
+      + '<div class="table-wrap"><table class="dept-modal-table">' + thead + '<tbody>' + rows + '</tbody></table></div>'
+      + '</div></div>';
+  }).join('');
+
+  return header + body;
+}
+
+function toggleCfgCluster(clId) {
+  var body = document.getElementById('cfgbody-' + clId);
+  var chev = document.getElementById('cfgchev-' + clId);
+  if (!body) return;
+  var hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  if (chev) chev.style.transform = hidden ? '' : 'rotate(-90deg)';
+}
+
+
+function buildInterventionsSection(intv, connId, canEdit) {
+var addBtn = canEdit
+? '<div style="margin-bottom:12px;"><button class="btn btn-primary btn-sm" onclick="openAddIntervention(\'' + connId + '\')">+ Add Intervention</button></div>'
+: '';
+if (!intv.length) return addBtn + '<div style="padding:20px 0;text-align:center;color:var(--text-muted);font-size:13px;">No interventions yet.</div>';
+return addBtn + '<div style="display:flex;flex-direction:column;gap:10px;">'
++ (function(){
+  // Store all interventions in window map keyed by ID — avoids JSON.stringify in onclick
+  window._intvMap = window._intvMap || {};
+  intv.forEach(function(iv){ if(iv.InterventionID) window._intvMap[iv.InterventionID] = iv; });
+  return intv.map(function(i) {
+    var _eBtn = (canEdit && i.InterventionID)
+      ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px;" onclick="openEditIntervention(\'' + i.InterventionID + '\')">Edit</button>'
+      : '';
+    return '<div class="card" style="padding:14px 16px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+      + '<div style="display:flex;align-items:center;gap:8px;"><span class="badge badge-info">' + (i.Type||'\u2014') + '</span>' + _eBtn + '</div>'
+      + '<span style="font-size:12px;color:var(--text-muted);">' + formatDate(i.CreatedAt) + '</span>'
+      + '</div>'
+      + '<p style="font-size:13px;">' + (i.Description||'\u2014') + '</p>'
+      + (i.ActionTaken ? '<p style="margin-top:6px;font-size:12px;color:var(--text-secondary);"><strong>Action:</strong> ' + i.ActionTaken + '</p>' : '')
+      + (i.Outcome ? '<p style="font-size:12px;color:var(--text-secondary);"><strong>Outcome:</strong> ' + i.Outcome + '</p>' : '')
+      + '</div>';
+  }).join('');
+})() + '</div>';
+}
+
+function openEditIntervention(intvId) {
+  var intv = (typeof intvId === 'string') ? (window._intvMap||{})[intvId] : intvId;
+  if (!intv || !intv.InterventionID) { toast('Cannot edit this intervention.','error'); return; }
+  var typeOpts = (typeof getIntvTypeOptions === 'function')
+    ? getIntvTypeOptions(intv.Type)
+    : (window._interventionTypes||['Coaching','Warning','Escalation','Feedback','Performance Review','Other'])
+        .map(function(t){ return '<option value="'+t+'"'+(t===intv.Type?' selected':'')+'>'+t+'</option>'; }).join('');
+  openModal('Edit Intervention',
+    '<div class="form-group"><label class="form-label">Type</label>'    +'<select class="form-control" id="ei-type">'+typeOpts+'</select></div>'    +'<div class="form-group"><label class="form-label">Description</label>'    +'<textarea class="form-control" id="ei-desc" rows="3" style="resize:vertical;">'+String(intv.Description||'')+'</textarea></div>'    +'<div class="form-group"><label class="form-label">Action Taken</label>'    +'<textarea class="form-control" id="ei-action" rows="2" style="resize:vertical;">'+String(intv.ActionTaken||'')+'</textarea></div>'    +'<div class="form-group"><label class="form-label">Outcome</label>'    +'<textarea class="form-control" id="ei-outcome" rows="2" style="resize:vertical;">'+String(intv.Outcome||'')+'</textarea></div>'    +'<div class="form-actions">'    +'<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>'    +'<button class="btn btn-primary" id="ei-save-btn" onclick="_submitEditIntervention(\'' + intv.InterventionID + '\')">Save Changes</button>'    +'</div>'
+  );
+}
+
+function _submitEditIntervention(interventionId) {
+  var btn = document.getElementById('ei-save-btn');
+  if (btn) { btn.disabled=true; btn.textContent='Saving\u2026'; }
+  var data = {
+    type:        (document.getElementById('ei-type')||{}).value || '',
+    description: (document.getElementById('ei-desc')||{}).value || '',
+    actionTaken: (document.getElementById('ei-action')||{}).value || '',
+    outcome:     (document.getElementById('ei-outcome')||{}).value || ''
+  };
+  gsr('updateIntervention', interventionId, data, State.user.id).then(function(res) {
+    if (res && res.success) {
+      toast('Intervention updated.','success');
+      closeModal();
+      // Refresh whichever detail view is currently open
+      if (window._cwdRefreshConnId && typeof openConnWeekDetail === 'function') {
+        setTimeout(function(){ openConnWeekDetail(window._cwdRefreshConnId, window._cwdRefreshWeek); }, 80);
+      } else if (window._currentConnId && typeof openConnectionDetail === 'function') {
+        setTimeout(function(){ openConnectionDetail(window._currentConnId); }, 80);
+      }
+    } else {
+      toast(res&&res.message||'Update failed.','error');
+      if (btn) { btn.disabled=false; btn.textContent='Save Changes'; }
+    }
+  });
+}
+
+function switchDetailTab(tab, btn) {
+document.querySelectorAll('#detail-tabs .tab').forEach(function(t){ t.classList.remove('active'); });
+btn.classList.add('active');
+['kpi','perf','intv'].forEach(function(t) {
+var el = document.getElementById('detail-tab-'+t);
+if (el) el.classList.toggle('hidden', t !== tab);
+});
+}
+
+function saveDefaultKPIConfig(connId) {
+var btn = event && event.target ? event.target.closest('button') : null;
+if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+gsr('initKPIConfig', connId, State.user.id).then(function(res) {
+toast(res && res.success ? 'KPI configuration saved from defaults.' : (res && res.message || 'Failed'), res && res.success ? 'success' : 'error');
+if (res && res.success) {
+var idx = (window._allConnections||[]).findIndex(function(c){ return c.ConnectionID === connId; });
+if (idx >= 0) window._allConnections[idx].HasKPIConfig = true;
+openConnectionDetail(connId);
+} else if (btn) { btn.disabled = false; btn.textContent = 'Save as Config'; }
+});
+}
+
+function resetToDefaults(connId) {
+if (!confirm('Reset this connection to master KPI defaults? Current custom config will be replaced.')) return;
+gsr('deleteKPIConfig', connId, State.user.id).then(function(res) {
+gsr('initKPIConfig', connId, State.user.id).then(function(res2) {
+toast(res2 && res2.success ? 'Reset to defaults.' : (res2 && res2.message || 'Reset failed.'), res2 && res2.success ? 'success' : 'error');
+if (res2 && res2.success) openConnectionDetail(connId);
+});
+});
+}
+
+function openEditKPIConfig(configId, cfg) {
+var box = document.getElementById('modal-box');
+if (box) box.className = 'modal-box';
+var unit = cfg.Unit || '';
+var isPercent = unit === '%';
+openModal('Edit KPI \u2014 ' + (cfg.KPIName||''),
+'<div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:16px;">'
++ '<strong style="font-size:13.5px;">' + (cfg.KPIName||'') + '</strong>'
++ (cfg.Description ? '<div style="font-size:12px;color:var(--text-muted);margin-top:3px;">' + cfg.Description + '</div>' : '')
++ '<div style="margin-top:6px;display:flex;gap:16px;font-size:12px;color:var(--text-muted);">'
++ '<span>Unit: <strong style="color:var(--text-secondary);">' + (unit||'\u2014') + '</strong></span>'
++ '<span>Direction: <strong style="color:var(--text-secondary);">' + (cfg.PerformanceDirection||'\u2014') + '</strong></span>'
++ '<span>Default Target: <strong style="color:var(--text-secondary);">' + (cfg.DefaultWeeklyTarget||cfg.WeeklyTarget||'\u2014') + '</strong></span>'
++ '</div></div>'
++ '<form onsubmit="saveKPIConfig(event,\'' + configId + '\')">'
++ '<div class="form-row">'
++ '<div class="form-group"><label class="form-label">Weekly Target</label>'
++ '<input class="form-control" id="cfg-wt" type="number" step="0.01" value="' + (cfg.WeeklyTarget||'') + '" oninput="kpiCfgComputePct()" required></div>'
++ '<div class="form-group"><label class="form-label">Monthly Target</label>'
++ '<input class="form-control" id="cfg-mt" type="number" step="0.01" value="' + (cfg.MonthlyTarget||'') + '" required></div>'
++ '</div>'
++ '<div class="form-row">'
++ '<div class="form-group"><label class="form-label">Deviation <span style="font-weight:400;color:var(--text-muted);">(' + (isPercent ? '%' : unit + ' value') + ')</span></label>'
++ '<input class="form-control" id="cfg-dev" type="number" step="0.01" value="' + (cfg.DeviationThreshold||'') + '" oninput="kpiCfgComputePct()">'
++ '<div class="form-hint" id="cfg-dev-pct"></div></div>'
++ '<div class="form-group"><label class="form-label">At Risk MAX <span style="font-weight:400;color:var(--text-muted);">(' + (isPercent ? '%' : unit + ' value') + ')</span></label>'
++ '<input class="form-control" id="cfg-risk" type="number" step="0.01" value="' + (cfg.AtRiskThreshold||'') + '" oninput="kpiCfgComputePct()">'
++ '<div class="form-hint" id="cfg-risk-pct"></div></div>'
++ '</div>'
++ '<div class="form-group"><label class="checkbox-wrap">'
++ '<input type="checkbox" id="cfg-applicable" ' + ((cfg.IsApplicable===true||cfg.IsApplicable==='TRUE')?'checked':'') + '>'
++ '<span>Applicable to this connection</span></label></div>'
++ '<div class="form-group"><label class="form-label">Notes</label>'
++ '<textarea class="form-control" id="cfg-notes" rows="2">' + (cfg.Notes||'') + '</textarea></div>'
++ '<div class="form-actions">'
++ '<button type="button" class="btn btn-secondary" onclick="openConnectionDetail(\'' + (cfg.ConnectionID||window._currentConnId||'') + '\')">Back</button>'
++ '<button type="submit" class="btn btn-primary" id="cfg-save-btn">Save Changes</button>'
++ '</div></form>');
+window._cfgIsPercent = isPercent;
+setTimeout(kpiCfgComputePct, 50);
+}
+
+function kpiCfgComputePct() {
+if (window._cfgIsPercent) return;
+var wt   = parseFloat((document.getElementById('cfg-wt')||{}).value)  || 0;
+var dev  = parseFloat((document.getElementById('cfg-dev')||{}).value)  || 0;
+var risk = parseFloat((document.getElementById('cfg-risk')||{}).value) || 0;
+var devEl  = document.getElementById('cfg-dev-pct');
+var riskEl = document.getElementById('cfg-risk-pct');
+if (devEl)  devEl.textContent  = wt ? (dev /wt*100).toFixed(1) + '% of target' : '';
+if (riskEl) riskEl.textContent = wt ? (risk/wt*100).toFixed(1) + '% of target' : '';
+}
+
+function saveKPIConfig(e, configId) {
+e.preventDefault();
+var btn = document.getElementById('cfg-save-btn');
+if (btn && btn.disabled) return;
+if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+gsr('updateKPIConfig', configId, {
+weeklyTarget:       (document.getElementById('cfg-wt')||{}).value,
+monthlyTarget:      (document.getElementById('cfg-mt')||{}).value,
+deviationThreshold: (document.getElementById('cfg-dev')||{}).value,
+atRiskThreshold:    (document.getElementById('cfg-risk')||{}).value,
+isApplicable:       (document.getElementById('cfg-applicable')||{}).checked,
+notes:              (document.getElementById('cfg-notes')||{}).value
+}, State.user.id).then(function(res) {
+toast(res && res.success ? 'Saved.' : (res && res.message || 'Failed'), res && res.success ? 'success' : 'error');
+if (res && res.success) openConnectionDetail(window._currentConnId);
+else if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+});
+}
+window.renderKPIConfig = renderKPIConfig;
+
+</script>

@@ -1,0 +1,188 @@
+<div class="auth-screen">
+
+  <!-- Login Panel -->
+  <div class="auth-card" id="login-form-wrap">
+    <div class="auth-logo">
+      <svg width="38" height="38" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="52" height="52" rx="13" fill="#1e4d8c"/>
+        <rect width="52" height="52" rx="13" fill="url(#auth-grad)"/>
+        <rect x="7" y="34" width="11" height="13" rx="5.5" fill="#6baed6"/>
+        <rect x="21" y="24" width="11" height="23" rx="5.5" fill="#f6b73c"/>
+        <rect x="35" y="13" width="11" height="34" rx="5.5" fill="#f6b73c"/>
+        <rect x="35" y="13" width="11" height="11" rx="5.5" fill="#e09820"/>
+        <defs>
+          <linearGradient id="auth-grad" x1="0" y1="0" x2="0" y2="52" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#2d6abf" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#0f2d5e" stop-opacity="0.6"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div style="font-size:10px;color:var(--text-muted);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:2px;">VAA Philippines</div><h1>KPI <span>Portal</span></h1>
+    </div>
+    <h2 class="auth-title">Welcome back</h2>
+    <p class="auth-subtitle">Sign in to your account to continue.</p>
+    <div id="auth-error" class="form-error mb-16 hidden"></div>
+    <form id="login-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label" for="login-email">Work Email</label>
+        <input class="form-control" id="login-email" type="email" placeholder="you@company.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Password</label>
+        <div style="position:relative;">
+          <input class="form-control" id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password" style="padding-right:40px;">
+          <button type="button" onclick="togglePwdVis('login-password',this)" tabindex="-1" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:0;color:var(--text-muted);"><svg id="eye-login-password" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary" id="login-btn" style="width:100%;justify-content:center;margin-top:4px;">
+        <span id="login-btn-text">Sign In</span>
+        <span id="login-spinner" class="inline-spinner hidden"></span>
+      </button>
+    </form>
+    <div class="auth-footer">Contact your administrator if you need access.</div>
+  </div>
+
+  <!-- Change Password Panel -->
+  <div class="auth-card hidden" id="change-pwd-wrap">
+    <div class="auth-logo">
+      <svg width="38" height="38" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="52" height="52" rx="13" fill="#1e4d8c"/>
+        <rect width="52" height="52" rx="13" fill="url(#auth-grad2)"/>
+        <rect x="7" y="34" width="11" height="13" rx="5.5" fill="#6baed6"/>
+        <rect x="21" y="24" width="11" height="23" rx="5.5" fill="#f6b73c"/>
+        <rect x="35" y="13" width="11" height="34" rx="5.5" fill="#f6b73c"/>
+        <rect x="35" y="13" width="11" height="11" rx="5.5" fill="#e09820"/>
+        <defs>
+          <linearGradient id="auth-grad2" x1="0" y1="0" x2="0" y2="52" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#2d6abf" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#0f2d5e" stop-opacity="0.6"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div style="font-size:10px;color:var(--text-muted);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:2px;">VAA Philippines</div><h1>KPI <span>Portal</span></h1>
+    </div>
+    <h2 class="auth-title">Set your password</h2>
+    <p class="auth-subtitle">Your account requires a new password before continuing.</p>
+    <div id="changepwd-error" class="form-error mb-16 hidden"></div>
+    <form id="change-pwd-form" onsubmit="handleChangePwd(event)">
+      <div class="form-group">
+        <label class="form-label">Current Password</label>
+        <input class="form-control" id="cur-pwd" type="password" placeholder="Current password" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">New Password</label>
+        <input class="form-control" id="new-pwd" type="password" placeholder="At least 8 characters" required minlength="8">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm New Password</label>
+        <input class="form-control" id="confirm-pwd" type="password" placeholder="Repeat new password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px;">
+        <span>Update Password &amp; Continue</span>
+      </button>
+    </form>
+  </div>
+
+</div>
+<script>
+// Auth handler functions live here so they're defined before the form's onsubmit fires.
+// AppCore.html (loaded later) contains State, initApp(), etc. \u2014 referenced by name at
+// call time so the later load order is fine.
+function handleLogin(e) {
+  e.preventDefault();
+  var email    = document.getElementById('login-email').value.trim();
+  var password = document.getElementById('login-password').value;
+  var btn      = document.getElementById('login-btn');
+  var spinner  = document.getElementById('login-spinner');
+  var errEl    = document.getElementById('auth-error');
+  btn.disabled = true;
+  spinner.classList.remove('hidden');
+  errEl.classList.add('hidden');
+  if (typeof VAA_LOG !== 'undefined') VAA_LOG.info('AUTH', 'login attempt: ' + email);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      spinner.classList.add('hidden');
+      if (res && res.success) {
+        State.user = res.user;
+        State._loginPassword = password;
+        if (res.mustChangePassword) {
+          document.getElementById('login-form-wrap').classList.add('hidden');
+          document.getElementById('change-pwd-wrap').classList.remove('hidden');
+        } else {
+          initApp();
+        }
+      } else {
+        errEl.textContent = (res && res.message) || 'Login failed. Please check your credentials.';
+        errEl.classList.remove('hidden');
+        if (typeof VAA_LOG !== 'undefined') VAA_LOG.warn('AUTH', 'login failed: ' + errEl.textContent);
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      spinner.classList.add('hidden');
+      var msg = (err && err.message) ? err.message : String(err || '');
+      var isAuthErr = msg.toLowerCase().indexOf('authorization') >= 0
+                   || msg.toLowerCase().indexOf('script') >= 0
+                   || msg.toLowerCase().indexOf('permission') >= 0;
+      if (isAuthErr) {
+        errEl.innerHTML = '<div style="margin-bottom:8px;">Authorization required. The app needs permission to run.</div>'
+          + '<button type="button" onclick="_gasAuthorize()" class="btn btn-primary" style="width:100%;margin-top:4px;">'
+          + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:-2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
+          + 'Authorize App</button>';
+      } else {
+        errEl.textContent = 'Connection error. Please try again.';
+      }
+      errEl.classList.remove('hidden');
+      if (typeof VAA_LOG !== 'undefined') VAA_LOG.error('AUTH', 'login GAS exception', err);
+    })
+    .login(email, password);
+}
+
+function handleChangePwd(e) {
+  e.preventDefault();
+  var cur   = document.getElementById('cur-pwd').value;
+  var newP  = document.getElementById('new-pwd').value;
+  var conf  = document.getElementById('confirm-pwd').value;
+  var errEl = document.getElementById('changepwd-error');
+  if (newP !== conf) {
+    errEl.textContent = 'Passwords do not match.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { initApp(); }
+      else { errEl.textContent = (res && res.message) || 'Failed.'; errEl.classList.remove('hidden'); }
+    })
+    .withFailureHandler(function(err) {
+      errEl.textContent = 'Connection error.';
+      errEl.classList.remove('hidden');
+    })
+    .changePassword(State.user.id, cur, newP);
+}
+
+function togglePwdVis(inputId, btn) {
+  var inp = document.getElementById(inputId);
+  if (!inp) return;
+  var isHidden = inp.type === 'password';
+  inp.type = isHidden ? 'text' : 'password';
+  var eye = document.getElementById('eye-' + inputId);
+  if (eye) eye.style.opacity = isHidden ? '1' : '0.4';
+}
+
+function _gasAuthorize() {
+  // GAS web apps show an authorization dialog when the script URL is visited directly.
+  // google.script.run.withSuccessHandler fires an authorization URL on first run.
+  var scriptOrigin = '';
+  try { scriptOrigin = window.top.location.href.split('?')[0]; } catch(e) {}
+  // Show instructions since direct navigation triggers the OAuth screen
+  var errEl = document.getElementById('login-error');
+  if (errEl) {
+    errEl.innerHTML = '<div style="margin-bottom:8px;color:var(--text-secondary);">To authorize: open the app URL in a new tab, click <strong>Review Permissions</strong>, sign in with your Google account, then return here and try again.</div>'
+      + '<button type="button" onclick="window.open(window.location.href,\'_blank\')" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:6px;">Open App in New Tab</button>'
+      + '<button type="button" onclick="document.getElementById(\'login-error\').classList.add(\'hidden\')" class="btn btn-secondary btn-sm" style="width:100%;">Dismiss</button>';
+  }
+}
+
+</script>

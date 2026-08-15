@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "lastLogin" TIMESTAMPTZ(3),
+ADD COLUMN     "loginCount" INTEGER NOT NULL DEFAULT 0;
