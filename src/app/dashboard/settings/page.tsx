@@ -3,6 +3,7 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getInterventionTypes, getAppName, getWeekStartDay } from "@/lib/settings";
+import { LegacySyncPanel } from "@/components/legacy-sync-panel";
 import { updateSetting } from "./actions";
 
 const WEEKDAYS = [
@@ -96,6 +97,18 @@ export default async function SettingsPage() {
           />
           <Button type="submit">Save</Button>
         </form>
+
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+            Legacy Sync
+          </h2>
+          <p className="mb-3 text-xs text-muted">
+            Pulls from the legacy Google Sheet on demand — no cron job. Safe
+            to re-run: every row is upserted by its legacy ID, so nothing
+            gets duplicated.
+          </p>
+          <LegacySyncPanel />
+        </div>
       </div>
     </>
   );

@@ -66,6 +66,8 @@ model Service {
   department     Department      @relation(fields: [departmentId], references: [id])
   departmentId   String
   isActive       Boolean         @default(true)
+  // Legacy ServiceID — lets the legacy sync upsert idempotently.
+  legacyId       String?         @unique
   kpiDefinitions KpiDefinition[]
   connections    Connection[]
   users          User[]
@@ -89,6 +91,8 @@ model Team {
   isActive      Boolean      @default(true)
   members       User[]       @relation("TeamMembers")
   connections   Connection[]
+  // Legacy TeamID — lets the legacy sync upsert idempotently.
+  legacyId      String?      @unique
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -113,9 +117,13 @@ model KpiDefinition {
   submissionRecords     SubmissionRecord[]
   performanceSummaries  PerformanceSummary[]
   kpiConfigs            KpiConfig[]
+  // Legacy KPIID — one legacy KPI has both a WeeklyTarget and MonthlyTarget,
+  // so it maps to up to two rows here (one per period); unique per period.
+  legacyId              String?
   createdAt             DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
 
+  @@unique([legacyId, period])
   @@index([departmentId])
   @@index([serviceId])
 }
@@ -207,6 +215,8 @@ model Intervention {
   outcome      String?
   createdBy    User       @relation(fields: [createdById], references: [id])
   createdById  String
+  // Legacy InterventionID — lets the legacy sync upsert idempotently.
+  legacyId     String?    @unique
   createdAt    DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
 
