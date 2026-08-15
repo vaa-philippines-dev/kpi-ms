@@ -51,7 +51,7 @@ export function AuthModal({
           <X className="size-4" />
         </button>
         <div className="flex justify-center">
-          <LogoBadge className="h-10" />
+          <LogoBadge className="h-10 w-auto" />
         </div>
         <h2 className="mt-4 text-2xl font-semibold tracking-tight">
           KPI Dashboard

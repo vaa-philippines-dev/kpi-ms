@@ -534,7 +534,9 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
   );
   for (const row of legacySettings) {
     try {
-      if (!row.SettingKey) {
+      // APP_NAME is this app's own branding, not legacy config — never
+      // let a re-sync clobber it with the old system's name.
+      if (!row.SettingKey || row.SettingKey === "APP_NAME") {
         settingResult.skipped++;
         continue;
       }

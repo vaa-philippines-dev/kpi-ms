@@ -101,27 +101,15 @@ export default async function DashboardOverviewPage() {
       />
 
       {notifications && notifications.missingConfig.length > 0 && (
-        <div className="mb-6 max-w-4xl rounded-lg border border-warning/30 bg-warning/10 p-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-warning">
-            <Bell className="size-4" />
-            {notifications.missingConfig.length} connection
-            {notifications.missingConfig.length === 1 ? "" : "s"} missing KPI
-            config
-          </div>
-          <ul className="mt-2 space-y-1 text-xs text-muted">
-            {notifications.missingConfig.map((c) => (
-              <li key={c.id}>
-                {c.vaUser.name ?? c.vaUser.email} · {c.clientName}
-              </li>
-            ))}
-          </ul>
-          <Link
-            href="/dashboard/connections"
-            className="mt-2 inline-block text-xs text-accent hover:underline"
-          >
-            Go to Connections →
-          </Link>
-        </div>
+        <Link
+          href="/dashboard/connections"
+          className="mb-6 flex max-w-4xl items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm font-medium text-warning transition hover:bg-warning/15"
+        >
+          <Bell className="size-4 shrink-0" />
+          {notifications.missingConfig.length} connection
+          {notifications.missingConfig.length === 1 ? "" : "s"} missing KPI
+          config — review in Connections →
+        </Link>
       )}
 
       {summaries.length === 0 ? (

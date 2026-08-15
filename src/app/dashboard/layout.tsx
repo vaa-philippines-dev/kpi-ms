@@ -16,14 +16,16 @@ export default async function DashboardLayout({
   ]);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background">
       <DashboardSidebar
         email={session?.user?.email ?? ""}
         role={session?.user?.role ?? ""}
         submissionsToday={submissionsToday}
         appName={appName}
       />
-      <main className="min-w-0 flex-1 overflow-x-hidden p-8">{children}</main>
+      <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-8">
+        {children}
+      </main>
     </div>
   );
 }

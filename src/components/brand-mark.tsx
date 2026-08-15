@@ -6,7 +6,7 @@ import { LogoBadge } from "@/components/logo-badge";
 export function BrandMark({ className = "" }: { className?: string }) {
   return (
     <div className={`flex flex-col items-center gap-2 ${className}`}>
-      <LogoBadge className="h-10" />
+      <LogoBadge className="h-10 w-auto" />
       <p className="text-xs font-medium tracking-[0.2em] text-muted uppercase">
         VAA Philippines
       </p>
