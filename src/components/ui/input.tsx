@@ -6,7 +6,7 @@ export function Input({
 }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
-      className={`rounded-lg border border-surface-border bg-transparent px-3 py-2 text-sm outline-none transition focus:border-accent ${className}`}
+      className={`rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/40 ${className}`}
       {...props}
     />
   );
@@ -18,7 +18,7 @@ export function Textarea({
 }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
-      className={`rounded-lg border border-surface-border bg-transparent px-3 py-2 text-sm outline-none transition focus:border-accent ${className}`}
+      className={`rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/40 ${className}`}
       {...props}
     />
   );
@@ -30,7 +30,7 @@ export function Select({
 }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={`rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent ${className}`}
+      className={`rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/40 ${className}`}
       {...props}
     />
   );

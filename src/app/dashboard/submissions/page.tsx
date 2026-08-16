@@ -3,20 +3,28 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { Sparkline } from "@/components/sparkline";
+import { PeriodNav } from "@/components/period-nav";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { rollupStatus } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 const TREND_WEEKS = 8;
 
-export default async function SubmissionsPage() {
+export default async function SubmissionsPage(
+  props: PageProps<"/dashboard/submissions">,
+) {
+  const searchParams = await props.searchParams;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
+
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
-  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
-  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
+  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
+  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
   const trendStart = new Date(
     weeklyStart.getTime() - (TREND_WEEKS - 1) * 7 * 24 * 60 * 60 * 1000,
   );
@@ -88,10 +96,18 @@ export default async function SubmissionsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Submissions"
-        description="Submitted-vs-pending status per connection, plus the raw submission log."
-      />
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Submissions"
+          description="Submitted-vs-pending status per connection, plus the raw submission log."
+          className="mb-0"
+        />
+        <PeriodNav
+          anchor={weeklyStart}
+          weekStartDay={weekStartDay}
+          basePath="/dashboard/submissions"
+        />
+      </div>
 
       {connections.length > 0 && (
         <a

@@ -2,8 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
+import { PeriodNav } from "@/components/period-nav";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { rollupStatus } from "@/lib/performance";
 import { KpiPeriod } from "@/generated/prisma/enums";
@@ -11,11 +12,18 @@ import { KpiPeriod } from "@/generated/prisma/enums";
 // Cross-references this week's worst-case KPI status per connection with
 // any interventions logged during the week — mirrors legacy
 // getWeeklyInterventionsReport().
-export default async function WeeklyInterventionsReportPage() {
+export default async function WeeklyInterventionsReportPage(
+  props: PageProps<"/dashboard/reports/weekly-interventions">,
+) {
+  const searchParams = await props.searchParams;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
+
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
-  const weekStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
+  const weekStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const connections = await prisma.connection.findMany({
@@ -36,10 +44,18 @@ export default async function WeeklyInterventionsReportPage() {
 
   return (
     <>
-      <PageHeader
-        title="Weekly Interventions Report"
-        description={`Week of ${weekStart.toLocaleDateString()} — KPI status vs. interventions logged.`}
-      />
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Weekly Interventions Report"
+          description="KPI status vs. interventions logged for the selected week."
+          className="mb-0"
+        />
+        <PeriodNav
+          anchor={weekStart}
+          weekStartDay={weekStartDay}
+          basePath="/dashboard/reports/weekly-interventions"
+        />
+      </div>
 
       {connections.length > 0 && (
         <a

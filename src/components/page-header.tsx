@@ -1,12 +1,14 @@
 export function PageHeader({
   title,
   description,
+  className = "mb-6",
 }: {
   title: string;
   description?: string;
+  className?: string;
 }) {
   return (
-    <div className="mb-8">
+    <div className={className}>
       <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
       {description && <p className="mt-1 text-sm text-muted">{description}</p>}
     </div>

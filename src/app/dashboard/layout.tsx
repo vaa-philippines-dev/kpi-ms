@@ -1,4 +1,6 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
+import { DashboardTopbar } from "@/components/dashboard-topbar";
+import { ToastProvider } from "@/components/ui/toast";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { startOfToday } from "@/lib/period";
@@ -16,16 +18,20 @@ export default async function DashboardLayout({
   ]);
 
   return (
-    <div className="flex h-screen bg-background">
-      <DashboardSidebar
-        email={session?.user?.email ?? ""}
-        role={session?.user?.role ?? ""}
-        submissionsToday={submissionsToday}
-        appName={appName}
-      />
-      <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-8">
-        {children}
-      </main>
-    </div>
+    <ToastProvider>
+      <div className="flex h-screen bg-background">
+        <DashboardSidebar
+          role={session?.user?.role ?? ""}
+          submissionsToday={submissionsToday}
+          appName={appName}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <DashboardTopbar />
+          <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-8 py-6">
+            {children}
+          </main>
+        </div>
+      </div>
+    </ToastProvider>
   );
 }

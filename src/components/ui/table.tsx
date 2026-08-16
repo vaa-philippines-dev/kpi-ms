@@ -16,8 +16,23 @@ export function TableHead({ children }: { children: ReactNode }) {
   );
 }
 
-export function Th({ children }: { children?: ReactNode }) {
-  return <th className="px-4 py-2.5 font-medium">{children}</th>;
+export function Th({
+  children,
+  className = "",
+  onClick,
+}: {
+  children?: ReactNode;
+  className?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <th
+      onClick={onClick}
+      className={`px-4 py-2.5 font-medium ${onClick ? "cursor-pointer select-none hover:text-foreground" : ""} ${className}`}
+    >
+      {children}
+    </th>
+  );
 }
 
 export function Td({
@@ -39,13 +54,16 @@ export function Td({
 export function Tr({
   children,
   className = "",
+  onClick,
 }: {
   children: ReactNode;
   className?: string;
+  onClick?: () => void;
 }) {
   return (
     <tr
-      className={`border-t border-surface-border transition hover:bg-surface-hover ${className}`}
+      onClick={onClick}
+      className={`border-t border-surface-border transition hover:bg-surface-hover ${onClick ? "cursor-pointer" : ""} ${className}`}
     >
       {children}
     </tr>

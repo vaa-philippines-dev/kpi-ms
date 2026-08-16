@@ -3,8 +3,9 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { Select } from "@/components/ui/input";
+import { PeriodNav } from "@/components/period-nav";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
@@ -20,6 +21,9 @@ export default async function VaKpiSheetPage(
     typeof searchParams.departmentId === "string" && searchParams.departmentId
       ? searchParams.departmentId
       : undefined;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
 
   const session = await requireSession();
   const isAdmin = session.role === "ADMIN";
@@ -28,8 +32,8 @@ export default async function VaKpiSheetPage(
     isAdmin && departmentId ? { ...scope, departmentId } : scope;
 
   const weekStartDay = await getWeekStartDay();
-  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
-  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
+  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
+  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
 
   const [connections, departments] = await Promise.all([
     prisma.connection.findMany({
@@ -66,10 +70,19 @@ export default async function VaKpiSheetPage(
 
   return (
     <>
-      <PageHeader
-        title="VA KPI Sheet"
-        description="Every connection's KPI actual/target/status for the current period, grouped by cluster."
-      />
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="VA KPI Sheet"
+          description="Every connection's KPI actual/target/status for the current period, grouped by cluster."
+          className="mb-0"
+        />
+        <PeriodNav
+          anchor={weeklyStart}
+          weekStartDay={weekStartDay}
+          basePath="/dashboard/reports/va-kpi-sheet"
+          params={{ departmentId }}
+        />
+      </div>
 
       {connections.length > 0 && clusters.size > 0 && (
         <a
@@ -82,6 +95,7 @@ export default async function VaKpiSheetPage(
 
       {isAdmin && departments.length > 0 && (
         <form method="GET" className="mb-6 flex gap-2">
+          {anchor && <input type="hidden" name="date" value={toDateParam(anchor)} />}
           <Select name="departmentId" defaultValue={departmentId ?? ""} className="w-full max-w-xs">
             <option value="">All departments</option>
             {departments.map((d) => (

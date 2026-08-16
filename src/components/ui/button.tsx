@@ -14,7 +14,7 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
   return (
     <button
-      className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${VARIANT_STYLES[variant]} ${className}`}
+      className={`rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50 ${VARIANT_STYLES[variant]} ${className}`}
       {...props}
     />
   );
@@ -35,7 +35,7 @@ export function TextAction({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: ActionTone }) {
   return (
     <button
-      className={`text-xs transition hover:underline ${TONE_STYLES[tone]} ${className}`}
+      className={`rounded text-xs transition hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50 disabled:no-underline ${TONE_STYLES[tone]} ${className}`}
       {...props}
     />
   );

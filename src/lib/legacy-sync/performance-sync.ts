@@ -103,10 +103,20 @@ export async function runPerformanceSync(): Promise<SyncReport> {
           continue;
         }
         const status = LEGACY_STATUS_MAP[entry.status] ?? PerformanceStatus.NO_DATA;
-        const actualValue = entry.noData ? null : entry.actual;
-        const targetValue = entry.target ?? 0;
+        // Legacy's KPIs JSON blob sometimes has target/actual as "" rather
+        // than a number or null — `?? 0` doesn't catch empty strings, which
+        // broke every row where this happened (Prisma rejects "" for a
+        // Float column outright).
+        const rawActual = entry.noData ? null : entry.actual;
+        const parsedActual = rawActual === null ? null : Number(rawActual);
+        const actualValue =
+          parsedActual === null || !Number.isFinite(parsedActual) ? null : parsedActual;
+        const targetValue = Number(entry.target);
+        const safeTargetValue = Number.isFinite(targetValue) ? targetValue : 0;
         const pct =
-          actualValue !== null && targetValue !== 0 ? (actualValue / targetValue) * 100 : null;
+          actualValue !== null && safeTargetValue !== 0
+            ? (actualValue / safeTargetValue) * 100
+            : null;
 
         try {
           const key = `${connectionId}:${kpiDefinitionId}:${periodStart.toISOString()}`;
@@ -125,11 +135,11 @@ export async function runPerformanceSync(): Promise<SyncReport> {
               period,
               periodStart,
               actualValue,
-              targetValue,
+              targetValue: safeTargetValue,
               pct,
               status,
             },
-            update: { actualValue, targetValue, pct, status },
+            update: { actualValue, targetValue: safeTargetValue, pct, status },
           });
           if (willUpdate) result.updated++;
           else result.created++;

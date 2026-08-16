@@ -101,6 +101,8 @@ export async function addTeamMember(formData: FormData) {
   if (!teamId || !userId) return;
   await prisma.user.update({ where: { id: userId }, data: { teamId } });
   revalidatePath("/dashboard/teams");
+  // Also used by the Overview page's "Unassigned Virtual Assistants" panel.
+  revalidatePath("/dashboard");
 }
 
 export async function removeTeamMember(formData: FormData) {

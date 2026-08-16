@@ -1,33 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
-import { Button, TextAction } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { ConnectionsTable, type ConnectionRow } from "@/components/connections-table";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { ConnectionStatus, ConnectionType } from "@/generated/prisma/enums";
-import {
-  createConnection,
-  deleteConnection,
-  updateConnectionStatus,
-  updateConnectionType,
-  bulkCreateConnections,
-} from "./actions";
-
-const STATUS_LABELS: Record<ConnectionStatus, string> = {
-  ACTIVE: "Active",
-  PAUSED: "Paused",
-  END_OF_CONTRACT: "End of Contract",
-  END_OF_PROJECT: "End of Project",
-  PENDING: "Pending",
-};
-
-const TERMINAL_STATUSES = new Set<ConnectionStatus>([
-  ConnectionStatus.END_OF_CONTRACT,
-  ConnectionStatus.END_OF_PROJECT,
-]);
-
-const PAGE_SIZE = 100;
+import { createConnection, bulkCreateConnections } from "./actions";
 
 export default async function ConnectionsPage(
   props: PageProps<"/dashboard/connections">,
@@ -36,10 +14,7 @@ export default async function ConnectionsPage(
   const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
   const departmentId =
     typeof searchParams.departmentId === "string" ? searchParams.departmentId : "";
-  const status = typeof searchParams.status === "string" ? searchParams.status : "";
-  const connectionType =
-    typeof searchParams.connectionType === "string" ? searchParams.connectionType : "";
-  const browsing = Boolean(departmentId || q || status || connectionType);
+  const browsing = Boolean(departmentId || q);
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
@@ -128,31 +103,36 @@ export default async function ConnectionsPage(
     ...scope,
     ...searchFilter,
     ...(departmentId ? { departmentId } : {}),
-    ...(status ? { status: status as ConnectionStatus } : {}),
-    ...(connectionType ? { connectionType: connectionType as ConnectionType } : {}),
   };
 
-  const [totalCount, connections] = await Promise.all([
-    prisma.connection.count({ where }),
-    prisma.connection.findMany({
-      where,
-      take: PAGE_SIZE,
-      orderBy: [{ department: { name: "asc" } }, { clientName: "asc" }],
-      include: {
-        department: true,
-        vaUser: true,
-        statusEvents: { orderBy: { changedAt: "desc" }, take: 3, include: { changedBy: true } },
-      },
-    }),
-  ]);
+  // No server-side cap or grouping here anymore — DataTable does its own
+  // client-side search/sort/filter/pagination, same as legacy's
+  // connFilter()/renderDataTable(), so `departmentId` is the only thing
+  // worth re-querying the server for.
+  const connections = await prisma.connection.findMany({
+    where,
+    orderBy: [{ department: { name: "asc" } }, { clientName: "asc" }],
+    include: {
+      department: true,
+      vaUser: true,
+      statusEvents: { orderBy: { changedAt: "desc" }, take: 5, include: { changedBy: true } },
+    },
+  });
 
-  const grouped = new Map<string, typeof connections>();
-  for (const c of connections) {
-    const key = c.department.name;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(c);
-  }
-  const groupEntries = [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const rows: ConnectionRow[] = connections.map((c) => ({
+    id: c.id,
+    clientName: c.clientName,
+    vaName: c.vaUser.name ?? c.vaUser.email,
+    vaEmail: c.vaUser.email,
+    departmentName: c.department.name,
+    status: c.status,
+    connectionType: c.connectionType,
+    statusEvents: c.statusEvents.map((e) => ({
+      status: e.status,
+      changedAt: e.changedAt.toISOString(),
+      changedByName: e.changedBy.name ?? e.changedBy.email,
+    })),
+  }));
 
   return (
     <>
@@ -161,7 +141,7 @@ export default async function ConnectionsPage(
         description="VA ↔ client connections, sourced from the Workforce Management system."
       />
 
-      <div className="max-w-5xl space-y-8">
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <form method="GET" className="flex flex-wrap gap-2">
             <Select name="departmentId" defaultValue={departmentId} className="w-40">
@@ -171,19 +151,6 @@ export default async function ConnectionsPage(
                   {d.name}
                 </option>
               ))}
-            </Select>
-            <Select name="status" defaultValue={status} className="w-36">
-              <option value="">Any status</option>
-              {Object.values(ConnectionStatus).map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </Select>
-            <Select name="connectionType" defaultValue={connectionType} className="w-36">
-              <option value="">Any type</option>
-              <option value={ConnectionType.REGULAR}>Regular</option>
-              <option value={ConnectionType.PROJECT_BASED}>Project-based</option>
             </Select>
             <Input
               name="q"
@@ -198,110 +165,7 @@ export default async function ConnectionsPage(
           </Link>
         </div>
 
-        <p className="text-xs text-muted">
-          Showing {connections.length} of {totalCount}
-          {totalCount > PAGE_SIZE && " — refine your search to see more"}
-        </p>
-
-        {groupEntries.map(([deptName, groupConns]) => (
-          <div key={deptName}>
-            <h2 className="mb-2 text-sm font-semibold text-muted uppercase">
-              {deptName}
-              <span className="ml-2 font-normal normal-case text-muted/70">
-                ({groupConns.length})
-              </span>
-            </h2>
-            <Table>
-              <TableHead>
-                <tr>
-                  <Th>VA</Th>
-                  <Th>Client</Th>
-                  <Th>Status</Th>
-                  <Th>Type</Th>
-                  <Th />
-                  {isAdmin && <Th />}
-                </tr>
-              </TableHead>
-              <tbody>
-                {groupConns.map((conn) => {
-                  const isTerminal = TERMINAL_STATUSES.has(conn.status);
-                  return (
-                    <Tr key={conn.id}>
-                      <Td>
-                        {conn.vaUser.name ?? conn.vaUser.email}
-                        <div className="text-xs text-muted">{conn.vaUser.email}</div>
-                      </Td>
-                      <Td>{conn.clientName}</Td>
-                      <Td>
-                        {isAdmin && !isTerminal ? (
-                          <form action={updateConnectionStatus} className="flex gap-1">
-                            <input type="hidden" name="id" value={conn.id} />
-                            <Select name="status" defaultValue={conn.status} className="py-1">
-                              {Object.values(ConnectionStatus).map((s) => (
-                                <option key={s} value={s}>
-                                  {STATUS_LABELS[s]}
-                                </option>
-                              ))}
-                            </Select>
-                            <TextAction type="submit">Save</TextAction>
-                          </form>
-                        ) : (
-                          <span className="text-muted">{STATUS_LABELS[conn.status]}</span>
-                        )}
-                      </Td>
-                      <Td>
-                        {isAdmin ? (
-                          <form action={updateConnectionType} className="flex gap-1">
-                            <input type="hidden" name="id" value={conn.id} />
-                            <Select
-                              name="connectionType"
-                              defaultValue={conn.connectionType}
-                              className="py-1"
-                            >
-                              <option value={ConnectionType.REGULAR}>Regular</option>
-                              <option value={ConnectionType.PROJECT_BASED}>
-                                Project-based
-                              </option>
-                            </Select>
-                            <TextAction type="submit">Save</TextAction>
-                          </form>
-                        ) : (
-                          <span className="text-muted">
-                            {conn.connectionType === ConnectionType.REGULAR
-                              ? "Regular"
-                              : "Project-based"}
-                          </span>
-                        )}
-                      </Td>
-                      <Td>
-                        <Link
-                          href={`/dashboard/connections/kpi-config?connectionId=${conn.id}`}
-                          className="text-xs text-accent hover:underline"
-                        >
-                          KPI Config →
-                        </Link>
-                      </Td>
-                      {isAdmin && (
-                        <Td className="text-right">
-                          <form action={deleteConnection}>
-                            <input type="hidden" name="id" value={conn.id} />
-                            <TextAction type="submit" tone="danger">
-                              Delete
-                            </TextAction>
-                          </form>
-                        </Td>
-                      )}
-                    </Tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          </div>
-        ))}
-
-        {connections.length === 0 && (
-          <p className="py-6 text-center text-sm text-muted">No connections found.</p>
-        )}
+        <ConnectionsTable connections={rows} isAdmin={isAdmin} />
 
         {isAdmin && <AddConnectionForms departments={departments} vaUsers={vaUsers} />}
       </div>

@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
+import { LoginActivityTable, type LoginActivityRow } from "@/components/login-activity-table";
 import { requireSession } from "@/lib/connection-scope";
-import { roleLabel } from "@/lib/roles";
 
+// Mirrors legacy's Login Activity screen (AppUsers.html: renderLoginActivity())
+// — same stat cards, same DataTable-backed report.
 export default async function LoginActivityPage() {
   const session = await requireSession();
   if (session.role !== "ADMIN" && session.role !== "DM") {
@@ -20,6 +21,21 @@ export default async function LoginActivityPage() {
     include: { department: true },
   });
 
+  const rows: LoginActivityRow[] = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    departmentName: u.department?.name ?? null,
+    loginCount: u.loginCount,
+    lastLoginMs: u.lastLogin ? u.lastLogin.getTime() : 0,
+    lastLoginIso: u.lastLogin ? u.lastLogin.toISOString() : null,
+    isActive: u.isActive,
+  }));
+
+  const totalLogins = rows.reduce((sum, r) => sum + r.loginCount, 0);
+  const neverLoggedIn = rows.filter((r) => r.lastLoginMs === 0).length;
+
   return (
     <>
       <PageHeader
@@ -27,36 +43,26 @@ export default async function LoginActivityPage() {
         description="Sign-in count and last login per user."
       />
 
-      {users.length === 0 ? (
+      {rows.length === 0 ? (
         <ComingSoon note="No users yet." />
       ) : (
-        <div className="max-w-3xl">
-          <Table>
-            <TableHead>
-              <tr>
-                <Th>Email</Th>
-                <Th>Name</Th>
-                <Th>Role</Th>
-                <Th>Department</Th>
-                <Th>Login Count</Th>
-                <Th>Last Login</Th>
-              </tr>
-            </TableHead>
-            <tbody>
-              {users.map((u) => (
-                <Tr key={u.id}>
-                  <Td>{u.email}</Td>
-                  <Td>{u.name ?? "—"}</Td>
-                  <Td className="text-muted">{roleLabel(u.role)}</Td>
-                  <Td className="text-muted">{u.department?.name ?? "—"}</Td>
-                  <Td className="text-muted">{u.loginCount}</Td>
-                  <Td className="text-muted">
-                    {u.lastLogin ? u.lastLogin.toLocaleString() : "Never"}
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
+        <div className="space-y-6">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-xl border border-surface-border bg-surface p-4">
+              <div className="text-3xl font-semibold">{rows.length}</div>
+              <div className="mt-1 text-sm text-muted">Users</div>
+            </div>
+            <div className="rounded-xl border border-surface-border bg-surface p-4">
+              <div className="text-3xl font-semibold">{totalLogins}</div>
+              <div className="mt-1 text-sm text-muted">Total Logins</div>
+            </div>
+            <div className="rounded-xl border border-surface-border bg-surface p-4">
+              <div className="text-3xl font-semibold">{neverLoggedIn}</div>
+              <div className="mt-1 text-sm text-muted">Never Logged In</div>
+            </div>
+          </div>
+
+          <LoginActivityTable rows={rows} />
         </div>
       )}
     </>

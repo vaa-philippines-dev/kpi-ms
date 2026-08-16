@@ -1,38 +1,22 @@
 import Link from "next/link";
-import { CheckCircle2, AlertTriangle, XCircle, Bell } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Link2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
-import { currentPeriodStart } from "@/lib/period";
+import { PerformanceTrendChart } from "@/components/performance-trend-chart";
+import { PeriodNav } from "@/components/period-nav";
+import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
+import { getPerformanceTrend } from "@/lib/trend";
+import { getLongRunningConnections } from "@/lib/long-running";
+import { UnassignedVasPanel } from "@/components/unassigned-vas-panel";
+import { TeamLeaderOverview } from "./team-leader-overview";
+import { CsOverview } from "./cs-overview";
+import { VaOverview } from "./va-overview";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import type { Prisma } from "@/generated/prisma/client";
 
-// Flags connections that don't yet have a KpiConfig row for every KPI
-// applicable to their department/service — mirrors legacy
-// getManagerNotifications()'s "N connections missing KPI config".
-async function getManagerNotifications(scope: Prisma.ConnectionWhereInput) {
-  const connections = await prisma.connection.findMany({
-    where: scope,
-    include: { vaUser: true, kpiConfigs: true },
-  });
-  const kpiDefs = await prisma.kpiDefinition.findMany();
-
-  const missingConfig = connections.filter((conn) => {
-    const applicable = kpiDefs.filter(
-      (k) =>
-        k.departmentId === conn.departmentId &&
-        (k.serviceId === null || k.serviceId === conn.serviceId),
-    );
-    const configuredIds = new Set(conn.kpiConfigs.map((c) => c.kpiDefinitionId));
-    return applicable.some((k) => !configuredIds.has(k.id));
-  });
-
-  return { missingConfig };
-}
-
-const TILES = [
+const STATUS_TILES = [
   {
     status: PerformanceStatus.ON_TARGET,
     label: "On Target",
@@ -53,15 +37,90 @@ const TILES = [
   },
 ] as const;
 
-export default async function DashboardOverviewPage() {
+export default async function DashboardOverviewPage(
+  props: PageProps<"/dashboard">,
+) {
+  const searchParams = await props.searchParams;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
+
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
-  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
-  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
-  const isManager = ["ADMIN", "DM", "OM"].includes(session.role);
+  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
+  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
 
-  const [summaries, notifications] = await Promise.all([
+  // Team Leaders (OM) get legacy's dedicated dashboard — tabbed connection
+  // cards + KPI drill-down, team-scoped trend, submission tracker — instead
+  // of the cross-department tiles/long-running view below, which doesn't
+  // make sense once `scope` is narrowed to a single team.
+  if (session.role === "OM") {
+    return (
+      <>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <PageHeader title="Dashboard" description="Your team's KPI performance." className="mb-0" />
+          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard" />
+        </div>
+        <TeamLeaderOverview
+          scope={scope}
+          weeklyStart={weeklyStart}
+          weekStartDay={weekStartDay}
+          anchor={anchor}
+        />
+      </>
+    );
+  }
+
+  // CS Specialists (SERVICE_MANAGER) get legacy's dedicated dashboard —
+  // system-wide stat cards + a flat connection-status table with a
+  // click-to-open KPI drill-down — instead of the department-breakdown
+  // view below, which legacy's CS dashboard doesn't have.
+  if (session.role === "SERVICE_MANAGER") {
+    return (
+      <>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <PageHeader title="Dashboard" description="System-wide KPI performance." className="mb-0" />
+          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard" />
+        </div>
+        <CsOverview scope={scope} weeklyStart={weeklyStart} />
+      </>
+    );
+  }
+
+  // VAs get legacy's dedicated dashboard — Total/Active/Pending stat cards
+  // and a card grid of their own connections with a Submit Report action —
+  // instead of the system-wide tiles/trend/long-running view below, which
+  // isn't meaningful once `scope` is narrowed to just their own connections.
+  if (session.role === "VA") {
+    return (
+      <>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <PageHeader title="Dashboard" description="Your connections and this week's submissions." className="mb-0" />
+          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard" />
+        </div>
+        <VaOverview scope={scope} weeklyStart={weeklyStart} />
+      </>
+    );
+  }
+
+  const isAdmin = session.role === "ADMIN";
+
+  // "Needs attention" counts (missing KPI config, unsubmitted, critical) now
+  // live in the topbar bell, so this page only computes the status rollup,
+  // the system-wide trend, and the long-running list — mirrors legacy's
+  // dashboard stat cards + "Performance Overview" chart + "Long-Running
+  // Connections" card (AppDashboards.html).
+  const [
+    totalConnections,
+    summaries,
+    trend,
+    longRunning,
+    unassignedVAs,
+    unassignedTotal,
+    teams,
+  ] = await Promise.all([
+    prisma.connection.count({ where: scope }),
     prisma.performanceSummary.findMany({
       where: {
         connection: scope,
@@ -72,7 +131,19 @@ export default async function DashboardOverviewPage() {
       },
       include: { connection: { include: { department: true } } },
     }),
-    isManager ? getManagerNotifications(scope) : Promise.resolve(null),
+    getPerformanceTrend(scope, KpiPeriod.WEEKLY, weekStartDay, 6, anchor),
+    getLongRunningConnections(scope),
+    // Admin's "Unassigned Virtual Assistants" card — legacy's
+    // getUnassignedVAs(). Fetched unconditionally since it's a cheap, small
+    // query; only rendered when isAdmin.
+    prisma.user.findMany({
+      where: { role: "VA", isActive: true, teamId: null },
+      include: { department: true },
+      orderBy: { name: "asc" },
+      take: 10,
+    }),
+    prisma.user.count({ where: { role: "VA", isActive: true, teamId: null } }),
+    prisma.team.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
   ]);
 
   const emptyCounts = () => ({
@@ -95,29 +166,30 @@ export default async function DashboardOverviewPage() {
 
   return (
     <>
-      <PageHeader
-        title="Overview"
-        description="Weekly / monthly performance across all departments."
-      />
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Overview"
+          description="Weekly / monthly performance across all departments."
+          className="mb-0"
+        />
+        <PeriodNav
+          anchor={weeklyStart}
+          weekStartDay={weekStartDay}
+          basePath="/dashboard"
+        />
+      </div>
 
-      {notifications && notifications.missingConfig.length > 0 && (
-        <Link
-          href="/dashboard/connections"
-          className="mb-6 flex max-w-4xl items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm font-medium text-warning transition hover:bg-warning/15"
-        >
-          <Bell className="size-4 shrink-0" />
-          {notifications.missingConfig.length} connection
-          {notifications.missingConfig.length === 1 ? "" : "s"} missing KPI
-          config — review in Connections →
-        </Link>
-      )}
-
-      {summaries.length === 0 ? (
-        <ComingSoon note="No performance data for the current period yet — it's computed automatically as submissions come in." />
+      {totalConnections === 0 ? (
+        <ComingSoon note="No connections visible to your account yet." />
       ) : (
-        <div className="max-w-4xl space-y-8">
-          <div className="grid grid-cols-3 gap-4">
-            {TILES.map((tile) => {
+        <div className="max-w-5xl space-y-8">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="rounded-xl border border-surface-border bg-surface p-4">
+              <Link2 className="size-5 text-muted" />
+              <div className="mt-3 text-3xl font-semibold">{totalConnections}</div>
+              <div className="mt-1 text-sm text-muted">Active Connections</div>
+            </div>
+            {STATUS_TILES.map((tile) => {
               const Icon = tile.icon;
               return (
                 <div
@@ -134,32 +206,97 @@ export default async function DashboardOverviewPage() {
             })}
           </div>
 
-          <Table>
-            <TableHead>
-              <tr>
-                <Th>Department</Th>
-                <Th>On Target</Th>
-                <Th>At Risk</Th>
-                <Th>Critical</Th>
-              </tr>
-            </TableHead>
-            <tbody>
-              {[...byDepartment.entries()].map(([dept, c]) => (
-                <Tr key={dept}>
-                  <Td>{dept}</Td>
-                  <Td className="text-success">
-                    {c[PerformanceStatus.ON_TARGET]}
-                  </Td>
-                  <Td className="text-warning">
-                    {c[PerformanceStatus.AT_RISK]}
-                  </Td>
-                  <Td className="text-danger">
-                    {c[PerformanceStatus.CRITICAL]}
-                  </Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-surface-border bg-surface p-5">
+              <h2 className="text-sm font-semibold">Performance Overview</h2>
+              <p className="mb-4 text-xs text-muted">Last 6 weeks</p>
+              <PerformanceTrendChart points={trend} />
+            </div>
+
+            <div className="rounded-xl border border-surface-border bg-surface p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold">Long-Running Connections</h2>
+                  <p className="text-xs text-muted">Active 180+ days</p>
+                </div>
+                <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                  {longRunning.length} accounts
+                </span>
+              </div>
+
+              {longRunning.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted">
+                  No connections have crossed 180 days yet.
+                </p>
+              ) : (
+                <>
+                  <ul className="space-y-2.5">
+                    {longRunning.slice(0, 5).map((c) => (
+                      <li
+                        key={c.id}
+                        className="flex items-center justify-between text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{c.clientName}</p>
+                          <p className="truncate text-xs text-muted">{c.vaName}</p>
+                        </div>
+                        <span className="shrink-0 text-xs text-muted">
+                          {c.daysActive}d
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {longRunning.length > 5 && (
+                    <Link
+                      href="/dashboard/connections"
+                      className="mt-3 inline-block text-xs text-accent hover:underline"
+                    >
+                      View all {longRunning.length} →
+                    </Link>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          {summaries.length === 0 ? (
+            <ComingSoon note="No performance data for the current period yet — it's computed automatically as submissions come in." />
+          ) : (
+            <Table>
+              <TableHead>
+                <tr>
+                  <Th>Department</Th>
+                  <Th>On Target</Th>
+                  <Th>At Risk</Th>
+                  <Th>Critical</Th>
+                </tr>
+              </TableHead>
+              <tbody>
+                {[...byDepartment.entries()].map(([dept, c]) => (
+                  <Tr key={dept}>
+                    <Td>{dept}</Td>
+                    <Td className="text-success">
+                      {c[PerformanceStatus.ON_TARGET]}
+                    </Td>
+                    <Td className="text-warning">
+                      {c[PerformanceStatus.AT_RISK]}
+                    </Td>
+                    <Td className="text-danger">
+                      {c[PerformanceStatus.CRITICAL]}
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+
+          {isAdmin && (
+            <UnassignedVasPanel
+              vas={unassignedVAs}
+              totalCount={unassignedTotal}
+              teams={teams}
+            />
+          )}
         </div>
       )}
     </>

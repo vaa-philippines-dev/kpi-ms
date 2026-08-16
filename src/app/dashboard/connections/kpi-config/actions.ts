@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 
 async function requireAdmin() {
   const session = await auth();
@@ -10,6 +11,82 @@ async function requireAdmin() {
     throw new Error("Only admins can manage KPI config.");
   }
   return session;
+}
+
+export type KpiConfigDetailRow = {
+  id: string | null; // null = not yet configured, showing the KPI Library default
+  kpiDefinitionId: string;
+  name: string;
+  targetValue: number;
+  deviationThresholdPct: number;
+  criticalThresholdPct: number;
+  isApplicable: boolean;
+};
+
+// Lazily loaded when a row's modal opens, rather than preloading every
+// connection's config detail up front (this system has ~11k KpiConfig
+// rows total — sending all of it to the browser on page load just in
+// case a row gets clicked isn't worth it when the master table only
+// needs a per-connection has-config flag).
+//
+// Viewing is open to every role (matching the read-only view the old
+// per-connection page gave non-admins) — only the mutating actions below
+// are admin-gated. Since a non-admin can now legitimately call this, it's
+// scoped the same way every other connectionId-keyed query in the app is
+// (connectionScopeWhere), not just gated by role.
+export async function getKpiConfigDetail(connectionId: string) {
+  const session = await requireSession();
+  const scope = connectionScopeWhere(session);
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...scope },
+  });
+  if (!connection) throw new Error("Connection not found.");
+
+  const [configs, applicableKpis] = await Promise.all([
+    prisma.kpiConfig.findMany({
+      where: { connectionId },
+      include: { kpiDefinition: true },
+      orderBy: { kpiDefinition: { name: "asc" } },
+    }),
+    prisma.kpiDefinition.findMany({
+      where: {
+        departmentId: connection.departmentId,
+        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+      },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
+  const configuredIds = new Set(configs.map((c) => c.kpiDefinitionId));
+  const rows: KpiConfigDetailRow[] = [
+    ...configs.map((c) => ({
+      id: c.id,
+      kpiDefinitionId: c.kpiDefinitionId,
+      name: c.kpiDefinition.name,
+      targetValue: c.targetValue ?? c.kpiDefinition.targetValue,
+      deviationThresholdPct:
+        c.deviationThresholdPct ?? c.kpiDefinition.deviationThresholdPct,
+      criticalThresholdPct:
+        c.criticalThresholdPct ?? c.kpiDefinition.criticalThresholdPct,
+      isApplicable: c.isApplicable,
+    })),
+    ...applicableKpis
+      .filter((k) => !configuredIds.has(k.id))
+      .map((k) => ({
+        id: null,
+        kpiDefinitionId: k.id,
+        name: k.name,
+        targetValue: k.targetValue,
+        deviationThresholdPct: k.deviationThresholdPct,
+        criticalThresholdPct: k.criticalThresholdPct,
+        isApplicable: true,
+      })),
+  ];
+
+  return {
+    missingCount: applicableKpis.length - configs.length,
+    rows,
+  };
 }
 
 function numberOrNull(formData: FormData, key: string): number | null {

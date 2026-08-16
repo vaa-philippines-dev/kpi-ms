@@ -1,15 +1,15 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
-import { Button, TextAction } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Input, Select } from "@/components/ui/input";
+import { TeamRosterTable, type TeamMemberRow } from "@/components/team-roster-table";
 import {
   createTeam,
   updateTeam,
   deactivateTeam,
   addTeamMember,
-  removeTeamMember,
 } from "./actions";
 
 export default async function TeamsPage() {
@@ -75,12 +75,12 @@ export default async function TeamsPage() {
                     <p className="text-xs text-muted">{team.department.name}</p>
                   </div>
                   {isManager && (
-                    <form action={deactivateTeam}>
-                      <input type="hidden" name="id" value={team.id} />
-                      <TextAction type="submit" tone="danger">
-                        Deactivate
-                      </TextAction>
-                    </form>
+                    <ConfirmSubmitButton
+                      action={deactivateTeam}
+                      fields={{ id: team.id }}
+                      label="Deactivate"
+                      successMessage={`${team.name} deactivated.`}
+                    />
                   )}
                 </div>
 
@@ -140,40 +140,16 @@ export default async function TeamsPage() {
                   </div>
                 )}
 
-                <Table>
-                  <TableHead>
-                    <tr>
-                      <Th>Member</Th>
-                      <Th>Role</Th>
-                      {isManager && <Th />}
-                    </tr>
-                  </TableHead>
-                  <tbody>
-                    {team.members.length === 0 && (
-                      <Tr>
-                        <Td colSpan={isManager ? 3 : 2} className="py-3 text-center text-muted">
-                          No members yet.
-                        </Td>
-                      </Tr>
-                    )}
-                    {team.members.map((m) => (
-                      <Tr key={m.id}>
-                        <Td>{m.name ?? m.email}</Td>
-                        <Td className="text-muted">{m.role}</Td>
-                        {isManager && (
-                          <Td className="text-right">
-                            <form action={removeTeamMember}>
-                              <input type="hidden" name="userId" value={m.id} />
-                              <TextAction type="submit" tone="danger">
-                                Remove
-                              </TextAction>
-                            </form>
-                          </Td>
-                        )}
-                      </Tr>
-                    ))}
-                  </tbody>
-                </Table>
+                <TeamRosterTable
+                  members={team.members.map(
+                    (m): TeamMemberRow => ({
+                      id: m.id,
+                      name: m.name ?? m.email,
+                      role: m.role,
+                    }),
+                  )}
+                  isManager={isManager}
+                />
 
                 {isManager && availableVas.length > 0 && (
                   <form

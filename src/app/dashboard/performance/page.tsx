@@ -2,17 +2,25 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
-import { currentPeriodStart } from "@/lib/period";
+import { PeriodNav } from "@/components/period-nav";
+import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { KpiPeriod } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 
-export default async function PerformancePage() {
+export default async function PerformancePage(
+  props: PageProps<"/dashboard/performance">,
+) {
+  const searchParams = await props.searchParams;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
+
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
-  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
-  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
+  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
+  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
 
   const summaries = await prisma.performanceSummary.findMany({
     where: {
@@ -40,10 +48,18 @@ export default async function PerformancePage() {
 
   return (
     <>
-      <PageHeader
-        title="Performance"
-        description="Actual vs. target per connection, grouped by KPI cluster, for the current week/month."
-      />
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Performance"
+          description="Actual vs. target per connection, grouped by KPI cluster, for the current week/month."
+          className="mb-0"
+        />
+        <PeriodNav
+          anchor={weeklyStart}
+          weekStartDay={weekStartDay}
+          basePath="/dashboard/performance"
+        />
+      </div>
 
       {summaries.length > 0 && (
         <a

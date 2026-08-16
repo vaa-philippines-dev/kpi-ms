@@ -6,15 +6,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Sparkline } from "@/components/sparkline";
 import { Select } from "@/components/ui/input";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { ConnectionStatus } from "@/generated/prisma/enums";
-
-const STATUS_LABELS: Record<ConnectionStatus, string> = {
-  ACTIVE: "Active",
-  PAUSED: "Paused",
-  END_OF_CONTRACT: "End of Contract",
-  END_OF_PROJECT: "End of Project",
-  PENDING: "Pending",
-};
+import { CONNECTION_STATUS_LABELS } from "@/lib/connection-labels";
 
 // Single-connection drill-down: performance history over time, status
 // history, and interventions logged — mirrors legacy getClientDetail() /
@@ -114,7 +106,7 @@ export default async function ClientDetailPage(
                 {connection.vaUser.name ?? connection.vaUser.email} · {connection.clientName}
               </h2>
               <p className="text-xs text-muted">
-                {connection.department.name} · {STATUS_LABELS[connection.status]}
+                {connection.department.name} · {CONNECTION_STATUS_LABELS[connection.status]}
               </p>
             </div>
 
@@ -180,7 +172,7 @@ export default async function ClientDetailPage(
                 <ul className="space-y-1 text-sm">
                   {connection.statusEvents.map((e) => (
                     <li key={e.id} className="text-muted">
-                      {STATUS_LABELS[e.status]} — {e.changedAt.toLocaleString()} by{" "}
+                      {CONNECTION_STATUS_LABELS[e.status]} — {e.changedAt.toLocaleString()} by{" "}
                       {e.changedBy.name ?? e.changedBy.email}
                     </li>
                   ))}
