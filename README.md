@@ -18,7 +18,7 @@ OAuth).
 
 - **Framework**: Next.js 16 (App Router, Turbopack), React 19
 - **Database**: PostgreSQL via Supabase, accessed with Prisma 7 (`@prisma/adapter-pg`)
-- **Auth**: NextAuth v5, Google OAuth restricted to the `GOOGLE_WORKSPACE_DOMAIN` env var
+- **Auth**: NextAuth v5, Google OAuth open to any Google account, gated to emails pre-provisioned via Users management
 - **Styling**: Tailwind CSS v4
 
 ## Local development
@@ -31,8 +31,7 @@ npm run dev              # runs on :3010
 ```
 
 Requires a `.env` with `DATABASE_URL`, `DIRECT_URL` (Postgres/Supabase),
-`NEXTAUTH_SECRET`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`,
-`GOOGLE_WORKSPACE_DOMAIN`, and `INITIAL_ADMIN_EMAILS`. Not checked into git.
+`NEXTAUTH_SECRET`, and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. Not checked into git.
 
 ## What this replaces, and why
 

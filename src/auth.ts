@@ -2,12 +2,6 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { prisma } from "@/lib/prisma";
 
-const workspaceDomain = process.env.GOOGLE_WORKSPACE_DOMAIN ?? "";
-const initialAdminEmails = (process.env.INITIAL_ADMIN_EMAILS ?? "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
-
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Google({
@@ -23,36 +17,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async signIn({ profile }) {
       const email = profile?.email?.toLowerCase();
-      if (!email || !email.endsWith(`@${workspaceDomain}`)) {
+      if (!email) {
         return false;
       }
-      // Deactivated users (toggled off in Users management) can't sign in,
-      // even though they still satisfy the workspace-domain check.
+      // Any Google account can sign in (not just workspace domains), but
+      // only if an admin has already pre-provisioned the User row via
+      // Users management. Deactivated users are also rejected.
       const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing && !existing.isActive) {
+      if (!existing || !existing.isActive) {
         return false;
       }
       return true;
     },
     async jwt({ token, user }) {
-      // `user` is only present on the sign-in request; look up (or
-      // provision) the app-level User row once and cache role/id on the
-      // token so we don't hit the DB on every request.
+      // `user` is only present on the sign-in request. The signIn callback
+      // already guarantees a matching, active User row exists, so just bump
+      // login stats and cache role/id on the token so we don't hit the DB
+      // on every request.
       if (user?.email) {
         const email = user.email.toLowerCase();
-        const dbUser = await prisma.user.upsert({
+        const dbUser = await prisma.user.update({
           where: { email },
-          // Every sign-in (not just first) bumps loginCount/lastLogin —
-          // mirrors the legacy Users sheet's LoginCount/LastLogin columns,
+          // Mirrors the legacy Users sheet's LoginCount/LastLogin columns,
           // surfaced in the Login Activity report.
-          update: { lastLogin: new Date(), loginCount: { increment: 1 } },
-          create: {
-            email,
-            name: user.name,
-            role: initialAdminEmails.includes(email) ? "ADMIN" : "SERVICE_MANAGER",
-            lastLogin: new Date(),
-            loginCount: 1,
-          },
+          data: { lastLogin: new Date(), loginCount: { increment: 1 } },
         });
         token.userId = dbUser.id;
         token.role = dbUser.role;

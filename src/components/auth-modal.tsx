@@ -57,7 +57,7 @@ export function AuthModal({
           KPI Dashboard
         </h2>
         <p className="mt-2 text-sm text-muted">
-          Sign in with your @vaaphilippines.com Google account to continue.
+          Sign in with the Google account your admin added for you to continue.
         </p>
         <form action={signInWithGoogle.bind(null, redirectTo)} className="mt-8">
           <button
