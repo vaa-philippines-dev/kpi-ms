@@ -41,6 +41,11 @@ const numOrNull = (v: string | undefined) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
+const dateOrNull = (v: string | undefined) => {
+  if (v === undefined || v === "") return null;
+  const d = new Date(`${v.trim().slice(0, 10)}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
 // Confirmed with the user: legacy's 5 roles map onto this schema's enum as
 // Administrator→ADMIN, Manager→DM, Team Leader→OM, CS Specialist→
@@ -280,12 +285,16 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
           : ConnectionType.REGULAR;
 
       const willUpdate = existingConnIds.has(row.ConnectionID);
+      const secondaryName = row.SecondaryName || null;
+      const startDate = dateOrNull(row.StartDate);
       const conn = await prisma.connection.upsert({
         where: { externalWfmId: row.ConnectionID },
         create: {
           externalWfmId: row.ConnectionID,
           vaUserId,
           clientName: row.ClientName,
+          secondaryName,
+          startDate,
           departmentId,
           serviceId,
           teamId,
@@ -295,6 +304,8 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
         update: {
           vaUserId,
           clientName: row.ClientName,
+          secondaryName,
+          startDate,
           departmentId,
           serviceId,
           teamId,

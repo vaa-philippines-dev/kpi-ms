@@ -140,6 +140,9 @@ model Connection {
   vaUser               User                    @relation("VaConnections", fields: [vaUserId], references: [id])
   vaUserId             String
   clientName           String
+  // Legacy SecondaryName — a second display name shown under the client
+  // name (e.g. an internal account alias), independent of ClientEmail.
+  secondaryName        String?
   department           Department              @relation(fields: [departmentId], references: [id])
   departmentId         String
   service              Service?                @relation(fields: [serviceId], references: [id])
@@ -147,6 +150,11 @@ model Connection {
   team                 Team?                   @relation(fields: [teamId], references: [id])
   teamId               String?
   status               ConnectionStatus        @default(ACTIVE)
+  // Legacy StartDate — the real, user-set business start date. Nullable
+  // because it isn't always known (e.g. connections created before this
+  // field existed); callers should fall back to createdAt when null, same
+  // as legacy's behavior of defaulting it to "now" on creation.
+  startDate            DateTime?               @db.Timestamptz(3)
   connectionType       ConnectionType          @default(REGULAR)
   // Legacy IsFlagged — manager-raised attention flag, independent of status.
   isFlagged            Boolean                 @default(false)

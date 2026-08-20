@@ -26,7 +26,7 @@ export default async function LifetimeValuePage() {
   });
 
   const rows = connections.map((c) => {
-    const tenureDays = daysSince(c.createdAt);
+    const tenureDays = daysSince(c.startDate ?? c.createdAt);
     const periods = new Set(
       c.performanceSummaries.map((s) => `${s.period}:${s.periodStart.toISOString()}`),
     );

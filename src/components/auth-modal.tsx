@@ -1,10 +1,26 @@
 "use client";
 
 import { useEffect } from "react";
-import { X } from "lucide-react";
+import { useFormStatus } from "react-dom";
+import { Loader2, X } from "lucide-react";
 import { GoogleIcon } from "@/components/icons/google-icon";
 import { LogoBadge } from "@/components/logo-badge";
 import { signInWithGoogle } from "@/app/sign-in/actions";
+
+function GoogleSignInButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-busy={pending || undefined}
+      className="flex w-full items-center justify-center gap-2 rounded-lg border border-surface-border bg-background px-5 py-2.5 text-sm font-medium transition hover:bg-surface-hover disabled:pointer-events-none disabled:opacity-50"
+    >
+      {pending ? <Loader2 className="size-4 animate-spin" /> : <GoogleIcon />}
+      Continue with Google
+    </button>
+  );
+}
 
 export function AuthModal({
   open,
@@ -60,13 +76,7 @@ export function AuthModal({
           Sign in with the Google account your admin added for you to continue.
         </p>
         <form action={signInWithGoogle.bind(null, redirectTo)} className="mt-8">
-          <button
-            type="submit"
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-surface-border bg-background px-5 py-2.5 text-sm font-medium transition hover:bg-surface-hover"
-          >
-            <GoogleIcon />
-            Continue with Google
-          </button>
+          <GoogleSignInButton />
         </form>
         <p className="mt-4 text-xs text-muted">
           Problems? contact{" "}

@@ -93,7 +93,7 @@ export default async function PerformancePage(
       teamName: connection.team?.name ?? null,
       connectionType: connection.connectionType,
       status: rollupStatus(statuses),
-      durationDays: daysSince(connection.createdAt),
+      durationDays: daysSince(connection.startDate ?? connection.createdAt),
       isFlagged: connection.isFlagged,
     }),
   );

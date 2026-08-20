@@ -3,16 +3,24 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 
+const SIZE_CLASSES = {
+  md: "max-w-lg",
+  lg: "max-w-3xl",
+} as const;
+
 export function Modal({
   open,
   onClose,
   title,
   children,
+  size = "md",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** "lg" is for content-heavy modals (e.g. tabbed detail views) — every other modal keeps the default. */
+  size?: keyof typeof SIZE_CLASSES;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -39,7 +47,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className="animate-modal-pop relative w-full max-w-lg rounded-2xl border border-surface-border bg-surface p-6 shadow-2xl shadow-black/40"
+        className={`animate-modal-pop relative w-full ${SIZE_CLASSES[size]} rounded-2xl border border-surface-border bg-surface p-6 shadow-2xl shadow-black/40`}
         onClick={(e) => e.stopPropagation()}
       >
         <button

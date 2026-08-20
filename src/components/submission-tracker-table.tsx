@@ -2,6 +2,7 @@
 
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { PerformanceStatus } from "@/generated/prisma/enums";
 
 export type SubmissionTrackerRow = {
@@ -19,7 +20,7 @@ function statusCell(status: PerformanceStatus | null) {
   return status ? (
     <StatusBadge status={status} />
   ) : (
-    <span className="text-xs text-muted">Not submitted</span>
+    <Badge tone="warning">Pending</Badge>
   );
 }
 

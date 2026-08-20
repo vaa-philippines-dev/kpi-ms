@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { Eye, X } from "lucide-react";
+import { Eye, Loader2, X } from "lucide-react";
 import { setViewAsRole, exitViewAs } from "@/app/dashboard/view-as-actions";
 import { useToast } from "@/components/ui/toast";
 
@@ -60,7 +60,11 @@ export function ViewAsControl({ viewingAs }: { viewingAs: ViewingAs | null }) {
           title="Exit view-as"
           className="text-muted transition hover:text-foreground disabled:opacity-50"
         >
-          <X className="size-3.5" />
+          {isPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <X className="size-3.5" />
+          )}
         </button>
       </div>
     );

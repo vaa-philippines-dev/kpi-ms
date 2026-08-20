@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { PeriodNav } from "@/components/period-nav";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
@@ -95,7 +96,7 @@ export default async function WeeklyInterventionsReportPage(
                       {status ? (
                         <StatusBadge status={status} />
                       ) : (
-                        <span className="text-xs text-muted">Not submitted</span>
+                        <Badge tone="warning">Pending</Badge>
                       )}
                     </Td>
                     <Td className="text-muted">

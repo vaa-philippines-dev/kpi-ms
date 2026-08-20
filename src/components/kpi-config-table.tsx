@@ -1,21 +1,10 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
-import { useToast } from "@/components/ui/toast";
-import {
-  getKpiConfigDetail,
-  initKpiConfig,
-  updateKpiConfig,
-  deleteKpiConfig,
-  resetKpiConfig,
-  type KpiConfigDetailRow,
-} from "@/app/dashboard/connections/kpi-config/actions";
+import { KpiConfigPanel } from "@/components/kpi-config-panel";
 
 export type ConnectionConfigRow = {
   id: string;
@@ -87,58 +76,10 @@ export function KpiConfigTable({
       ? initialConnectionId
       : null,
   );
-  const [detail, setDetail] = useState<{
-    missingCount: number;
-    rows: KpiConfigDetailRow[];
-  } | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const { toast } = useToast();
   const openConn = connections.find((c) => c.id === openId) ?? null;
-
-  function load(connectionId: string) {
-    setDetail(null);
-    startTransition(async () => {
-      try {
-        const result = await getKpiConfigDetail(connectionId);
-        setDetail(result);
-      } catch (e) {
-        toast(e instanceof Error ? e.message : "Failed to load KPI config.", "error");
-        setOpenId(null);
-      }
-    });
-  }
-
-  function openRow(conn: ConnectionConfigRow) {
-    setOpenId(conn.id);
-    load(conn.id);
-  }
-
-  // Trigger the deep link's data fetch once, on mount, if a row was
-  // deep-link-opened. Fetches inline (not via `load`) since `detail` is
-  // already null at this point and `load`'s own leading `setDetail(null)`
-  // is what the "don't setState synchronously in an effect" lint rule
-  // reacts to when called from here.
-  useEffect(() => {
-    if (!openId) return;
-    startTransition(async () => {
-      try {
-        const result = await getKpiConfigDetail(openId);
-        setDetail(result);
-      } catch (e) {
-        toast(e instanceof Error ? e.message : "Failed to load KPI config.", "error");
-        setOpenId(null);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function close() {
     setOpenId(null);
-    setDetail(null);
-  }
-
-  function refetch() {
-    if (openId) load(openId);
   }
 
   return (
@@ -148,154 +89,17 @@ export function KpiConfigTable({
         data={connections}
         getRowId={(c) => c.id}
         defaultLimit={25}
-        onRowClick={openRow}
+        onRowClick={(c) => setOpenId(c.id)}
         emptyMessage="No connections found."
       />
 
       <Modal open={openConn !== null} onClose={close} title={openConn?.clientName ?? ""}>
         {openConn && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-muted">
-                {openConn.vaName} · {openConn.departmentName}
-              </p>
-              {/* Mirrors legacy's "Reset to Defaults" (resetToDefaults() ->
-                  deleteKPIConfig + initKPIConfig back-to-back) — only shown
-                  once at least one override exists, same as legacy's
-                  hasConfig-gated button. */}
-              {isAdmin && detail && detail.rows.some((r) => r.id !== null) && (
-                <ConfirmSubmitButton
-                  action={resetKpiConfig}
-                  fields={{ connectionId: openConn.id }}
-                  label="Reset to defaults"
-                  confirmLabel="Replace all overrides with defaults?"
-                  successMessage="Reset to defaults."
-                  onSuccess={refetch}
-                />
-              )}
-            </div>
-
-            {isPending || !detail ? (
-              <p className="py-8 text-center text-sm text-muted">Loading…</p>
-            ) : (
-              <>
-                {detail.missingCount > 0 && (
-                  <div className="flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
-                    <p className="flex-1 text-xs text-warning">
-                      {detail.missingCount} KPI{detail.missingCount === 1 ? "" : "s"} not
-                      yet configured for this connection.
-                    </p>
-                    {isAdmin && (
-                      <form
-                        action={async (formData) => {
-                          try {
-                            await initKpiConfig(formData);
-                            toast("KPI config generated from defaults.", "success");
-                            refetch();
-                          } catch (e) {
-                            toast(
-                              e instanceof Error ? e.message : "Something went wrong.",
-                              "error",
-                            );
-                          }
-                        }}
-                      >
-                        <input type="hidden" name="connectionId" value={openConn.id} />
-                        <Button type="submit" className="shrink-0 px-3 py-1.5 text-xs">
-                          Generate from defaults
-                        </Button>
-                      </form>
-                    )}
-                  </div>
-                )}
-
-                {detail.rows.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted">
-                    No applicable KPIs for this connection&apos;s department/service.
-                  </p>
-                ) : (
-                  <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
-                    {detail.rows.map((r) => (
-                      <div
-                        key={r.kpiDefinitionId}
-                        className="rounded-lg border border-surface-border p-3"
-                      >
-                        {r.id && isAdmin ? (
-                          <form
-                            action={async (formData) => {
-                              try {
-                                await updateKpiConfig(formData);
-                                toast("KPI config saved.", "success");
-                                refetch();
-                              } catch (e) {
-                                toast(
-                                  e instanceof Error ? e.message : "Something went wrong.",
-                                  "error",
-                                );
-                              }
-                            }}
-                            className="grid grid-cols-2 items-center gap-2 sm:grid-cols-5"
-                          >
-                            <input type="hidden" name="id" value={r.id} />
-                            <span className="text-sm sm:col-span-2">{r.name}</span>
-                            <Input
-                              name="targetValue"
-                              type="number"
-                              step="any"
-                              defaultValue={r.targetValue}
-                              className="py-1"
-                            />
-                            <Input
-                              name="deviationThresholdPct"
-                              type="number"
-                              step="any"
-                              defaultValue={r.deviationThresholdPct}
-                              className="py-1"
-                            />
-                            <Input
-                              name="criticalThresholdPct"
-                              type="number"
-                              step="any"
-                              defaultValue={r.criticalThresholdPct}
-                              className="py-1"
-                            />
-                            <label className="flex items-center gap-1.5 text-xs text-muted">
-                              <input
-                                type="checkbox"
-                                name="isApplicable"
-                                defaultChecked={r.isApplicable}
-                              />
-                              Applicable
-                            </label>
-                            <Button type="submit" className="px-3 py-1 text-xs">
-                              Save
-                            </Button>
-                            <ConfirmSubmitButton
-                              action={deleteKpiConfig}
-                              fields={{ id: r.id }}
-                              label="Remove override"
-                              successMessage="Override removed."
-                              onSuccess={refetch}
-                            />
-                          </form>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-3 text-sm">
-                            <span className="flex-1">{r.name}</span>
-                            <span className="text-xs text-muted">
-                              Target {r.targetValue} · At Risk {r.deviationThresholdPct}%
-                              · Critical {r.criticalThresholdPct}%
-                            </span>
-                            <span className="text-xs text-muted">
-                              {r.id ? "Custom override" : "Using default"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
+            <p className="text-xs text-muted">
+              {openConn.vaName} · {openConn.departmentName}
+            </p>
+            <KpiConfigPanel connectionId={openConn.id} isAdmin={isAdmin} />
           </div>
         )}
       </Modal>

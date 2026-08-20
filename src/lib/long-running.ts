@@ -19,9 +19,9 @@ const TERMINAL_STATUSES: ConnectionStatus[] = [
  * Connections that have been running a long time without ending — mirrors
  * legacy's getLongRunningConnections(): tenure-based (not status-history
  * based, despite the name sounding like it), excludes only the two terminal
- * statuses. Legacy measured tenure off Connection.StartDate; our schema has
- * no separate start-date field, so createdAt is the equivalent already used
- * the same way in the Lifetime Value report.
+ * statuses. Legacy measured tenure off Connection.StartDate; ours now has
+ * the same field, falling back to createdAt for connections synced before
+ * it existed.
  */
 export async function getLongRunningConnections(
   scope: Prisma.ConnectionWhereInput,
@@ -38,7 +38,7 @@ export async function getLongRunningConnections(
       id: c.id,
       clientName: c.clientName,
       vaName: c.vaUser.name ?? c.vaUser.email,
-      daysActive: daysSince(c.createdAt),
+      daysActive: daysSince(c.startDate ?? c.createdAt),
     }))
     .filter((c) => c.daysActive >= thresholdDays)
     .sort((a, b) => b.daysActive - a.daysActive);

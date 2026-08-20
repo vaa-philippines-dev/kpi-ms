@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { ConnectionStatus } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 
 async function requireAdmin() {
   const session = await auth();
@@ -24,14 +25,19 @@ export async function createConnection(formData: FormData) {
   await requireAdmin();
   const vaUserId = String(formData.get("vaUserId") ?? "");
   const clientName = String(formData.get("clientName") ?? "").trim();
+  const secondaryName = String(formData.get("secondaryName") ?? "").trim() || null;
   const departmentId = String(formData.get("departmentId") ?? "");
+  const startDateRaw = String(formData.get("startDate") ?? "");
+  // Defaults to today, mirroring legacy's createVAConnection() (StartDate:
+  // data.startDate || now).
+  const startDate = startDateRaw ? new Date(`${startDateRaw}T00:00:00.000Z`) : new Date();
 
   if (!vaUserId || !clientName || !departmentId) {
     throw new Error("All fields are required.");
   }
 
   await prisma.connection.create({
-    data: { vaUserId, clientName, departmentId },
+    data: { vaUserId, clientName, secondaryName, departmentId, startDate },
   });
   revalidatePath("/dashboard/connections");
 }
@@ -133,6 +139,83 @@ export async function toggleConnectionFlag(formData: FormData) {
     data: { isFlagged: !connection.isFlagged },
   });
   revalidatePath("/dashboard/connections");
+}
+
+// Legacy's connection detail modal lets an admin edit Account Name and
+// Start Date inline (connDetailItem() editable fields) — mirrored here as
+// one action covering both, since they're edited from the same panel.
+export async function updateConnectionInfo(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const clientName = String(formData.get("clientName") ?? "").trim();
+  const secondaryName = String(formData.get("secondaryName") ?? "").trim() || null;
+  const startDateRaw = String(formData.get("startDate") ?? "");
+  if (!clientName) throw new Error("Account name is required.");
+
+  await prisma.connection.update({
+    where: { id },
+    data: {
+      clientName,
+      secondaryName,
+      startDate: startDateRaw ? new Date(`${startDateRaw}T00:00:00.000Z`) : null,
+    },
+  });
+  revalidatePath("/dashboard/connections");
+}
+
+export type ConnectionPerformanceRow = {
+  kpiDefinitionId: string;
+  kpiName: string;
+  period: KpiPeriod;
+  periodStart: string;
+  actualValue: number | null;
+  targetValue: number;
+  pct: number | null;
+  status: PerformanceStatus;
+};
+
+// Lazily loaded when the Connections detail modal's Performance tab opens —
+// mirrors legacy's renderPerfCharts() (AppVAConnections.html:1078-1138),
+// which loads Actual vs Target per KPI over recent periods; kept as a
+// compact table here rather than an SVG line chart per se. Capped to the
+// last 4 periods per KPI, the same "recent periods" window legacy's chart
+// used. Scoped like getKpiConfigDetail() — viewing is open to every role
+// that can already see this connection, not just admins.
+export async function getConnectionPerformance(
+  connectionId: string,
+): Promise<ConnectionPerformanceRow[]> {
+  const session = await requireSession();
+  const scope = connectionScopeWhere(session);
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...scope },
+  });
+  if (!connection) throw new Error("Connection not found.");
+
+  const summaries = await prisma.performanceSummary.findMany({
+    where: { connectionId },
+    include: { kpiDefinition: true },
+    orderBy: [{ kpiDefinition: { name: "asc" } }, { periodStart: "desc" }],
+  });
+
+  const perKpiCount = new Map<string, number>();
+  const rows: ConnectionPerformanceRow[] = [];
+  for (const s of summaries) {
+    const count = perKpiCount.get(s.kpiDefinitionId) ?? 0;
+    if (count >= 4) continue;
+    perKpiCount.set(s.kpiDefinitionId, count + 1);
+    rows.push({
+      kpiDefinitionId: s.kpiDefinitionId,
+      kpiName: s.kpiDefinition.name,
+      period: s.period,
+      periodStart: s.periodStart.toISOString(),
+      actualValue: s.actualValue,
+      targetValue: s.targetValue,
+      pct: s.pct,
+      status: s.status,
+    });
+  }
+  return rows;
 }
 
 export async function updateConnectionNotes(formData: FormData) {

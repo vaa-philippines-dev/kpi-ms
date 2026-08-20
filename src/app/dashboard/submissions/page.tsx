@@ -128,9 +128,9 @@ export default async function SubmissionsPage(
       clientName: c.clientName,
       departmentName: c.department.name,
       weeklyStatus,
-      weeklyStatusLabel: weeklyStatus ? STATUS_LABEL[weeklyStatus] : "Not submitted",
+      weeklyStatusLabel: weeklyStatus ? STATUS_LABEL[weeklyStatus] : "Pending",
       monthlyStatus,
-      monthlyStatusLabel: monthlyStatus ? STATUS_LABEL[monthlyStatus] : "Not submitted",
+      monthlyStatusLabel: monthlyStatus ? STATUS_LABEL[monthlyStatus] : "Pending",
     };
   });
 

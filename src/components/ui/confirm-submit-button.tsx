@@ -59,8 +59,8 @@ export function ConfirmSubmitButton({
     return (
       <span className="inline-flex items-center gap-2">
         <span className="text-xs text-muted">{confirmLabel}</span>
-        <TextAction type="button" tone={tone} onClick={submit} disabled={isPending}>
-          {isPending ? "…" : "Yes"}
+        <TextAction type="button" tone={tone} onClick={submit} loading={isPending}>
+          Yes
         </TextAction>
         <TextAction type="button" tone="muted" onClick={() => setConfirming(false)}>
           Cancel
