@@ -41,7 +41,7 @@ export async function DashboardTopbar() {
       : null;
 
   return (
-    <header className="sticky top-0 z-30 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b border-surface-border bg-background/80 px-6 backdrop-blur-sm">
+    <header className="sticky top-0 z-30 grid min-h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 border-b border-surface-border bg-background/80 px-6 backdrop-blur-sm">
       <div className="flex min-w-0 items-center gap-3">
         <Breadcrumb role={session.role} />
       </div>

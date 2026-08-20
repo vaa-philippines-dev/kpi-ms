@@ -81,7 +81,7 @@ export function PeriodNav({ weekStartDay }: { weekStartDay: number }) {
   const disabledClass = "flex size-7 items-center justify-center rounded-md text-muted/30";
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
       <div className="flex rounded-md border border-surface-border p-0.5 text-xs">
         <Link
           href={hrefFor({ period: undefined, date: undefined })}
