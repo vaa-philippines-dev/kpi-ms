@@ -48,6 +48,9 @@ export type ConnectionInterventionRow = {
 
 export type ConnectionRow = {
   id: string;
+  // Null only for rows created before this field existed and not yet
+  // backfilled — see scripts/backfill-connection-short-codes.ts.
+  shortCode: string | null;
   clientName: string;
   secondaryName: string | null;
   vaName: string;
@@ -192,6 +195,32 @@ function InfoItem({ label, children }: { label: string; children: React.ReactNod
       <p className="text-xs font-medium text-muted uppercase">{label}</p>
       <p className="text-sm">{children}</p>
     </div>
+  );
+}
+
+// Hand this to the VA (chat/email) so they can paste it into /submit
+// instead of picking their connection off a roster only managers should see.
+function ShortCodeItem({ shortCode }: { shortCode: string | null }) {
+  const [copied, setCopied] = useState(false);
+  if (!shortCode) {
+    return <InfoItem label="Submission code">—</InfoItem>;
+  }
+  return (
+    <InfoItem label="Submission code">
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard.writeText(shortCode).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+        className="font-mono text-sm text-accent hover:underline"
+        title="Copy to clipboard"
+      >
+        {copied ? "Copied!" : shortCode}
+      </button>
+    </InfoItem>
   );
 }
 
@@ -403,6 +432,7 @@ export function ConnectionsTable({
             )}
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+              <ShortCodeItem shortCode={openConn.shortCode} />
               <InfoItem label="Department">{openConn.departmentName}</InfoItem>
               <InfoItem label="Service">{openConn.serviceName ?? "—"}</InfoItem>
               <InfoItem label="VA Name">{openConn.vaName}</InfoItem>

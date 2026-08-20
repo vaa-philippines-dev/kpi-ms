@@ -137,6 +137,11 @@ model KpiDefinition {
 model Connection {
   id                   String                  @id @default(cuid())
   externalWfmId        String?                 @unique
+  // VA-facing lookup code for the self-serve /submit flow (format
+  // CON_XXXXXX, matching the legacy Apps Script short-ID scheme) — lets a VA
+  // paste in a code instead of browsing a dropdown of every connection in
+  // their manager's scope, which leaked other VAs' client names.
+  shortCode            String                  @unique
   vaUser               User                    @relation("VaConnections", fields: [vaUserId], references: [id])
   vaUserId             String
   clientName           String
@@ -294,6 +299,18 @@ model PerformanceSummary {
 
   @@unique([connectionId, kpiDefinitionId, periodStart])
   @@index([kpiDefinitionId])
+}
+
+// Anonymous, DB-backed rate-limit counter — no Redis/KV in this stack, so a
+// small table stands in. `key` is caller-defined (e.g. "submit-lookup:<ip>",
+// "submit:<connectionId>"); checkRateLimit() in lib/rate-limit.ts prunes
+// rows past their own window on every check rather than needing a cron job.
+model RateLimitEvent {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([key, createdAt])
 }
 
 model User {

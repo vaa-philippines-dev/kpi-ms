@@ -4,17 +4,23 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
 import { HeroBackground } from "@/components/hero-background";
 import { AuthModal } from "@/components/auth-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { KpiValueField } from "@/components/kpi-value-field";
 import { connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { rollupStatus } from "@/lib/performance";
+import { normalizeShortCode } from "@/lib/connection-short-code";
+import { checkRateLimit, formatRetryAfter } from "@/lib/rate-limit";
 import { createSubmission } from "./actions";
+import { PeriodForm } from "./period-form";
+import { CodeForm } from "./code-form";
+import { SubmitFade } from "./submit-fade";
+
+const TOTAL_STEPS = 3;
 
 // Presented as a modal over the landing hero — same chrome as AuthModal —
 // but /submit stays its own real URL, since it's the link VAs actually
@@ -23,15 +29,19 @@ function SubmitShell({ children }: { children: React.ReactNode }) {
   return (
     <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-16">
       <HeroBackground />
-      <div className="animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm">
-        <div className="animate-modal-pop relative w-full max-w-lg rounded-2xl border border-surface-border bg-surface p-8 shadow-2xl shadow-black/40">
-          <Link
-            href="/"
-            aria-label="Close"
-            className="absolute top-4 right-4 text-muted transition hover:text-foreground"
-          >
-            <X className="size-4" />
-          </Link>
+      {/* overflow-y-auto here (not on the card) is load-bearing: with ~9+
+          KPIs the card can grow taller than the viewport, and without this
+          the fixed overlay just clips it — the title and Submit button
+          become unreachable with no way to scroll to them. */}
+      <div className="animate-overlay-in fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/60 p-6 backdrop-blur-sm">
+        <Link
+          href="/"
+          aria-label="Close"
+          className="fixed top-5 right-5 z-[60] text-muted transition hover:text-foreground"
+        >
+          <X className="size-4" />
+        </Link>
+        <div className="animate-modal-pop relative my-auto w-full max-w-lg rounded-2xl border border-surface-border bg-surface p-8 shadow-2xl shadow-black/40">
           {children}
         </div>
       </div>
@@ -39,31 +49,50 @@ function SubmitShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function StepHeader({ step, title, subtitle }: { step: number; title: string; subtitle?: string }) {
+  return (
+    <div className="text-center">
+      <div className="flex justify-center gap-1.5">
+        {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+          <span
+            key={i}
+            className={`h-1 w-9 rounded-full transition ${
+              i < step ? "bg-accent" : "bg-surface-border"
+            }`}
+          />
+        ))}
+      </div>
+      <p className="mt-3 text-xs tracking-wide text-muted uppercase">
+        Step {step} of {TOTAL_STEPS}
+      </p>
+      {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
+      <h1 className="mt-1 text-2xl font-semibold tracking-tight">{title}</h1>
+    </div>
+  );
+}
+
+function StartOverLink() {
+  return (
+    <Link
+      href="/submit"
+      className="mt-6 block text-center text-xs text-muted hover:underline"
+    >
+      Start over
+    </Link>
+  );
+}
+
 export default async function SubmitPage(props: PageProps<"/submit">) {
   const searchParams = await props.searchParams;
-  const connectionId =
-    typeof searchParams.connectionId === "string"
-      ? searchParams.connectionId
-      : undefined;
   const period =
-    typeof searchParams.period === "string"
+    typeof searchParams.period === "string" && Object.values(KpiPeriod).includes(searchParams.period as KpiPeriod)
       ? (searchParams.period as KpiPeriod)
       : undefined;
+  const dateParam = typeof searchParams.date === "string" ? searchParams.date : undefined;
+  const codeParam = typeof searchParams.code === "string" ? searchParams.code.trim() : undefined;
   const success = searchParams.success === "1";
 
   const session = await auth();
-
-  // VAs (and managers submitting on a VA's behalf) must sign in with their
-  // Google Workspace account — replaces the old public "type in your
-  // Connection ID" step now that Connections link to real User accounts.
-  if (!session?.user) {
-    return (
-      <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-24">
-        <HeroBackground />
-        <AuthModal open redirectTo="/submit" />
-      </main>
-    );
-  }
 
   if (success) {
     const successConnectionId =
@@ -122,6 +151,88 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     );
   }
 
+  // Step 1: which period, and which instance of it (defaults to "current").
+  if (!period) {
+    return (
+      <SubmitShell>
+        <StepHeader step={1} title="Which period are you submitting for?" />
+        <PeriodForm maxDate={toDateParam(new Date())} />
+      </SubmitShell>
+    );
+  }
+
+  const anchorDate = parseAnchorDate(dateParam);
+  const dateIsInFuture = anchorDate ? anchorDate.getTime() > startOfTodayUtc() : false;
+
+  // Step 2: paste the connection code — replaces the old dropdown that
+  // listed every connection in a manager's scope (a privacy leak: OM/DM
+  // roles could see every other VA's client names). No connection lookup
+  // happens yet, so nothing about which connections exist is exposed here.
+  if (!codeParam) {
+    return (
+      <SubmitShell>
+        <StepHeader
+          step={2}
+          title="Enter your connection code"
+          subtitle="You can find this on your connection card, or your manager can share it with you."
+        />
+        {dateIsInFuture && (
+          <p className="mt-4 text-center text-sm text-danger">
+            That date is in the future — pick today or an earlier date.
+          </p>
+        )}
+        <CodeForm period={period} dateParam={dateParam} />
+        <StartOverLink />
+      </SubmitShell>
+    );
+  }
+
+  // Step 3 (gate): must be signed in before we resolve the code or show
+  // anything about the connection it points to.
+  if (!session?.user) {
+    const redirectTo = `/submit?${new URLSearchParams({
+      period,
+      ...(dateParam ? { date: dateParam } : {}),
+      code: codeParam,
+    }).toString()}`;
+    return (
+      <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-24">
+        <HeroBackground />
+        <AuthModal open redirectTo={redirectTo} />
+      </main>
+    );
+  }
+
+  if (dateIsInFuture) {
+    return (
+      <SubmitShell>
+        <StepHeader step={1} title="That date is in the future" />
+        <p className="mt-4 text-center text-sm text-muted">
+          Pick today or an earlier date to submit for.
+        </p>
+        <StartOverLink />
+      </SubmitShell>
+    );
+  }
+
+  // Rate-limit the code -> connection lookup, keyed by account (the only
+  // surface that's guessable now that it's not behind a browsable list).
+  const lookupLimit = await checkRateLimit(`submit-lookup:${session.user.id}`, {
+    max: 20,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!lookupLimit.allowed) {
+    return (
+      <SubmitShell>
+        <StepHeader step={2} title="Too many attempts" />
+        <p className="mt-4 text-center text-sm text-muted">
+          Please wait {formatRetryAfter(lookupLimit.retryAfterMs)} before trying another code.
+        </p>
+        <StartOverLink />
+      </SubmitShell>
+    );
+  }
+
   const scope = connectionScopeWhere({
     id: session.user.id,
     role: session.user.role,
@@ -129,97 +240,32 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     teamId: session.user.teamId,
   });
 
-  const connection = connectionId
-    ? await prisma.connection.findFirst({
-        where: { id: connectionId, ...scope },
-        include: { department: true, vaUser: true },
-      })
-    : null;
+  const shortCode = normalizeShortCode(codeParam);
+  const connection = await prisma.connection.findFirst({
+    where: { shortCode, ...scope },
+    include: { department: true, vaUser: true },
+  });
 
-  if (!connectionId || !connection) {
-    const myConnections = await prisma.connection.findMany({
-      where: scope,
-      include: { vaUser: true },
-      orderBy: { clientName: "asc" },
-    });
+  const codeStepHref = `/submit?${new URLSearchParams({
+    period,
+    ...(dateParam ? { date: dateParam } : {}),
+  }).toString()}`;
 
+  if (!connection) {
     return (
       <SubmitShell>
-        <div className="text-center">
-          <p className="text-xs tracking-wide text-muted uppercase">
-            Step 1 of 3
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-            KPI submission
-          </h1>
-          <p className="mt-2 text-sm text-muted">
-            Choose which connection you&apos;re submitting for.
-          </p>
-          {connectionId && !connection && (
-            <p className="mt-4 text-sm text-danger">
-              That connection isn&apos;t visible to your account.
-            </p>
-          )}
-          {myConnections.length === 0 ? (
-            <p className="mt-6 text-sm text-muted">
-              No connections are assigned to your account yet — contact your
-              manager.
-            </p>
-          ) : (
-            <form method="GET" className="mt-6 flex gap-2">
-              <Select name="connectionId" required defaultValue="" className="w-full">
-                <option value="" disabled>
-                  Connection
-                </option>
-                {myConnections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {(c.vaUser.name ?? c.vaUser.email)} · {c.clientName}
-                  </option>
-                ))}
-              </Select>
-              <Button type="submit" className="shrink-0">
-                Continue
-              </Button>
-            </form>
-          )}
-        </div>
-      </SubmitShell>
-    );
-  }
-
-  if (!period) {
-    return (
-      <SubmitShell>
-        <div className="text-center">
-          <p className="text-xs tracking-wide text-muted uppercase">
-            Step 2 of 3
-          </p>
-          <p className="mt-2 text-sm text-muted">
-            {connection.vaUser.name ?? connection.vaUser.email} · {connection.clientName} ·{" "}
-            {connection.department.name}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            Which period are you submitting for?
-          </h1>
-          <div className="mt-6 flex justify-center gap-3">
-            <Link
-              href={`/submit?connectionId=${connection.id}&period=${KpiPeriod.WEEKLY}`}
-            >
-              <Button>Weekly</Button>
-            </Link>
-            <Link
-              href={`/submit?connectionId=${connection.id}&period=${KpiPeriod.MONTHLY}`}
-            >
-              <Button variant="outline">Monthly</Button>
-            </Link>
-          </div>
-          <Link
-            href="/submit"
-            className="mt-8 inline-block text-xs text-muted hover:underline"
-          >
-            Wrong connection? Start over
-          </Link>
-        </div>
+        <StepHeader step={2} title="Code not recognized" />
+        <p className="mt-4 text-center text-sm text-muted">
+          That code doesn&apos;t match a connection on your account. Double-check it
+          and try again, or contact your manager.
+        </p>
+        <Link
+          href={codeStepHref}
+          className="mt-6 block text-center text-sm text-accent hover:underline"
+        >
+          Try another code
+        </Link>
+        <StartOverLink />
       </SubmitShell>
     );
   }
@@ -243,7 +289,7 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   // can still go back and correct it — mirrors the legacy
   // isSummarySubmitted() check.
   const weekStartDay = await getWeekStartDay();
-  const periodStart = currentPeriodStart(period, undefined, weekStartDay);
+  const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
   const alreadySubmitted =
     session.user.role === "VA" &&
     (await prisma.performanceSummary.findFirst({
@@ -262,19 +308,13 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
 
   return (
     <SubmitShell>
-      <div className="text-center">
-        <p className="text-xs tracking-wide text-muted uppercase">
-          Step 3 of 3
-        </p>
-        <p className="mt-2 text-sm text-muted">
-          {connection.vaUser.name ?? connection.vaUser.email} · {connection.clientName} ·{" "}
-          {connection.department.name} ·{" "}
-          {period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Enter your KPI values
-        </h1>
-      </div>
+      <StepHeader
+        step={3}
+        title="Enter your KPI values"
+        subtitle={`${connection.vaUser.name ?? connection.vaUser.email} · ${connection.clientName} · ${
+          connection.department.name
+        } · ${period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}`}
+      />
 
       {alreadySubmitted ? (
         <p className="mt-6 text-center text-sm text-muted">
@@ -297,34 +337,48 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
           configured for {connection.department.name} yet.
         </p>
       ) : (
-        <form action={createSubmission} className="mt-8 space-y-4">
+        <form action={createSubmission} className="mt-8">
           <input type="hidden" name="connectionId" value={connection.id} />
           <input type="hidden" name="period" value={period} />
-          {kpis.map(({ kpi, config }) => (
-            <KpiValueField
-              key={kpi.id}
-              name={`kpi_${kpi.id}`}
-              label={kpi.name}
-              hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
-                kpi.direction === KpiDirection.HIGHER_IS_BETTER
-                  ? "higher is better"
-                  : "lower is better"
-              }`}
-            />
-          ))}
-          <Button type="submit" className="flex w-full items-center justify-center gap-2">
-            Submit
-            <ArrowRight className="size-4" />
-          </Button>
+          {dateParam && <input type="hidden" name="date" value={dateParam} />}
+          <SubmitFade>
+            {/* A preview of what's about to be recorded — the VA sees this
+                before it's saved, since it's the first point in the flow
+                where any connection detail is shown at all. */}
+            <div className="rounded-lg border border-surface-border bg-background/40 px-3 py-2 text-xs text-muted">
+              Submitting as{" "}
+              <span className="text-foreground">
+                {session.user.name ?? session.user.email}
+              </span>{" "}
+              for period starting {periodStart.toLocaleDateString()}.
+            </div>
+            {kpis.map(({ kpi, config }, i) => (
+              <KpiValueField
+                key={kpi.id}
+                name={`kpi_${kpi.id}`}
+                label={kpi.name}
+                hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
+                  kpi.direction === KpiDirection.HIGHER_IS_BETTER
+                    ? "higher is better"
+                    : "lower is better"
+                }`}
+                index={i}
+              />
+            ))}
+            <Button type="submit" className="flex w-full items-center justify-center gap-2">
+              Submit
+              <ArrowRight className="size-4" />
+            </Button>
+          </SubmitFade>
         </form>
       )}
 
-      <Link
-        href="/submit"
-        className="mt-6 block text-center text-xs text-muted hover:underline"
-      >
-        Wrong connection? Start over
-      </Link>
+      <StartOverLink />
     </SubmitShell>
   );
+}
+
+function startOfTodayUtc(): number {
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }

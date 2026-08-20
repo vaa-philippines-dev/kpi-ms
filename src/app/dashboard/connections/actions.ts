@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { generateConnectionShortCode } from "@/lib/connection-short-code";
 
 async function requireAdmin() {
   const session = await auth();
@@ -36,8 +37,9 @@ export async function createConnection(formData: FormData) {
     throw new Error("All fields are required.");
   }
 
+  const shortCode = await generateConnectionShortCode();
   await prisma.connection.create({
-    data: { vaUserId, clientName, secondaryName, departmentId, startDate },
+    data: { vaUserId, clientName, secondaryName, departmentId, startDate, shortCode },
   });
   revalidatePath("/dashboard/connections");
 }
@@ -118,13 +120,27 @@ export async function bulkCreateConnections(formData: FormData) {
     );
   }
 
-  await prisma.connection.createMany({
-    data: parsed.map((p) => ({
+  // Generated sequentially (not Promise.all) and tracked in `usedInBatch` —
+  // generateConnectionShortCode() only checks collisions already committed
+  // to the DB, which wouldn't catch two rows in this same createMany
+  // colliding with each other before either is inserted.
+  const usedInBatch = new Set<string>();
+  const rowsWithCodes: { vaUserId: string; clientName: string; departmentId: string; shortCode: string }[] = [];
+  for (const p of parsed) {
+    let shortCode = await generateConnectionShortCode();
+    while (usedInBatch.has(shortCode)) {
+      shortCode = await generateConnectionShortCode();
+    }
+    usedInBatch.add(shortCode);
+    rowsWithCodes.push({
       vaUserId: byEmail.get(p.vaEmail)!.id,
       clientName: p.clientName,
       departmentId,
-    })),
-  });
+      shortCode,
+    });
+  }
+
+  await prisma.connection.createMany({ data: rowsWithCodes });
   revalidatePath("/dashboard/connections");
 }
 

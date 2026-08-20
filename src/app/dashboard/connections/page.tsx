@@ -72,6 +72,7 @@ export default async function ConnectionsPage(
 
   const rows: ConnectionRow[] = connections.map((c) => ({
     id: c.id,
+    shortCode: c.shortCode,
     clientName: c.clientName,
     secondaryName: c.secondaryName,
     vaName: c.vaUser.name ?? c.vaUser.email,

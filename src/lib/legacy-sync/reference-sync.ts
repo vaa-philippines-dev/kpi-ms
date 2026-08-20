@@ -291,6 +291,11 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
         where: { externalWfmId: row.ConnectionID },
         create: {
           externalWfmId: row.ConnectionID,
+          // Legacy's ConnectionID *is* already a CON_XXXXXX short code (see
+          // Code.js genId('CONN')) — reuse it as-is rather than minting a
+          // new one, so a legacy-synced connection's code stays the same
+          // one that may already be known/circulated.
+          shortCode: row.ConnectionID,
           vaUserId,
           clientName: row.ClientName,
           secondaryName,

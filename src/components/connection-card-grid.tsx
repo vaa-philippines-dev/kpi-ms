@@ -29,6 +29,11 @@ export function ConnectionCardGrid({ connections }: { connections: ConnectionRow
           <p className="mt-3 text-xs text-muted">
             Started: {new Date(c.sinceDate).toLocaleDateString()}
           </p>
+          {c.shortCode && (
+            <p className="mt-1 font-mono text-xs text-muted">
+              Submission code: <span className="text-foreground">{c.shortCode}</span>
+            </p>
+          )}
         </div>
       ))}
     </div>

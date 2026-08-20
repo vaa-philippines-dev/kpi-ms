@@ -3,11 +3,12 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { currentPeriodStart } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { computeStatus } from "@/lib/performance";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
+import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 export async function createSubmission(formData: FormData) {
@@ -18,9 +19,26 @@ export async function createSubmission(formData: FormData) {
 
   const connectionId = String(formData.get("connectionId") ?? "");
   const period = String(formData.get("period") ?? "") as KpiPeriod;
+  const anchorDate = parseAnchorDate(
+    typeof formData.get("date") === "string" ? String(formData.get("date")) : undefined,
+  );
 
   if (!connectionId || !Object.values(KpiPeriod).includes(period)) {
     throw new Error("Missing connection or period.");
+  }
+
+  // Two independent limits: per-connection (catches repeated spam against
+  // one target) and per-IP (catches one caller hammering many connections).
+  const ip = await getClientIp();
+  const [connectionLimit, ipLimit] = await Promise.all([
+    checkRateLimit(`submit:${connectionId}`, { max: 10, windowMs: 60 * 60 * 1000 }),
+    checkRateLimit(`submit-ip:${ip}`, { max: 30, windowMs: 60 * 60 * 1000 }),
+  ]);
+  const limit = !connectionLimit.allowed ? connectionLimit : ipLimit;
+  if (!limit.allowed) {
+    throw new Error(
+      `Too many submissions — please wait ${formatRetryAfter(limit.retryAfterMs)} and try again.`,
+    );
   }
 
   const scope = connectionScopeWhere({
@@ -95,7 +113,7 @@ export async function createSubmission(formData: FormData) {
 
   const weekStartDay = await getWeekStartDay();
 
-  const periodStart = currentPeriodStart(period, undefined, weekStartDay);
+  const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
 
   if (session.user.role === "VA") {
     const alreadySubmitted = await prisma.performanceSummary.findFirst({
