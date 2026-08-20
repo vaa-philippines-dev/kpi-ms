@@ -14,6 +14,15 @@ import {
   resetKpiConfig,
   type KpiConfigDetailRow,
 } from "@/app/dashboard/connections/kpi-config/actions";
+import { KpiPeriod } from "@/generated/prisma/enums";
+
+// A single legacy KPI can map to both a Weekly and a Monthly
+// KpiDefinition row (same name, different target) — labeled here so the
+// two don't read as accidental duplicates.
+const PERIOD_LABEL: Record<KpiPeriod, string> = {
+  WEEKLY: "Weekly",
+  MONTHLY: "Monthly",
+};
 
 /**
  * Per-connection KPI override editor — the guts of `KpiConfigTable`'s
@@ -127,7 +136,10 @@ export function KpiConfigPanel({
                   className="grid grid-cols-2 items-center gap-2 sm:grid-cols-5"
                 >
                   <input type="hidden" name="id" value={r.id} />
-                  <span className="text-sm sm:col-span-2">{r.name}</span>
+                  <span className="text-sm sm:col-span-2">
+                    {r.name}{" "}
+                    <span className="text-xs text-muted">({PERIOD_LABEL[r.period]} · {r.cluster})</span>
+                  </span>
                   <Input
                     name="targetValue"
                     type="number"
@@ -166,7 +178,10 @@ export function KpiConfigPanel({
                 </form>
               ) : (
                 <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className="flex-1">{r.name}</span>
+                  <span className="flex-1">
+                    {r.name}{" "}
+                    <span className="text-xs text-muted">({PERIOD_LABEL[r.period]} · {r.cluster})</span>
+                  </span>
                   <span className="text-xs text-muted">
                     Target {r.targetValue} · At Risk {r.deviationThresholdPct}% · Critical{" "}
                     {r.criticalThresholdPct}%

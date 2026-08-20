@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { KpiPeriod } from "@/generated/prisma/enums";
 
 async function requireAdmin() {
   const session = await auth();
@@ -17,6 +18,18 @@ export type KpiConfigDetailRow = {
   id: string | null; // null = not yet configured, showing the KPI Library default
   kpiDefinitionId: string;
   name: string;
+  // A single legacy KPI maps to up to two KpiDefinition rows here — one for
+  // its Weekly target, one for its Monthly target (same name, different
+  // period) — so this must be shown or the two rows look like duplicates.
+  period: KpiPeriod;
+  // Legacy's KPI_Master keys applicability off ServiceID alone, never
+  // Cluster (see KPIConfig.js's `k.ServiceID === serviceId` filter — no
+  // cluster check), so two KPIs can legitimately share a name AND a
+  // service (e.g. "ACoS" defined once for the "Amazon PPC" cluster and
+  // again for "Walmart PPC") and both apply to the same connection. Ported
+  // as-is from legacy; cluster is shown here so the two don't read as an
+  // accidental duplicate.
+  cluster: string;
   targetValue: number;
   deviationThresholdPct: number;
   criticalThresholdPct: number;
@@ -46,14 +59,14 @@ export async function getKpiConfigDetail(connectionId: string) {
     prisma.kpiConfig.findMany({
       where: { connectionId },
       include: { kpiDefinition: true },
-      orderBy: { kpiDefinition: { name: "asc" } },
+      orderBy: [{ kpiDefinition: { name: "asc" } }, { kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { period: "asc" } }],
     }),
     prisma.kpiDefinition.findMany({
       where: {
         departmentId: connection.departmentId,
         OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
       },
-      orderBy: { name: "asc" },
+      orderBy: [{ name: "asc" }, { cluster: "asc" }, { period: "asc" }],
     }),
   ]);
 
@@ -63,6 +76,8 @@ export async function getKpiConfigDetail(connectionId: string) {
       id: c.id,
       kpiDefinitionId: c.kpiDefinitionId,
       name: c.kpiDefinition.name,
+      period: c.kpiDefinition.period,
+      cluster: c.kpiDefinition.cluster,
       targetValue: c.targetValue ?? c.kpiDefinition.targetValue,
       deviationThresholdPct:
         c.deviationThresholdPct ?? c.kpiDefinition.deviationThresholdPct,
@@ -76,6 +91,8 @@ export async function getKpiConfigDetail(connectionId: string) {
         id: null,
         kpiDefinitionId: k.id,
         name: k.name,
+        period: k.period,
+        cluster: k.cluster,
         targetValue: k.targetValue,
         deviationThresholdPct: k.deviationThresholdPct,
         criticalThresholdPct: k.criticalThresholdPct,
