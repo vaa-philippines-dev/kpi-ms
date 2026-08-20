@@ -1,9 +1,9 @@
-import { auth } from "@/auth";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getInterventionTypes, getAppName, getWeekStartDay } from "@/lib/settings";
 import { LegacySyncPanel } from "@/components/legacy-sync-panel";
+import { getEffectiveSession } from "@/lib/view-as";
 import { updateSetting } from "./actions";
 
 const WEEKDAYS = [
@@ -17,8 +17,8 @@ const WEEKDAYS = [
 ];
 
 export default async function SettingsPage() {
-  const session = await auth();
-  const isAdmin = session?.user?.role === "ADMIN";
+  const session = await getEffectiveSession();
+  const isAdmin = session?.role === "ADMIN";
 
   if (!isAdmin) {
     return (

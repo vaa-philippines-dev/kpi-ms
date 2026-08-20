@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { UserRole } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { getEffectiveSession } from "@/lib/view-as";
 
 export type ScopingSession = {
   id: string;
@@ -10,17 +10,22 @@ export type ScopingSession = {
   teamId: string | null;
 };
 
-/** Redirects unauthenticated visitors to sign-in; returns the session's user otherwise. */
+/**
+ * Redirects unauthenticated visitors to sign-in; returns the effective
+ * session otherwise — the real signed-in user, unless an ADMIN currently
+ * has a "view as" override applied (see lib/view-as.ts), in which case
+ * every caller of this transparently sees what the viewed-as user sees.
+ */
 export async function requireSession(): Promise<ScopingSession> {
-  const session = await auth();
-  if (!session?.user) {
+  const session = await getEffectiveSession();
+  if (!session) {
     redirect("/sign-in");
   }
   return {
-    id: session.user.id,
-    role: session.user.role,
-    departmentId: session.user.departmentId,
-    teamId: session.user.teamId,
+    id: session.id,
+    role: session.role,
+    departmentId: session.departmentId,
+    teamId: session.teamId,
   };
 }
 

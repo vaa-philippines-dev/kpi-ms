@@ -1,5 +1,5 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getEffectiveSession } from "@/lib/view-as";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
@@ -13,12 +13,12 @@ import {
 } from "./actions";
 
 export default async function TeamsPage() {
-  const session = await auth();
-  const role = session?.user?.role;
+  const session = await getEffectiveSession();
+  const role = session?.role;
   const isManager = role === "ADMIN" || role === "DM";
   const departmentFilter =
-    role === "DM" && session?.user?.departmentId
-      ? { departmentId: session.user.departmentId }
+    role === "DM" && session?.departmentId
+      ? { departmentId: session.departmentId }
       : {};
 
   const [teams, departments, users] = await Promise.all([
@@ -34,10 +34,7 @@ export default async function TeamsPage() {
       },
     }),
     prisma.department.findMany({
-      where:
-        role === "DM" && session?.user?.departmentId
-          ? { id: session.user.departmentId }
-          : {},
+      where: role === "DM" && session?.departmentId ? { id: session.departmentId } : {},
       orderBy: { name: "asc" },
     }),
     prisma.user.findMany({ orderBy: { email: "asc" } }),

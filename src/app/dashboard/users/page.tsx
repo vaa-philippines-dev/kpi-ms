@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getEffectiveSession } from "@/lib/view-as";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -18,12 +18,12 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
   const browsing = Boolean(departmentId || q);
 
   const [session, departments, services, teams] = await Promise.all([
-    auth(),
+    getEffectiveSession(),
     prisma.department.findMany({ orderBy: { name: "asc" } }),
     prisma.service.findMany({ orderBy: { name: "asc" } }),
     prisma.team.findMany({ orderBy: { name: "asc" } }),
   ]);
-  const isAdmin = session?.user?.role === "ADMIN";
+  const isAdmin = session?.role === "ADMIN";
 
   // Landing state: a department directory (with counts), not a giant list —
   // picking one (or searching) is what actually loads the table below.

@@ -1,5 +1,5 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getEffectiveSession } from "@/lib/view-as";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { createDepartment, createService } from "./actions";
 
 export default async function DepartmentsPage() {
   const [session, departments, services] = await Promise.all([
-    auth(),
+    getEffectiveSession(),
     prisma.department.findMany({
       orderBy: { name: "asc" },
       include: {
@@ -25,7 +25,7 @@ export default async function DepartmentsPage() {
       include: { department: true },
     }),
   ]);
-  const isAdmin = session?.user?.role === "ADMIN";
+  const isAdmin = session?.role === "ADMIN";
 
   const departmentRows: DepartmentRow[] = departments.map((d) => ({
     id: d.id,

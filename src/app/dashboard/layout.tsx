@@ -1,16 +1,16 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
 import { ToastProvider } from "@/components/ui/toast";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { startOfToday } from "@/lib/period";
 import { getAppName } from "@/lib/settings";
+import { getEffectiveSession } from "@/lib/view-as";
 
 export default async function DashboardLayout({
   children,
 }: LayoutProps<"/dashboard">) {
   const [session, submissionsToday, appName] = await Promise.all([
-    auth(),
+    getEffectiveSession(),
     prisma.submission.count({
       where: { submittedAt: { gte: startOfToday() } },
     }),
@@ -21,7 +21,7 @@ export default async function DashboardLayout({
     <ToastProvider>
       <div className="flex h-screen bg-background">
         <DashboardSidebar
-          role={session?.user?.role ?? ""}
+          role={session?.role ?? ""}
           submissionsToday={submissionsToday}
           appName={appName}
         />

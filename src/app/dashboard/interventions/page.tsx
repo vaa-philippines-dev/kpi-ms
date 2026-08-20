@@ -1,16 +1,16 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { InterventionsTable, type InterventionRow } from "@/components/interventions-table";
 import { connectionScopeWhere } from "@/lib/connection-scope";
+import { getEffectiveSession } from "@/lib/view-as";
 import { getInterventionTypes } from "@/lib/settings";
 
 export default async function InterventionsPage() {
-  const session = await auth();
-  const role = session?.user?.role;
+  const session = await getEffectiveSession();
+  const role = session?.role;
   const isManager = role === "ADMIN" || role === "DM" || role === "OM";
 
-  if (!session?.user) {
+  if (!session) {
     return (
       <>
         <PageHeader title="Interventions" />
@@ -20,10 +20,10 @@ export default async function InterventionsPage() {
   }
 
   const scope = connectionScopeWhere({
-    id: session.user.id,
-    role: session.user.role,
-    departmentId: session.user.departmentId,
-    teamId: session.user.teamId,
+    id: session.id,
+    role: session.role,
+    departmentId: session.departmentId,
+    teamId: session.teamId,
   });
 
   const interventionTypes = await getInterventionTypes();

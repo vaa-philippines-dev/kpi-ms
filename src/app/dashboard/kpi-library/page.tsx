@@ -1,18 +1,18 @@
-import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { KpiLibraryTable, type KpiRow } from "@/components/kpi-library-table";
+import { getEffectiveSession } from "@/lib/view-as";
 
 export default async function KpiLibraryPage() {
   const [session, kpis, departments] = await Promise.all([
-    auth(),
+    getEffectiveSession(),
     prisma.kpiDefinition.findMany({
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
       include: { department: true },
     }),
     prisma.department.findMany({ orderBy: { name: "asc" } }),
   ]);
-  const isAdmin = session?.user?.role === "ADMIN";
+  const isAdmin = session?.role === "ADMIN";
 
   const rows: KpiRow[] = kpis.map((k) => ({
     id: k.id,

@@ -1,9 +1,9 @@
 import { AlertTriangle } from "lucide-react";
-import { auth } from "@/auth";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getEffectiveSession } from "@/lib/view-as";
 
 // Faithful port of legacy's renderCustomersAdmin() (AppUsers.html) — that
 // page is a placeholder there too: sample rows, no real backend, pending a
@@ -44,8 +44,8 @@ const STATUS_TONE = {
 } as const;
 
 export default async function CustomersPage() {
-  const session = await auth();
-  const isAdmin = session?.user?.role === "ADMIN";
+  const session = await getEffectiveSession();
+  const isAdmin = session?.role === "ADMIN";
 
   if (!isAdmin) {
     return (
