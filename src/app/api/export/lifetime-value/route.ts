@@ -22,7 +22,7 @@ export async function GET() {
   return csvResponse(
     "lifetime-value.csv",
     connections.map((c) => {
-      const tenureDays = daysSince(c.createdAt);
+      const tenureDays = daysSince(c.startDate ?? c.createdAt);
       const periods = new Set(
         c.performanceSummaries.map((s) => `${s.period}:${s.periodStart.toISOString()}`),
       );

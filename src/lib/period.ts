@@ -42,6 +42,18 @@ export function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+/** `date` shifted by `months` (may be negative), preserving UTC day-of-month. */
+export function addMonths(date: Date, months: number): Date {
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate()),
+  );
+}
+
+/** The last instant of `date`'s UTC month. */
+export function endOfMonth(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+}
+
 /**
  * Parses a `?date=YYYY-MM-DD` search param into a UTC midnight Date, for the
  * dashboard's week-by-week period navigator. Returns undefined for anything
@@ -56,6 +68,19 @@ export function parseAnchorDate(value: string | undefined): Date | undefined {
 /** `date` as a `YYYY-MM-DD` string, for building nav links. */
 export function toDateParam(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+/** "1 yr 2 mo" / "3 mo" / "12 days" for a tenure length in days. */
+export function formatDuration(days: number): string {
+  if (!days || days < 0) return "0 days";
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  const remDays = days % 30;
+  const parts: string[] = [];
+  if (years) parts.push(`${years} yr${years !== 1 ? "s" : ""}`);
+  if (months) parts.push(`${months} mo${months !== 1 ? "s" : ""}`);
+  if (!years && !months) parts.push(`${remDays} day${remDays !== 1 ? "s" : ""}`);
+  return parts.join(" ");
 }
 
 /** "Jul 6 – Jul 12, 2026" for a 7-day window starting at `start`. */
