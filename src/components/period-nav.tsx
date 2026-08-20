@@ -1,10 +1,14 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   addDays,
   addMonths,
   currentPeriodStart,
   formatWeekRange,
+  parseAnchorDate,
   toDateParam,
 } from "@/lib/period";
 import { KpiPeriod } from "@/generated/prisma/enums";
@@ -13,25 +17,22 @@ import { PeriodJumpSelect } from "./period-jump-select";
 const JUMP_OPTIONS_COUNT = 12;
 
 /**
- * Weekly/monthly toggle + ◀ / label-select / ▶ / Today navigator — mirrors
- * legacy's Global Period Selector (`AppCore.html`'s
+ * Global Weekly/Monthly toggle + ◀ / label-select / ▶ / Today navigator,
+ * lives once in DashboardTopbar instead of being duplicated per-page —
+ * mirrors legacy's Global Period Selector (`AppCore.html`'s
  * `gp-btn-weekly`/`gp-btn-monthly`, `gp-period-select`, `gpNav`, `gpToday`).
- * The center date-range control is itself a select (clicking it jumps
- * straight to another period), same as legacy's.
+ * Reads/writes `?period=` and `?date=YYYY-MM-DD` on whatever page it's
+ * rendered on (via usePathname/useSearchParams), so every page under
+ * /dashboard shares the same period state without prop-drilling.
  */
-export function PeriodNav({
-  anchor,
-  period = KpiPeriod.WEEKLY,
-  weekStartDay,
-  basePath,
-  params = {},
-}: {
-  anchor: Date;
-  period?: KpiPeriod;
-  weekStartDay: number;
-  basePath: string;
-  params?: Record<string, string | undefined>;
-}) {
+export function PeriodNav({ weekStartDay }: { weekStartDay: number }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const period: KpiPeriod =
+    searchParams.get("period") === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
+  const anchor = parseAnchorDate(searchParams.get("date") ?? undefined);
+
   const isMonthly = period === KpiPeriod.MONTHLY;
   const currentStart = currentPeriodStart(period, anchor, weekStartDay);
   const todayStart = currentPeriodStart(period, new Date(), weekStartDay);
@@ -41,17 +42,17 @@ export function PeriodNav({
   const canGoNext = nextStart.getTime() <= todayStart.getTime();
 
   function hrefFor(overrides: Record<string, string | undefined>) {
-    const query = new URLSearchParams();
+    const query = new URLSearchParams(searchParams.toString());
     const merged: Record<string, string | undefined> = {
-      ...params,
       period: isMonthly ? "monthly" : undefined,
       ...overrides,
     };
     for (const [key, value] of Object.entries(merged)) {
       if (value) query.set(key, value);
+      else query.delete(key);
     }
     const qs = query.toString();
-    return qs ? `${basePath}?${qs}` : basePath;
+    return qs ? `${pathname}?${qs}` : pathname;
   }
 
   const label = isMonthly

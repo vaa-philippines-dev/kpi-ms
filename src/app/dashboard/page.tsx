@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
-import { PeriodNav } from "@/components/period-nav";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { getPerformanceTrend } from "@/lib/trend";
@@ -44,8 +43,6 @@ export default async function DashboardOverviewPage(
   const anchor = parseAnchorDate(
     typeof searchParams.date === "string" ? searchParams.date : undefined,
   );
-  const navPeriod: KpiPeriod =
-    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
@@ -60,10 +57,7 @@ export default async function DashboardOverviewPage(
   if (session.role === "OM") {
     return (
       <>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-          <PageHeader title="Dashboard" description="Your team's KPI performance." className="mb-0" />
-          <PeriodNav anchor={weeklyStart} period={navPeriod} weekStartDay={weekStartDay} basePath="/dashboard" />
-        </div>
+        <PageHeader title="Dashboard" description="Your team's KPI performance." />
         <TeamLeaderOverview
           scope={scope}
           weeklyStart={weeklyStart}
@@ -81,10 +75,7 @@ export default async function DashboardOverviewPage(
   if (session.role === "SERVICE_MANAGER") {
     return (
       <>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-          <PageHeader title="Dashboard" description="System-wide KPI performance." className="mb-0" />
-          <PeriodNav anchor={weeklyStart} period={navPeriod} weekStartDay={weekStartDay} basePath="/dashboard" />
-        </div>
+        <PageHeader title="Dashboard" description="System-wide KPI performance." />
         <CsOverview scope={scope} weeklyStart={weeklyStart} />
       </>
     );
@@ -97,10 +88,7 @@ export default async function DashboardOverviewPage(
   if (session.role === "VA") {
     return (
       <>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-          <PageHeader title="Dashboard" description="Your connections and this week's submissions." className="mb-0" />
-          <PeriodNav anchor={weeklyStart} period={navPeriod} weekStartDay={weekStartDay} basePath="/dashboard" />
-        </div>
+        <PageHeader title="Dashboard" description="Your connections and this week's submissions." />
         <VaOverview scope={scope} weeklyStart={weeklyStart} />
       </>
     );
@@ -170,19 +158,10 @@ export default async function DashboardOverviewPage(
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <PageHeader
-          title="Overview"
-          description="Weekly / monthly performance across all departments."
-          className="mb-0"
-        />
-        <PeriodNav
-          anchor={weeklyStart}
-          period={navPeriod}
-          weekStartDay={weekStartDay}
-          basePath="/dashboard"
-        />
-      </div>
+      <PageHeader
+        title="Overview"
+        description="Weekly / monthly performance across all departments."
+      />
 
       {totalConnections === 0 ? (
         <ComingSoon note="No connections visible to your account yet." />

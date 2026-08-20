@@ -3,7 +3,6 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { PeriodNav } from "@/components/period-nav";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
@@ -45,18 +44,10 @@ export default async function WeeklyInterventionsReportPage(
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <PageHeader
-          title="Weekly Interventions Report"
-          description="KPI status vs. interventions logged for the selected week."
-          className="mb-0"
-        />
-        <PeriodNav
-          anchor={weekStart}
-          weekStartDay={weekStartDay}
-          basePath="/dashboard/reports/weekly-interventions"
-        />
-      </div>
+      <PageHeader
+        title="Weekly Interventions Report"
+        description="KPI status vs. interventions logged for the selected week."
+      />
 
       {connections.length > 0 && (
         <a

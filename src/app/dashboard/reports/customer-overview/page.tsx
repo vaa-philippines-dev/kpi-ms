@@ -4,7 +4,15 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { addDays, currentPeriodStart, daysSince, formatDuration } from "@/lib/period";
+import {
+  addDays,
+  addMonths,
+  currentPeriodStart,
+  daysSince,
+  endOfMonth,
+  formatDuration,
+  parseAnchorDate,
+} from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { rollupStatus } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -37,19 +45,27 @@ export default async function CustomerOverviewPage(
   props: PageProps<"/dashboard/reports/customer-overview">,
 ) {
   const searchParams = await props.searchParams;
-  const period = KpiPeriod.WEEKLY;
+  const period: KpiPeriod =
+    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
   const sortBy: SortBy = searchParams.sortBy === "duration" ? "duration" : "active";
   const sortDir: "asc" | "desc" = searchParams.sortDir === "asc" ? "asc" : "desc";
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
 
-  const anchorStart = currentPeriodStart(period, new Date(), weekStartDay);
-  const step = (start: Date, delta: number) => addDays(start, delta * 7);
-  const periodEnd = (start: Date) => addDays(start, 6);
+  const anchorStart = currentPeriodStart(period, anchor, weekStartDay);
+  const step = (start: Date, delta: number) =>
+    period === KpiPeriod.MONTHLY ? addMonths(start, delta) : addDays(start, delta * 7);
+  const periodEnd = (start: Date) =>
+    period === KpiPeriod.MONTHLY ? endOfMonth(start) : addDays(start, 6);
   const periodLabel = (start: Date) =>
-    start.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+    period === KpiPeriod.MONTHLY
+      ? `${start.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" })} '${String(start.getUTCFullYear()).slice(2)}`
+      : start.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 
   const periods = Array.from({ length: 6 }, (_, i) => {
     const start = step(anchorStart, i - 5);
@@ -128,6 +144,8 @@ export default async function CustomerOverviewPage(
   function hrefFor(overrides: Record<string, string | undefined>) {
     const query = new URLSearchParams();
     const merged = {
+      date: searchParams.date as string | undefined,
+      period: period === KpiPeriod.MONTHLY ? "monthly" : undefined,
       sortBy: sortBy !== "active" ? sortBy : undefined,
       sortDir: sortDir !== "desc" ? sortDir : undefined,
       ...overrides,
@@ -149,7 +167,7 @@ export default async function CustomerOverviewPage(
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <PageHeader
           title="Customer Overview"
-          description="Per-client status across the last 6 weeks."
+          description="Per-client status across the last 6 periods."
           className="mb-0"
         />
       </div>

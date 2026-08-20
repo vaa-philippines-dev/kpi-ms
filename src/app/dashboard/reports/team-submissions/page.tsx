@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { PeriodNav } from "@/components/period-nav";
 import { Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,19 +64,10 @@ export default async function TeamSubmissionReportPage(
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <PageHeader
-          title="Team Submission Report"
-          description="Weekly submission-rate trend per team, for the selected period."
-          className="mb-0"
-        />
-        <PeriodNav
-          anchor={weeklyStart}
-          weekStartDay={weekStartDay}
-          basePath="/dashboard/reports/team-submissions"
-          params={{ departmentId: departmentId || undefined }}
-        />
-      </div>
+      <PageHeader
+        title="Team Submission Report"
+        description="Weekly submission-rate trend per team, for the selected period."
+      />
 
       {session.role === UserRole.ADMIN && departments.length > 0 && (
         <form method="GET" className="mb-6 flex flex-wrap gap-2">
