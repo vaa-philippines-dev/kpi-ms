@@ -47,7 +47,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={`animate-modal-pop relative w-full ${SIZE_CLASSES[size]} rounded-2xl border border-surface-border bg-surface p-6 shadow-2xl shadow-black/40`}
+        className={`animate-modal-pop relative flex max-h-[85vh] w-full flex-col ${SIZE_CLASSES[size]} rounded-2xl border border-surface-border bg-surface p-6 shadow-2xl shadow-black/40`}
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -57,8 +57,11 @@ export function Modal({
         >
           <X className="size-4" />
         </button>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <div className="mt-4">{children}</div>
+        <h2 className="shrink-0 text-lg font-semibold tracking-tight">{title}</h2>
+        {/* Content-heavy modals (e.g. the Connections detail view) can grow
+            taller than the viewport — this is the scroll container, not the
+            whole dialog, so the title and close button stay put. */}
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">{children}</div>
       </div>
     </div>
   );
