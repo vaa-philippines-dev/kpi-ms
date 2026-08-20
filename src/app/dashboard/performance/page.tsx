@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { PeriodNav } from "@/components/period-nav";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
 import { SubmissionTrendChart } from "@/components/submission-trend-chart";
 import { DeptTeamSummaryPanel } from "@/components/dept-team-summary-panel";
@@ -144,7 +143,6 @@ export default async function PerformancePage(
           >
             View Interventions for This Week
           </Link>
-          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard/performance" />
         </div>
       </div>
 

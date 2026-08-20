@@ -13,7 +13,7 @@ import { UnassignedVasPanel } from "@/components/unassigned-vas-panel";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
 import { VaOverview } from "./va-overview";
-import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 
 const STATUS_TILES = [
@@ -44,6 +44,8 @@ export default async function DashboardOverviewPage(
   const anchor = parseAnchorDate(
     typeof searchParams.date === "string" ? searchParams.date : undefined,
   );
+  const navPeriod: KpiPeriod =
+    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
@@ -60,7 +62,7 @@ export default async function DashboardOverviewPage(
       <>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <PageHeader title="Dashboard" description="Your team's KPI performance." className="mb-0" />
-          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard" />
+          <PeriodNav anchor={weeklyStart} period={navPeriod} weekStartDay={weekStartDay} basePath="/dashboard" />
         </div>
         <TeamLeaderOverview
           scope={scope}
@@ -81,7 +83,7 @@ export default async function DashboardOverviewPage(
       <>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <PageHeader title="Dashboard" description="System-wide KPI performance." className="mb-0" />
-          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard" />
+          <PeriodNav anchor={weeklyStart} period={navPeriod} weekStartDay={weekStartDay} basePath="/dashboard" />
         </div>
         <CsOverview scope={scope} weeklyStart={weeklyStart} />
       </>
@@ -97,7 +99,7 @@ export default async function DashboardOverviewPage(
       <>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
           <PageHeader title="Dashboard" description="Your connections and this week's submissions." className="mb-0" />
-          <PeriodNav anchor={weeklyStart} weekStartDay={weekStartDay} basePath="/dashboard" />
+          <PeriodNav anchor={weeklyStart} period={navPeriod} weekStartDay={weekStartDay} basePath="/dashboard" />
         </div>
         <VaOverview scope={scope} weeklyStart={weeklyStart} />
       </>
@@ -120,7 +122,9 @@ export default async function DashboardOverviewPage(
     unassignedTotal,
     teams,
   ] = await Promise.all([
-    prisma.connection.count({ where: scope }),
+    prisma.connection.count({
+      where: { ...scope, status: ConnectionStatus.ACTIVE },
+    }),
     prisma.performanceSummary.findMany({
       where: {
         connection: scope,
@@ -174,6 +178,7 @@ export default async function DashboardOverviewPage(
         />
         <PeriodNav
           anchor={weeklyStart}
+          period={navPeriod}
           weekStartDay={weekStartDay}
           basePath="/dashboard"
         />

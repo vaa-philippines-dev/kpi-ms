@@ -4,7 +4,6 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { STATUS_LABEL } from "@/components/status-badge";
 import { Sparkline } from "@/components/sparkline";
-import { PeriodNav } from "@/components/period-nav";
 import { DeptTeamSummaryPanel } from "@/components/dept-team-summary-panel";
 import {
   SubmissionTrackerTable,
@@ -174,11 +173,6 @@ export default async function SubmissionsPage(
               Team Report
             </Link>
           )}
-          <PeriodNav
-            anchor={weeklyStart}
-            weekStartDay={weekStartDay}
-            basePath="/dashboard/submissions"
-          />
         </div>
       </div>
 

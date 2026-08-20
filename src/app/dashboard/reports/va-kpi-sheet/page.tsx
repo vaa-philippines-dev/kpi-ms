@@ -3,7 +3,6 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { Select } from "@/components/ui/input";
-import { PeriodNav } from "@/components/period-nav";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
@@ -147,12 +146,6 @@ export default async function VaKpiSheetPage(
           title="VA KPI Sheet"
           description="Every connection's KPI actual/target/status for the current period, grouped by cluster."
           className="mb-0"
-        />
-        <PeriodNav
-          anchor={weeklyStart}
-          weekStartDay={weekStartDay}
-          basePath="/dashboard/reports/va-kpi-sheet"
-          params={{ departmentId: selectedDepartmentId }}
         />
       </div>
 

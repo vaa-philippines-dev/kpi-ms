@@ -1,74 +1,142 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { addDays, currentPeriodStart, formatWeekRange, toDateParam } from "@/lib/period";
+import {
+  addDays,
+  addMonths,
+  currentPeriodStart,
+  formatWeekRange,
+  toDateParam,
+} from "@/lib/period";
 import { KpiPeriod } from "@/generated/prisma/enums";
+import { PeriodMonthSelect } from "./period-month-select";
+
+const JUMP_OPTIONS_COUNT = 12;
 
 /**
- * Week-by-week ◀ / label / ▶ / Today navigator — mirrors legacy's dashboard
- * week bar (`AppDashboards.html`'s `dashNavWeek`/`dashGoToday`). Pure links
- * driven by a `?date=YYYY-MM-DD` search param, so it works without any
- * client-side JS: the anchor date is whatever week's Monday `date` points
- * at, and pages pass it straight into `currentPeriodStart` as the `now`
- * override for both their weekly and monthly queries.
+ * Weekly/monthly toggle + ◀ / label / ▶ / Today navigator, plus a
+ * jump-to-period dropdown — mirrors legacy's Global Period Selector
+ * (`AppCore.html`'s `_globalPeriod` bar: `gp-btn-weekly`/`gp-btn-monthly`,
+ * `gp-period-select`, `gpNav`, `gpToday`). Driven entirely by `?period=` and
+ * `?date=YYYY-MM-DD` search params, so it works without client-side JS
+ * except for the dropdown.
  */
 export function PeriodNav({
   anchor,
+  period = KpiPeriod.WEEKLY,
   weekStartDay,
   basePath,
   params = {},
 }: {
   anchor: Date;
+  period?: KpiPeriod;
   weekStartDay: number;
   basePath: string;
   params?: Record<string, string | undefined>;
 }) {
-  const currentWeekStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
-  const todayWeekStart = currentPeriodStart(KpiPeriod.WEEKLY, new Date(), weekStartDay);
-  const prevWeekStart = addDays(currentWeekStart, -7);
-  const nextWeekStart = addDays(currentWeekStart, 7);
-  const isCurrentWeek = currentWeekStart.getTime() === todayWeekStart.getTime();
-  const canGoNext = nextWeekStart.getTime() <= todayWeekStart.getTime();
+  const isMonthly = period === KpiPeriod.MONTHLY;
+  const currentStart = currentPeriodStart(period, anchor, weekStartDay);
+  const todayStart = currentPeriodStart(period, new Date(), weekStartDay);
+  const prevStart = isMonthly ? addMonths(currentStart, -1) : addDays(currentStart, -7);
+  const nextStart = isMonthly ? addMonths(currentStart, 1) : addDays(currentStart, 7);
+  const isCurrent = currentStart.getTime() === todayStart.getTime();
+  const canGoNext = nextStart.getTime() <= todayStart.getTime();
 
-  function hrefFor(date: Date | null) {
+  function hrefFor(overrides: Record<string, string | undefined>) {
     const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
+    const merged: Record<string, string | undefined> = {
+      ...params,
+      period: isMonthly ? "monthly" : undefined,
+      ...overrides,
+    };
+    for (const [key, value] of Object.entries(merged)) {
       if (value) query.set(key, value);
     }
-    if (date) query.set("date", toDateParam(date));
-    else query.delete("date");
     const qs = query.toString();
     return qs ? `${basePath}?${qs}` : basePath;
   }
 
+  const label = isMonthly
+    ? currentStart.toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
+        timeZone: "UTC",
+      })
+    : formatWeekRange(currentStart);
+
+  const jumpOptions = Array.from({ length: JUMP_OPTIONS_COUNT }, (_, i) => {
+    const start = isMonthly ? addMonths(todayStart, -i) : addDays(todayStart, -i * 7);
+    return {
+      value: toDateParam(start),
+      label: isMonthly
+        ? start.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })
+        : formatWeekRange(start),
+      href: hrefFor({ date: i === 0 ? undefined : toDateParam(start) }),
+    };
+  });
+  if (!jumpOptions.some((o) => o.value === toDateParam(currentStart))) {
+    jumpOptions.unshift({
+      value: toDateParam(currentStart),
+      label,
+      href: hrefFor({ date: isCurrent ? undefined : toDateParam(currentStart) }),
+    });
+  }
+
+  const toggleActiveClass = "bg-accent/15 text-accent";
+  const toggleInactiveClass = "text-muted";
   const navButtonClass =
     "flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-hover hover:text-foreground";
   const disabledClass = "flex size-7 items-center justify-center rounded-md text-muted/30";
 
   return (
-    <div className="flex items-center gap-1.5">
-      <Link href={hrefFor(prevWeekStart)} aria-label="Previous week" className={navButtonClass}>
-        <ChevronLeft className="size-4" />
-      </Link>
-      <span className="min-w-[168px] rounded-md border border-surface-border bg-surface px-3 py-1 text-center text-xs font-medium">
-        {formatWeekRange(currentWeekStart)}
-      </span>
-      {canGoNext ? (
-        <Link href={hrefFor(nextWeekStart)} aria-label="Next week" className={navButtonClass}>
-          <ChevronRight className="size-4" />
-        </Link>
-      ) : (
-        <span aria-disabled className={disabledClass}>
-          <ChevronRight className="size-4" />
-        </span>
-      )}
-      {!isCurrentWeek && (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex rounded-md border border-surface-border p-0.5 text-xs">
         <Link
-          href={hrefFor(null)}
-          className="rounded-md px-2 py-1 text-xs font-medium text-accent transition hover:bg-surface-hover"
+          href={hrefFor({ period: undefined, date: undefined })}
+          className={`rounded px-2 py-1 ${!isMonthly ? toggleActiveClass : toggleInactiveClass}`}
         >
-          Today
+          Weekly
         </Link>
-      )}
+        <Link
+          href={hrefFor({ period: "monthly", date: undefined })}
+          className={`rounded px-2 py-1 ${isMonthly ? toggleActiveClass : toggleInactiveClass}`}
+        >
+          Monthly
+        </Link>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Link
+          href={hrefFor({ date: toDateParam(prevStart) })}
+          aria-label={isMonthly ? "Previous month" : "Previous week"}
+          className={navButtonClass}
+        >
+          <ChevronLeft className="size-4" />
+        </Link>
+        <span className="min-w-[168px] rounded-md border border-surface-border bg-surface px-3 py-1 text-center text-xs font-medium">
+          {label}
+        </span>
+        {canGoNext ? (
+          <Link
+            href={hrefFor({ date: toDateParam(nextStart) })}
+            aria-label={isMonthly ? "Next month" : "Next week"}
+            className={navButtonClass}
+          >
+            <ChevronRight className="size-4" />
+          </Link>
+        ) : (
+          <span aria-disabled className={disabledClass}>
+            <ChevronRight className="size-4" />
+          </span>
+        )}
+        <PeriodMonthSelect value={toDateParam(currentStart)} options={jumpOptions} />
+        {!isCurrent && (
+          <Link
+            href={hrefFor({ date: undefined })}
+            className="rounded-md px-2 py-1 text-xs font-medium text-accent transition hover:bg-surface-hover"
+          >
+            Today
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
