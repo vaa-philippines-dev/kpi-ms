@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { ConnectionsTable, type ConnectionRow } from "@/components/connections-table";
+import { TeamRoster } from "@/components/team-roster";
+import { ConnectionCardGrid } from "@/components/connection-card-grid";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { createConnection, bulkCreateConnections } from "./actions";
 
@@ -17,15 +18,6 @@ export default async function ConnectionsPage(
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
-  // The "browse by department directory" landing screen exists for the
-  // admin-scale views (nav's "VA Connections") where hundreds of connections
-  // span many departments — it's just noise for the personal-scope views
-  // ("My Team" for OM, "My VA Connections" for VA per nav.ts's labelByRole),
-  // whose connectionScopeWhere() result is always a small, single-department
-  // set. Those two roles skip straight to the table, mirroring legacy's
-  // renderMyTeam()/renderVAConnections(), which never showed a department
-  // picker at all.
-  const browsing = Boolean(departmentId || q) || session.role === "VA" || session.role === "OM";
 
   const [departments, vaUsers] = await Promise.all([
     prisma.department.findMany({ orderBy: { name: "asc" } }),
@@ -41,59 +33,6 @@ export default async function ConnectionsPage(
           description="VA ↔ client connections, sourced from the Workforce Management system."
         />
         <ComingSoon note="Add at least one department first before creating connections." />
-      </>
-    );
-  }
-
-  // Landing state: a department directory (with counts), not a giant list —
-  // picking one (or searching) is what actually loads the table below.
-  if (!browsing) {
-    const counts = await prisma.connection.groupBy({
-      by: ["departmentId"],
-      where: scope,
-      _count: true,
-    });
-    const countByDept = new Map(counts.map((c) => [c.departmentId, c._count]));
-    const total = counts.reduce((sum, c) => sum + c._count, 0);
-
-    return (
-      <>
-        <PageHeader
-          title="Connections"
-          description="VA ↔ client connections, sourced from the Workforce Management system."
-        />
-        <div className="max-w-3xl space-y-6">
-          <form method="GET" className="flex gap-2">
-            <Input
-              name="q"
-              placeholder="Search by client or VA…"
-              className="w-full max-w-xs"
-            />
-            <Button type="submit">Search</Button>
-          </form>
-
-          <div>
-            <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
-              Browse by department ({total} total)
-            </h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {departments.map((d) => (
-                <Link
-                  key={d.id}
-                  href={`/dashboard/connections?departmentId=${d.id}`}
-                  className="rounded-lg border border-surface-border p-4 transition hover:border-accent hover:bg-surface-hover"
-                >
-                  <div className="font-medium">{d.name}</div>
-                  <div className="text-xs text-muted">
-                    {countByDept.get(d.id) ?? 0} connections
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {isAdmin && <AddConnectionForms departments={departments} vaUsers={vaUsers} />}
-        </div>
       </>
     );
   }
@@ -124,27 +63,46 @@ export default async function ConnectionsPage(
       department: true,
       service: true,
       vaUser: true,
+      team: { include: { teamLeader: true } },
       statusEvents: { orderBy: { changedAt: "desc" }, take: 5, include: { changedBy: true } },
+      interventions: { orderBy: { createdAt: "desc" }, take: 5 },
+      _count: { select: { kpiConfigs: true, interventions: true } },
     },
   });
 
   const rows: ConnectionRow[] = connections.map((c) => ({
     id: c.id,
     clientName: c.clientName,
+    secondaryName: c.secondaryName,
     vaName: c.vaUser.name ?? c.vaUser.email,
     vaEmail: c.vaUser.email,
     departmentName: c.department.name,
     serviceName: c.service?.name ?? null,
+    teamLeaderName: c.team?.teamLeader
+      ? c.team.teamLeader.name ?? c.team.teamLeader.email
+      : null,
     status: c.status,
     connectionType: c.connectionType,
     isFlagged: c.isFlagged,
     notes: c.notes,
+    hasKpiConfig: c._count.kpiConfigs > 0,
+    startDate: c.startDate ? c.startDate.toISOString() : null,
     createdAt: c.createdAt.toISOString(),
+    sinceDate: (c.startDate ?? c.createdAt).toISOString(),
     statusEvents: c.statusEvents.map((e) => ({
       status: e.status,
       changedAt: e.changedAt.toISOString(),
       changedByName: e.changedBy.name ?? e.changedBy.email,
     })),
+    interventions: c.interventions.map((iv) => ({
+      id: iv.id,
+      createdAtLabel: iv.createdAt.toLocaleDateString(),
+      type: iv.type,
+      description: iv.description,
+      actionTaken: iv.actionTaken,
+      outcome: iv.outcome,
+    })),
+    interventionCount: c._count.interventions,
   }));
 
   return (
@@ -155,16 +113,22 @@ export default async function ConnectionsPage(
       />
 
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        {/* Legacy's VA card grid (renderVAConnections()) has no filter bar at
+            all — a VA's own connection count is always small. OM's roster
+            (renderMyTeam()) is already scoped to one team, so the
+            department picker is pointless there too. */}
+        {session.role !== "VA" && (
           <form method="GET" className="flex flex-wrap gap-2">
-            <Select name="departmentId" defaultValue={departmentId} className="w-40">
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </Select>
+            {session.role !== "OM" && (
+              <Select name="departmentId" defaultValue={departmentId} className="w-40">
+                <option value="">All departments</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Input
               name="q"
               defaultValue={q}
@@ -173,14 +137,15 @@ export default async function ConnectionsPage(
             />
             <Button type="submit">Filter</Button>
           </form>
-          {session.role !== "VA" && session.role !== "OM" && (
-            <Link href="/dashboard/connections" className="text-xs text-muted hover:underline">
-              ← Back to departments
-            </Link>
-          )}
-        </div>
+        )}
 
-        <ConnectionsTable connections={rows} isAdmin={isAdmin} />
+        {session.role === "OM" ? (
+          <TeamRoster connections={rows} />
+        ) : session.role === "VA" ? (
+          <ConnectionCardGrid connections={rows} />
+        ) : (
+          <ConnectionsTable connections={rows} isAdmin={isAdmin} />
+        )}
 
         {isAdmin && <AddConnectionForms departments={departments} vaUsers={vaUsers} />}
       </div>

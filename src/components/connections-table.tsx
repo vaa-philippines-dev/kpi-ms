@@ -13,6 +13,7 @@ import { KpiConfigPanel } from "@/components/kpi-config-panel";
 import { ConnectionPerformancePanel } from "@/components/connection-performance-panel";
 import {
   CONNECTION_STATUS_LABELS,
+  CONNECTION_STATUS_TONE,
   TERMINAL_CONNECTION_STATUSES,
 } from "@/lib/connection-labels";
 import { ConnectionStatus, ConnectionType } from "@/generated/prisma/enums";
@@ -155,7 +156,7 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
         if (isAdmin && status !== ConnectionStatus.ACTIVE && !TERMINAL_CONNECTION_STATUSES.has(status)) {
           return (
             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-              <span>{label}</span>
+              <Badge tone={CONNECTION_STATUS_TONE[status]}>{label}</Badge>
               <form action={updateConnectionStatus}>
                 <input type="hidden" name="id" value={row.id} />
                 <input type="hidden" name="status" value={ConnectionStatus.ACTIVE} />
@@ -169,7 +170,7 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
             </div>
           );
         }
-        return label;
+        return <Badge tone={CONNECTION_STATUS_TONE[status]}>{label}</Badge>;
       },
     },
     {
@@ -440,7 +441,9 @@ export function ConnectionsTable({
                     </Button>
                   </form>
                 ) : (
-                  <p className="text-sm">{CONNECTION_STATUS_LABELS[openConn.status]}</p>
+                  <Badge tone={CONNECTION_STATUS_TONE[openConn.status]}>
+                    {CONNECTION_STATUS_LABELS[openConn.status]}
+                  </Badge>
                 )}
               </div>
 
@@ -475,11 +478,15 @@ export function ConnectionsTable({
                 <p className="mb-1.5 text-xs font-medium text-muted uppercase">
                   Status history
                 </p>
-                <ul className="space-y-1 text-xs text-muted">
+                <ul className="space-y-1.5 text-xs text-muted">
                   {openConn.statusEvents.map((e, i) => (
-                    <li key={i}>
-                      {CONNECTION_STATUS_LABELS[e.status]} —{" "}
-                      {new Date(e.changedAt).toLocaleString()} by {e.changedByName}
+                    <li key={i} className="flex items-center gap-1.5">
+                      <Badge tone={CONNECTION_STATUS_TONE[e.status]}>
+                        {CONNECTION_STATUS_LABELS[e.status]}
+                      </Badge>
+                      <span>
+                        {new Date(e.changedAt).toLocaleString()} by {e.changedByName}
+                      </span>
                     </li>
                   ))}
                 </ul>

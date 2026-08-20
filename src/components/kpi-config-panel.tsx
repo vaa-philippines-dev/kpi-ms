@@ -37,7 +37,10 @@ export function KpiConfigPanel({
   const { toast } = useToast();
 
   function load() {
-    setDetail(null);
+    // No explicit setDetail(null) here — `isPending` alone already gates
+    // the loading skeleton below from the instant startTransition is
+    // called, so resetting state synchronously isn't needed and trips
+    // react-hooks/set-state-in-effect when this runs from the effect below.
     startTransition(async () => {
       try {
         const result = await getKpiConfigDetail(connectionId);

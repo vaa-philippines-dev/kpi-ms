@@ -29,7 +29,10 @@ export function ConnectionPerformancePanel({ connectionId }: { connectionId: str
   const { toast } = useToast();
 
   useEffect(() => {
-    setRows(null);
+    // No explicit setRows(null) here — `isPending` alone already gates the
+    // loading skeleton below from the instant startTransition is called,
+    // so resetting state synchronously isn't needed and trips
+    // react-hooks/set-state-in-effect.
     startTransition(async () => {
       try {
         const result = await getConnectionPerformance(connectionId);
