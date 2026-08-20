@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import {
   createIntervention,
-  updateInterventionOutcome,
+  updateIntervention,
   deleteIntervention,
 } from "@/app/dashboard/interventions/actions";
 
@@ -159,30 +159,64 @@ export function InterventionsTable({
       >
         {openIv && (
           <div className="space-y-4">
-            <div>
-              <p className="mb-1 text-xs font-medium text-muted uppercase">{openIv.type}</p>
-              <p className="text-sm">{openIv.description}</p>
-            </div>
-            {openIv.actionTaken && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted uppercase">Action Taken</p>
-                <p className="text-sm text-muted">{openIv.actionTaken}</p>
-              </div>
-            )}
-
             <form
-              action={updateInterventionOutcome}
+              action={updateIntervention}
               onSubmit={() => setOpenId(null)}
-              className="space-y-2"
+              className="space-y-3"
             >
               <input type="hidden" name="id" value={openIv.id} />
-              <label className="block text-xs font-medium text-muted uppercase">Outcome</label>
-              <Textarea
-                name="outcome"
-                defaultValue={openIv.outcome ?? ""}
-                rows={2}
-                className="w-full"
-              />
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted uppercase">
+                  Type
+                </label>
+                <Select name="type" defaultValue={openIv.type} className="w-full">
+                  {interventionTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                  {!interventionTypes.includes(openIv.type) && (
+                    <option value={openIv.type}>{openIv.type}</option>
+                  )}
+                </Select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted uppercase">
+                  Description
+                </label>
+                <Textarea
+                  name="description"
+                  defaultValue={openIv.description}
+                  rows={2}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted uppercase">
+                  Action Taken
+                </label>
+                <Input
+                  name="actionTaken"
+                  defaultValue={openIv.actionTaken ?? ""}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted uppercase">
+                  Outcome
+                </label>
+                <Textarea
+                  name="outcome"
+                  defaultValue={openIv.outcome ?? ""}
+                  rows={2}
+                  className="w-full"
+                />
+              </div>
+
               <Button type="submit" className="w-full">
                 Save
               </Button>

@@ -42,6 +42,17 @@
 - Optimized for the real data volume (~822 connections, ~734 users, ~11,463 KPI_Config rows, ~10,715 historical summary rows): batched existence-checks (one query per phase instead of one per row) and bounded concurrency (10 in flight) for the two largest phases, since a naive per-row round-trip design would have taken tens of minutes to hours.
 - **First real run was in progress as of the last message in this session** — see the next update (or ask) for the actual created/updated/skipped/error counts once it completes.
 
+**8. Gap-closing pass (post Aug 17, 2026 Business Ops meeting)**
+- Immediate on-target/at-risk/critical status feedback on the `/submit` success screen (previously just said "recorded" with no status shown).
+- Per-department daily submission window (`Department.submissionWindowStart/End`, editable on the Departments page) — spreads VA submission traffic across the day, enforced server-side in `createSubmission` and reflected on the `/submit` form; unrestricted when unset. VAs only — managers submitting on a VA's behalf bypass it.
+- "No data available" per-KPI checkbox on `/submit` (`SubmissionRecord.noData`) — a KPI can now be explicitly marked no-data instead of requiring a number; producing `PerformanceStatus.NO_DATA` again, matching legacy behavior.
+- Connection flagging (`Connection.isFlagged`) and free-text connection notes (`Connection.notes`), both editable from the Connections detail modal (Admin-only).
+- Full intervention editing — type/description/action-taken/outcome are all editable now, not just outcome.
+- Atomic team-member transfer with a same-department guard (`transferTeamMember`), alongside the existing separate add/remove.
+- Deactivating a user now clears their team assignment automatically.
+- Submissions page's "current period status" tracker now excludes paused/ended connections (only `ACTIVE` connections are expected to submit), with a count of how many were excluded.
+- Still outstanding: provisioning `system-admin@vaaphilippines.com` (or whichever email/role is confirmed) as a User so System Admin VAA can log in and test the flow — waiting on the actual email/role to use.
+
 ## Explicitly not done (by decision, not oversight)
 
 - Live WFM/CMS integration — Connections stay admin-managed/synced, not a real-time integration.

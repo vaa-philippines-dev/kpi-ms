@@ -111,9 +111,16 @@ export async function toggleUserActive(formData: FormData) {
   }
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return;
+  const activating = !user.isActive;
   await prisma.user.update({
     where: { id },
-    data: { isActive: !user.isActive },
+    data: {
+      isActive: activating,
+      // Mirrors legacy autoCleanInactiveTeamMembers() — a deactivated user
+      // shouldn't keep occupying a team roster slot.
+      ...(activating ? {} : { teamId: null }),
+    },
   });
   revalidatePath("/dashboard/users");
+  revalidatePath("/dashboard/teams");
 }

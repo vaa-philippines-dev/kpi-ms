@@ -4,12 +4,16 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Select } from "@/components/ui/input";
 import { HeroBackground } from "@/components/hero-background";
 import { AuthModal } from "@/components/auth-modal";
+import { StatusBadge } from "@/components/status-badge";
+import { KpiValueField } from "@/components/kpi-value-field";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
+import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
+import { rollupStatus } from "@/lib/performance";
 import { createSubmission } from "./actions";
 
 // Presented as a modal over the landing hero — same chrome as AuthModal —
@@ -62,6 +66,23 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   }
 
   if (success) {
+    const successConnectionId =
+      typeof searchParams.connectionId === "string" ? searchParams.connectionId : undefined;
+    const successPeriodStartRaw =
+      typeof searchParams.periodStart === "string" ? searchParams.periodStart : undefined;
+    const summaries =
+      successConnectionId && successPeriodStartRaw
+        ? await prisma.performanceSummary.findMany({
+            where: {
+              connectionId: successConnectionId,
+              periodStart: new Date(successPeriodStartRaw),
+            },
+            include: { kpiDefinition: true },
+            orderBy: { kpiDefinition: { name: "asc" } },
+          })
+        : [];
+    const overall = summaries.length > 0 ? rollupStatus(summaries.map((s) => s.status)) : null;
+
     return (
       <SubmitShell>
         <div className="text-center">
@@ -72,6 +93,24 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
           <p className="mt-2 text-sm text-muted">
             Thanks — your KPI values have been saved.
           </p>
+          {overall && (
+            <div className="mt-3 flex justify-center">
+              <StatusBadge status={overall} />
+            </div>
+          )}
+          {summaries.length > 0 && (
+            <ul className="mt-4 space-y-1.5 text-left">
+              {summaries.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-center justify-between rounded-lg border border-surface-border px-3 py-1.5 text-sm"
+                >
+                  <span>{s.kpiDefinition.name}</span>
+                  <StatusBadge status={s.status} />
+                </li>
+              ))}
+            </ul>
+          )}
           <Link
             href="/submit"
             className="mt-6 inline-block text-sm text-accent hover:underline"
@@ -201,6 +240,16 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
       where: { connectionId: connection.id, periodStart },
     })) !== null;
 
+  // Daily submission window (VAs only) — spreads submission traffic across
+  // the day instead of everyone hitting /submit at the same time.
+  const outsideWindow =
+    session.user.role === "VA" &&
+    !isWithinSubmissionWindow(
+      connection.department.submissionWindowStart,
+      connection.department.submissionWindowEnd,
+      new Date(),
+    );
+
   return (
     <SubmitShell>
       <div className="text-center">
@@ -222,6 +271,16 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
           This period has already been submitted. Contact your Team Leader or
           Manager if it needs to be corrected.
         </p>
+      ) : outsideWindow ? (
+        <p className="mt-6 text-center text-sm text-muted">
+          Submissions for {connection.department.name} are only accepted
+          between{" "}
+          {formatManilaWindow(
+            connection.department.submissionWindowStart!,
+            connection.department.submissionWindowEnd!,
+          )}
+          . Please come back during that window.
+        </p>
       ) : kpis.length === 0 ? (
         <p className="mt-6 text-center text-sm text-muted">
           No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are
@@ -232,25 +291,16 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
           <input type="hidden" name="connectionId" value={connection.id} />
           <input type="hidden" name="period" value={period} />
           {kpis.map((kpi) => (
-            <div key={kpi.id}>
-              <label className="block text-sm">
-                {kpi.name}
-                <span className="ml-2 text-xs text-muted">
-                  (target {kpi.targetValue},{" "}
-                  {kpi.direction === KpiDirection.HIGHER_IS_BETTER
-                    ? "higher is better"
-                    : "lower is better"}
-                  )
-                </span>
-              </label>
-              <Input
-                name={`kpi_${kpi.id}`}
-                type="number"
-                step="any"
-                required
-                className="mt-1 w-full"
-              />
-            </div>
+            <KpiValueField
+              key={kpi.id}
+              name={`kpi_${kpi.id}`}
+              label={kpi.name}
+              hint={`target ${kpi.targetValue}, ${
+                kpi.direction === KpiDirection.HIGHER_IS_BETTER
+                  ? "higher is better"
+                  : "lower is better"
+              }`}
+            />
           ))}
           <Button type="submit" className="flex w-full items-center justify-center gap-2">
             Submit

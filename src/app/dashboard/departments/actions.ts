@@ -42,6 +42,28 @@ export async function deleteDepartment(formData: FormData) {
   revalidatePath("/dashboard/departments");
 }
 
+// Daily submission-window guard, per department, to spread VA submission
+// traffic across the day instead of everyone hitting /submit at once.
+export async function updateSubmissionWindow(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const start = String(formData.get("submissionWindowStart") ?? "").trim() || null;
+  const end = String(formData.get("submissionWindowEnd") ?? "").trim() || null;
+  const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (start && !timePattern.test(start)) {
+    throw new Error("Start time must be in HH:mm format.");
+  }
+  if (end && !timePattern.test(end)) {
+    throw new Error("End time must be in HH:mm format.");
+  }
+  await prisma.department.update({
+    where: { id },
+    data: { submissionWindowStart: start, submissionWindowEnd: end },
+  });
+  revalidatePath("/dashboard/departments");
+}
+
 export async function createService(formData: FormData) {
   await requireAdmin();
   const name = String(formData.get("name") ?? "").trim();

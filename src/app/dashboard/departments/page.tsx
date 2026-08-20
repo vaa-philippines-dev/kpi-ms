@@ -32,6 +32,8 @@ export default async function DepartmentsPage() {
     name: d.name,
     kpiCount: d._count.kpiDefinitions,
     connectionCount: d._count.connections,
+    submissionWindowStart: d.submissionWindowStart,
+    submissionWindowEnd: d.submissionWindowEnd,
   }));
 
   const serviceRows: ServiceRow[] = services.map((s) => ({

@@ -94,6 +94,11 @@ export default async function SubmissionsPage(
     return rollupStatus(statuses);
   }
 
+  // Paused/ended connections aren't expected to submit — mirrors legacy's
+  // exclusion of paused/not-applicable connections from submission counts.
+  const trackedConnections = connections.filter((c) => c.status === "ACTIVE");
+  const excludedCount = connections.length - trackedConnections.length;
+
   return (
     <>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
@@ -135,6 +140,13 @@ export default async function SubmissionsPage(
             <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
               Current period status
             </h2>
+            {excludedCount > 0 && (
+              <p className="mb-2 text-xs text-muted">
+                {excludedCount} paused/ended connection
+                {excludedCount === 1 ? "" : "s"} excluded — not expected to
+                submit while inactive.
+              </p>
+            )}
             <Table>
               <TableHead>
                 <tr>
@@ -145,7 +157,7 @@ export default async function SubmissionsPage(
                 </tr>
               </TableHead>
               <tbody>
-                {connections.map((c) => {
+                {trackedConnections.map((c) => {
                   const weekly = trackerStatus(c.id, KpiPeriod.WEEKLY);
                   const monthly = trackerStatus(c.id, KpiPeriod.MONTHLY);
                   return (

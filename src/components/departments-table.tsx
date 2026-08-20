@@ -9,6 +9,7 @@ import {
   deleteDepartment,
   renameService,
   toggleServiceActive,
+  updateSubmissionWindow,
 } from "@/app/dashboard/departments/actions";
 
 export type DepartmentRow = {
@@ -16,6 +17,8 @@ export type DepartmentRow = {
   name: string;
   kpiCount: number;
   connectionCount: number;
+  submissionWindowStart: string | null;
+  submissionWindowEnd: string | null;
 };
 
 export type ServiceRow = {
@@ -64,6 +67,38 @@ export function DepartmentsTable({
       label: "Connections",
       sortable: true,
       className: "text-muted",
+    },
+    {
+      key: "submissionWindowStart" as const,
+      label: "Submission window",
+      render: (_v, row) =>
+        isAdmin ? (
+          <form action={updateSubmissionWindow} className="flex items-center gap-1.5">
+            <input type="hidden" name="id" value={row.id} />
+            <Input
+              name="submissionWindowStart"
+              type="time"
+              defaultValue={row.submissionWindowStart ?? ""}
+              className="w-24 py-1"
+            />
+            <span className="text-muted">–</span>
+            <Input
+              name="submissionWindowEnd"
+              type="time"
+              defaultValue={row.submissionWindowEnd ?? ""}
+              className="w-24 py-1"
+            />
+            <TextAction type="submit" className="shrink-0">
+              Save
+            </TextAction>
+          </form>
+        ) : row.submissionWindowStart && row.submissionWindowEnd ? (
+          <span className="text-muted">
+            {row.submissionWindowStart}–{row.submissionWindowEnd}
+          </span>
+        ) : (
+          <span className="text-muted">Unrestricted</span>
+        ),
     },
     ...(isAdmin
       ? [

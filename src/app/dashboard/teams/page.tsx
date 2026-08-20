@@ -149,6 +149,9 @@ export default async function TeamsPage() {
                     }),
                   )}
                   isManager={isManager}
+                  otherTeams={teams
+                    .filter((t) => t.id !== team.id && t.departmentId === team.departmentId)
+                    .map((t) => ({ id: t.id, name: t.name }))}
                 />
 
                 {isManager && availableVas.length > 0 && (

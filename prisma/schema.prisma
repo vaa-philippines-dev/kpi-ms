@@ -56,6 +56,10 @@ model Department {
   kpiDefinitions KpiDefinition[]
   connections    Connection[]
   users          User[]
+  // Optional daily submission window ("HH:mm", Asia/Manila) to spread VA
+  // submission traffic across the day. Null on either side = unrestricted.
+  submissionWindowStart String?
+  submissionWindowEnd   String?
   createdAt      DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
 }
@@ -144,6 +148,11 @@ model Connection {
   teamId               String?
   status               ConnectionStatus        @default(ACTIVE)
   connectionType       ConnectionType          @default(REGULAR)
+  // Legacy IsFlagged — manager-raised attention flag, independent of status.
+  isFlagged            Boolean                 @default(false)
+  // Legacy saveConnectionNote/getConnectionNote — free-text note, separate
+  // from the structured Intervention log.
+  notes                String?
   statusEvents         ConnectionStatusEvent[]
   kpiConfigs           KpiConfig[]
   submissions          Submission[]

@@ -2,13 +2,16 @@
 
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
-import { removeTeamMember } from "@/app/dashboard/teams/actions";
+import { Select } from "@/components/ui/input";
+import { removeTeamMember, transferTeamMember } from "@/app/dashboard/teams/actions";
 
 export type TeamMemberRow = {
   id: string;
   name: string;
   role: string;
 };
+
+export type OtherTeamOption = { id: string; name: string };
 
 /**
  * One team's member roster, rendered through the shared DataTable for
@@ -19,9 +22,14 @@ export type TeamMemberRow = {
 export function TeamRosterTable({
   members,
   isManager,
+  otherTeams = [],
 }: {
   members: TeamMemberRow[];
   isManager: boolean;
+  // Other teams in the same department — lets a manager transfer a member
+  // directly, atomically, and only within the department (mirrors legacy
+  // transferTeamMember()'s same-department guard).
+  otherTeams?: OtherTeamOption[];
 }) {
   const columns: DataTableColumn<TeamMemberRow>[] = [
     { key: "name", label: "Member", sortable: true, filterable: true },
@@ -32,12 +40,35 @@ export function TeamRosterTable({
             key: "id" as const,
             label: "",
             render: (_v: unknown, row: TeamMemberRow) => (
-              <ConfirmSubmitButton
-                action={removeTeamMember}
-                fields={{ userId: row.id }}
-                label="Remove"
-                successMessage={`${row.name} removed from team.`}
-              />
+              <div className="flex items-center justify-end gap-2">
+                {otherTeams.length > 0 && (
+                  <form action={transferTeamMember} className="flex items-center gap-1">
+                    <input type="hidden" name="userId" value={row.id} />
+                    <Select name="toTeamId" required defaultValue="" className="py-1 text-xs">
+                      <option value="" disabled>
+                        Transfer to…
+                      </option>
+                      {otherTeams.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </Select>
+                    <button
+                      type="submit"
+                      className="text-xs text-accent hover:underline"
+                    >
+                      Go
+                    </button>
+                  </form>
+                )}
+                <ConfirmSubmitButton
+                  action={removeTeamMember}
+                  fields={{ userId: row.id }}
+                  label="Remove"
+                  successMessage={`${row.name} removed from team.`}
+                />
+              </div>
             ),
           },
         ]

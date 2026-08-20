@@ -36,12 +36,23 @@ export async function createIntervention(formData: FormData) {
   revalidatePath("/dashboard/interventions");
 }
 
-export async function updateInterventionOutcome(formData: FormData) {
+// Full edit — mirrors legacy updateIntervention(), which could revise any
+// field, not just the outcome.
+export async function updateIntervention(formData: FormData) {
   await requireManager();
   const id = String(formData.get("id") ?? "");
-  const outcome = String(formData.get("outcome") ?? "").trim() || null;
   if (!id) return;
-  await prisma.intervention.update({ where: { id }, data: { outcome } });
+  const type = String(formData.get("type") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const actionTaken = String(formData.get("actionTaken") ?? "").trim() || null;
+  const outcome = String(formData.get("outcome") ?? "").trim() || null;
+  if (!type || !description) {
+    throw new Error("Type and description are required.");
+  }
+  await prisma.intervention.update({
+    where: { id },
+    data: { type, description, actionTaken, outcome },
+  });
   revalidatePath("/dashboard/interventions");
 }
 

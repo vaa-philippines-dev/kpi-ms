@@ -112,3 +112,25 @@ export async function removeTeamMember(formData: FormData) {
   await prisma.user.update({ where: { id: userId }, data: { teamId: null } });
   revalidatePath("/dashboard/teams");
 }
+
+// Atomic move to another team, guarded to stay within the same department —
+// mirrors legacy transferTeamMember()'s department-match validation, which
+// plain remove-then-add doesn't enforce.
+export async function transferTeamMember(formData: FormData) {
+  await requireAdminOrDm();
+  const userId = String(formData.get("userId") ?? "");
+  const toTeamId = String(formData.get("toTeamId") ?? "");
+  if (!userId || !toTeamId) return;
+
+  const [user, toTeam] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, include: { team: true } }),
+    prisma.team.findUnique({ where: { id: toTeamId } }),
+  ]);
+  if (!user || !toTeam) throw new Error("User or destination team not found.");
+  if (user.team && user.team.departmentId !== toTeam.departmentId) {
+    throw new Error("Can't transfer a member across departments.");
+  }
+
+  await prisma.user.update({ where: { id: userId }, data: { teamId: toTeamId } });
+  revalidatePath("/dashboard/teams");
+}

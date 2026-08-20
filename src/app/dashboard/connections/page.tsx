@@ -127,6 +127,8 @@ export default async function ConnectionsPage(
     departmentName: c.department.name,
     status: c.status,
     connectionType: c.connectionType,
+    isFlagged: c.isFlagged,
+    notes: c.notes,
     statusEvents: c.statusEvents.map((e) => ({
       status: e.status,
       changedAt: e.changedAt.toISOString(),

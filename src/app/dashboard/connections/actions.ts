@@ -122,6 +122,28 @@ export async function bulkCreateConnections(formData: FormData) {
   revalidatePath("/dashboard/connections");
 }
 
+export async function toggleConnectionFlag(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const connection = await prisma.connection.findUnique({ where: { id } });
+  if (!connection) return;
+  await prisma.connection.update({
+    where: { id },
+    data: { isFlagged: !connection.isFlagged },
+  });
+  revalidatePath("/dashboard/connections");
+}
+
+export async function updateConnectionNotes(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+  await prisma.connection.update({ where: { id }, data: { notes } });
+  revalidatePath("/dashboard/connections");
+}
+
 export async function deleteConnection(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");

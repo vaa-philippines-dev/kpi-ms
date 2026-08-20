@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Flag } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
-import { Select } from "@/components/ui/input";
+import { Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import {
@@ -15,6 +16,8 @@ import { ConnectionStatus, ConnectionType } from "@/generated/prisma/enums";
 import {
   updateConnectionStatus,
   updateConnectionType,
+  toggleConnectionFlag,
+  updateConnectionNotes,
   deleteConnection,
 } from "@/app/dashboard/connections/actions";
 
@@ -37,6 +40,8 @@ export type ConnectionRow = {
   departmentName: string;
   status: ConnectionStatus;
   connectionType: ConnectionType;
+  isFlagged: boolean;
+  notes: string | null;
   statusEvents: ConnectionStatusEventRow[];
 };
 
@@ -49,6 +54,14 @@ const TYPE_FILTER_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => 
 }));
 
 const COLUMNS: DataTableColumn<ConnectionRow>[] = [
+  {
+    key: "isFlagged",
+    label: "",
+    sortable: true,
+    className: "w-6",
+    render: (v) =>
+      v ? <Flag className="size-3.5 fill-danger text-danger" /> : null,
+  },
   { key: "clientName", label: "Client", sortable: true, filterable: true },
   { key: "vaName", label: "VA", sortable: true, filterable: true, className: "text-muted" },
   {
@@ -122,11 +135,31 @@ export function ConnectionsTable({
       >
         {openConn && (
           <div className="space-y-5">
-            <div>
-              <p className="text-sm font-medium">{openConn.vaName}</p>
-              <p className="text-xs text-muted">
-                {openConn.vaEmail} · {openConn.departmentName}
-              </p>
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium">{openConn.vaName}</p>
+                <p className="text-xs text-muted">
+                  {openConn.vaEmail} · {openConn.departmentName}
+                </p>
+              </div>
+              {isAdmin && (
+                <form action={toggleConnectionFlag}>
+                  <input type="hidden" name="id" value={openConn.id} />
+                  <button
+                    type="submit"
+                    title={openConn.isFlagged ? "Unflag connection" : "Flag connection"}
+                    className={`rounded-md p-1.5 transition ${
+                      openConn.isFlagged
+                        ? "text-danger hover:bg-danger/10"
+                        : "text-muted hover:bg-surface-hover hover:text-foreground"
+                    }`}
+                  >
+                    <Flag
+                      className={`size-4 ${openConn.isFlagged ? "fill-danger" : ""}`}
+                    />
+                  </button>
+                </form>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -195,6 +228,27 @@ export function ConnectionsTable({
                 </ul>
               </div>
             )}
+
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-muted uppercase">Notes</p>
+              {isAdmin ? (
+                <form action={updateConnectionNotes} className="space-y-1.5">
+                  <input type="hidden" name="id" value={openConn.id} />
+                  <Textarea
+                    name="notes"
+                    defaultValue={openConn.notes ?? ""}
+                    rows={2}
+                    placeholder="Free-text note about this connection…"
+                    className="w-full"
+                  />
+                  <Button type="submit" className="px-3 py-1.5 text-xs">
+                    Save note
+                  </Button>
+                </form>
+              ) : (
+                <p className="text-sm text-muted">{openConn.notes || "—"}</p>
+              )}
+            </div>
 
             <div className="flex items-center justify-between border-t border-surface-border pt-4">
               <Link
