@@ -64,7 +64,7 @@ export async function CsOverview({
   };
 
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="space-y-8">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="rounded-xl border border-surface-border bg-surface p-4">
           <div className="text-3xl font-semibold">{connections.length}</div>

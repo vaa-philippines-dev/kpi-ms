@@ -47,7 +47,7 @@ export async function VaOverview({
   const submittedCount = activeConns.filter((c) => submittedIds.has(c.id)).length;
 
   return (
-    <div className="max-w-5xl space-y-8">
+    <div className="space-y-8">
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-xl border border-surface-border bg-surface p-4">
           <div className="text-3xl font-semibold">{connections.length}</div>

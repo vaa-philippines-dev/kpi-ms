@@ -166,7 +166,7 @@ export default async function DashboardOverviewPage(
       {totalConnections === 0 ? (
         <ComingSoon note="No connections visible to your account yet." />
       ) : (
-        <div className="max-w-5xl space-y-8">
+        <div className="space-y-8">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-xl border border-surface-border bg-surface p-4">
               <Link2 className="size-5 text-muted" />
