@@ -8,17 +8,13 @@ import {
   toDateParam,
 } from "@/lib/period";
 import { KpiPeriod } from "@/generated/prisma/enums";
-import { PeriodMonthSelect } from "./period-month-select";
-
-const JUMP_OPTIONS_COUNT = 12;
 
 /**
- * Weekly/monthly toggle + ◀ / label / ▶ / Today navigator, plus a
- * jump-to-period dropdown — mirrors legacy's Global Period Selector
- * (`AppCore.html`'s `_globalPeriod` bar: `gp-btn-weekly`/`gp-btn-monthly`,
- * `gp-period-select`, `gpNav`, `gpToday`). Driven entirely by `?period=` and
- * `?date=YYYY-MM-DD` search params, so it works without client-side JS
- * except for the dropdown.
+ * Weekly/monthly toggle + ◀ / label / ▶ / Today navigator — mirrors
+ * legacy's Global Period Selector (`AppCore.html`'s
+ * `gp-btn-weekly`/`gp-btn-monthly`, `gpNav`, `gpToday`). Pure links driven
+ * by `?period=` and `?date=YYYY-MM-DD` search params, so it works without
+ * any client-side JS.
  */
 export function PeriodNav({
   anchor,
@@ -62,24 +58,6 @@ export function PeriodNav({
         timeZone: "UTC",
       })
     : formatWeekRange(currentStart);
-
-  const jumpOptions = Array.from({ length: JUMP_OPTIONS_COUNT }, (_, i) => {
-    const start = isMonthly ? addMonths(todayStart, -i) : addDays(todayStart, -i * 7);
-    return {
-      value: toDateParam(start),
-      label: isMonthly
-        ? start.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })
-        : formatWeekRange(start),
-      href: hrefFor({ date: i === 0 ? undefined : toDateParam(start) }),
-    };
-  });
-  if (!jumpOptions.some((o) => o.value === toDateParam(currentStart))) {
-    jumpOptions.unshift({
-      value: toDateParam(currentStart),
-      label,
-      href: hrefFor({ date: isCurrent ? undefined : toDateParam(currentStart) }),
-    });
-  }
 
   const toggleActiveClass = "bg-accent/15 text-accent";
   const toggleInactiveClass = "text-muted";
@@ -127,7 +105,6 @@ export function PeriodNav({
             <ChevronRight className="size-4" />
           </span>
         )}
-        <PeriodMonthSelect value={toDateParam(currentStart)} options={jumpOptions} />
         {!isCurrent && (
           <Link
             href={hrefFor({ date: undefined })}
