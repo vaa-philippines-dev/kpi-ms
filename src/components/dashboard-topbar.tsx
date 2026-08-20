@@ -15,24 +15,26 @@ export async function DashboardTopbar() {
   const isRealAdmin = realSession?.user?.role === "ADMIN";
   const realId = realSession?.user?.id;
 
-  const [user, alerts, viewAsUsers] = await Promise.all([
+  const [user, alerts] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.id },
-      select: { name: true, email: true, department: { select: { name: true } } },
+      select: {
+        name: true,
+        email: true,
+        department: { select: { name: true } },
+        team: { select: { name: true } },
+      },
     }),
     getAlerts(scope, session.role),
-    isRealAdmin
-      ? prisma.user.findMany({
-          where: { isActive: true, id: { not: realId } },
-          select: { id: true, name: true, email: true, role: true },
-          orderBy: [{ role: "asc" }, { name: "asc" }],
-        })
-      : Promise.resolve([]),
   ]);
 
   const viewingAs =
     isRealAdmin && realId && session.id !== realId && user
-      ? { id: session.id, name: user.name, email: user.email, role: session.role }
+      ? {
+          role: session.role,
+          departmentName: user.department?.name,
+          teamName: user.team?.name,
+        }
       : null;
 
   return (
@@ -42,7 +44,7 @@ export async function DashboardTopbar() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {isRealAdmin && <ViewAsControl users={viewAsUsers} viewingAs={viewingAs} />}
+        {isRealAdmin && <ViewAsControl viewingAs={viewingAs} />}
         <CommandPalette role={session.role} />
         <NotificationBell alerts={alerts} />
         <ThemeToggle variant="inline" />

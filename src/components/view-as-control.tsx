@@ -2,14 +2,21 @@
 
 import { useTransition } from "react";
 import { Eye, X } from "lucide-react";
-import { setViewAs, exitViewAs } from "@/app/dashboard/view-as-actions";
+import { setViewAsRole, exitViewAs } from "@/app/dashboard/view-as-actions";
+import { useToast } from "@/components/ui/toast";
 
-export type ViewAsUserOption = {
-  id: string;
-  name: string | null;
-  email: string;
+export type ViewingAs = {
   role: string;
+  departmentName?: string | null;
+  teamName?: string | null;
 };
+
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "DM", label: "Manager" },
+  { value: "OM", label: "Team Leader" },
+  { value: "SERVICE_MANAGER", label: "CS Specialist" },
+  { value: "VA", label: "Virtual Assistant" },
+];
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Admin",
@@ -21,32 +28,35 @@ const ROLE_LABELS: Record<string, string> = {
 
 /**
  * Admin-only "view as" picker — lets an admin preview the dashboard exactly
- * as any other real user would see it (server-scoped via lib/view-as.ts),
- * without changing their own account or losing real admin privileges.
+ * as a given role would see it (server-scoped via lib/view-as.ts, borrowing
+ * one real active user of that role under the hood), without changing
+ * their own account or losing real admin privileges.
  */
-export function ViewAsControl({
-  users,
-  viewingAs,
-}: {
-  users: ViewAsUserOption[];
-  viewingAs: ViewAsUserOption | null;
-}) {
+export function ViewAsControl({ viewingAs }: { viewingAs: ViewingAs | null }) {
   const [isPending, startTransition] = useTransition();
+  const { toast } = useToast();
 
   if (viewingAs) {
+    const context = viewingAs.teamName ?? viewingAs.departmentName;
     return (
       <div className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs">
         <Eye className="size-3.5 shrink-0 text-accent" />
         <span className="whitespace-nowrap">
-          Viewing as <strong>{viewingAs.name ?? viewingAs.email}</strong>{" "}
-          <span className="text-muted">
-            ({ROLE_LABELS[viewingAs.role] ?? viewingAs.role})
-          </span>
+          Viewing as <strong>{ROLE_LABELS[viewingAs.role] ?? viewingAs.role}</strong>
+          {context && <span className="text-muted"> · {context}</span>}
         </span>
         <button
           type="button"
           disabled={isPending}
-          onClick={() => startTransition(() => exitViewAs())}
+          onClick={() =>
+            startTransition(async () => {
+              try {
+                await exitViewAs();
+              } catch (err) {
+                toast(err instanceof Error ? err.message : "Something went wrong.", "error");
+              }
+            })
+          }
           title="Exit view-as"
           className="text-muted transition hover:text-foreground disabled:opacity-50"
         >
@@ -56,34 +66,31 @@ export function ViewAsControl({
     );
   }
 
-  const grouped = users.reduce<Record<string, ViewAsUserOption[]>>((acc, u) => {
-    (acc[u.role] ??= []).push(u);
-    return acc;
-  }, {});
-
   return (
     <select
       defaultValue=""
-      disabled={isPending || users.length === 0}
+      disabled={isPending}
       onChange={(e) => {
-        const userId = e.target.value;
-        if (!userId) return;
+        const role = e.target.value;
+        if (!role) return;
         const formData = new FormData();
-        formData.set("userId", userId);
-        startTransition(() => setViewAs(formData));
+        formData.set("role", role);
+        startTransition(async () => {
+          try {
+            await setViewAsRole(formData);
+          } catch (err) {
+            toast(err instanceof Error ? err.message : "Something went wrong.", "error");
+          }
+        });
       }}
-      title="Preview the dashboard as another user"
+      title="Preview the dashboard as another role"
       className="rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none transition focus:border-accent"
     >
       <option value="">View as…</option>
-      {Object.entries(grouped).map(([role, list]) => (
-        <optgroup key={role} label={ROLE_LABELS[role] ?? role}>
-          {list.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name ?? u.email}
-            </option>
-          ))}
-        </optgroup>
+      {ROLE_OPTIONS.map((r) => (
+        <option key={r.value} value={r.value}>
+          {r.label}
+        </option>
       ))}
     </select>
   );

@@ -64,7 +64,7 @@ export function DashboardSidebar({
   const groups = useMemo(() => visibleNavGroups(role), [role]);
   // Longest-prefix match, so a nested page (KPI Config) doesn't also light up
   // its parent (Connections).
-  const activeHref = matchNavItem(pathname)?.item.href ?? null;
+  const activeHref = matchNavItem(pathname, role)?.item.href ?? null;
 
   const renderGroups = (collapsedNav: boolean) =>
     groups.map((group) => (

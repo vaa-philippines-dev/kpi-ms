@@ -47,160 +47,248 @@ export type NavGroup = {
   items: NavItem[];
 };
 
-export const dashboardNavGroups: NavGroup[] = [
+// Single source of truth per page, shared across every role's nav below so
+// icon/keywords/labelByRole never drift between role variants.
+const dashboardItem: NavItem = {
+  href: "/dashboard",
+  label: "Dashboard",
+  icon: LayoutDashboard,
+  keywords: "home dashboard summary overview",
+};
+const vaConnectionsItem: NavItem = {
+  href: "/dashboard/connections",
+  label: "VA Connections",
+  icon: Link2,
+  // Legacy showed a different label per role for this same scoped page:
+  // "VA Connections" (Admin/Manager), "My Team" (Team Leader), "My VA
+  // Connections" (VA). CS Specialist had no connections nav item at all in
+  // legacy, so it never appears in that role's groups below.
+  labelByRole: {
+    OM: "My Team",
+    VA: "My VA Connections",
+  },
+  keywords: "va client pairing my team",
+};
+const kpiConfigItem: NavItem = {
+  href: "/dashboard/connections/kpi-config",
+  label: "KPI Configuration",
+  icon: SlidersHorizontal,
+  keywords: "override per connection target",
+};
+const submitReportItem: NavItem = {
+  href: "/submit",
+  label: "Submit KPI Report",
+  icon: Send,
+  roles: ["VA"],
+  keywords: "log data weekly monthly",
+};
+const submissionsItem: NavItem = {
+  href: "/dashboard/submissions",
+  label: "Submissions",
+  icon: Inbox,
+  keywords: "pending submitted log",
+};
+const performanceItem: NavItem = {
+  href: "/dashboard/performance",
+  label: "Performance",
+  icon: TrendingUp,
+  keywords: "actual target kpi status cluster",
+};
+const vaKpiSheetItem: NavItem = {
+  href: "/dashboard/reports/va-kpi-sheet",
+  label: "VA KPI Sheet",
+  icon: Grid3x3,
+  keywords: "grid spreadsheet matrix",
+};
+const lifetimeValueItem: NavItem = {
+  href: "/dashboard/reports/lifetime-value",
+  label: "Lifetime Value",
+  icon: Gem,
+  keywords: "ltv tenure retention",
+};
+const customerOverviewItem: NavItem = {
+  href: "/dashboard/reports/customer-overview",
+  label: "Customer Overview",
+  icon: FileText,
+  keywords: "client contract status",
+};
+const clientDetailItem: NavItem = {
+  href: "/dashboard/reports/client-detail",
+  label: "Client Detail",
+  icon: UserSearch,
+  keywords: "drill down history trend",
+};
+const weeklyInterventionsItem: NavItem = {
+  href: "/dashboard/reports/weekly-interventions",
+  label: "Weekly Interventions",
+  icon: MessageSquareWarning,
+  keywords: "coaching escalation week",
+};
+const usersItem: NavItem = {
+  href: "/dashboard/users",
+  label: "Users",
+  icon: Users,
+  keywords: "roles accounts access",
+};
+const loginActivityItem: NavItem = {
+  href: "/dashboard/login-activity",
+  label: "Login Activity",
+  icon: History,
+  roles: ["ADMIN", "DM"],
+  keywords: "sign in audit last login",
+};
+const teamManagementItem: NavItem = {
+  href: "/dashboard/teams",
+  label: "Team Management",
+  icon: UsersRound,
+  keywords: "roster leader teams",
+};
+const departmentsItem: NavItem = {
+  href: "/dashboard/departments",
+  label: "Departments",
+  icon: Building2,
+  keywords: "services",
+};
+const kpiLibraryItem: NavItem = {
+  href: "/dashboard/kpi-library",
+  label: "KPI Library",
+  icon: BookOpen,
+  keywords: "definitions targets thresholds",
+};
+const customersItem: NavItem = {
+  href: "/dashboard/customers",
+  label: "Customers",
+  icon: Contact,
+  roles: ["ADMIN"],
+  keywords: "accounts directory",
+};
+const systemSettingsItem: NavItem = {
+  href: "/dashboard/settings",
+  label: "System Settings",
+  icon: Settings,
+  roles: ["ADMIN"],
+  keywords: "app name week start sync",
+};
+const interventionsItem: NavItem = {
+  href: "/dashboard/interventions",
+  label: "Interventions",
+  icon: ClipboardList,
+  keywords: "coaching training escalation",
+};
+
+// Group names, order, and item placement per role mirror the legacy sidebar
+// (legacy-appscript/AppCore.html getNavItems) exactly. Role mapping: ADMIN
+// = legacy Admin, DM = legacy Manager, OM = legacy Team Leader,
+// SERVICE_MANAGER = legacy CS Specialist, VA = legacy VA. A few pages that
+// don't exist in legacy (Client Detail, Weekly Interventions, Interventions)
+// are slotted into whichever legacy-equivalent group they read closest to.
+
+const adminGroups: NavGroup[] = [
   {
-    label: "Performance",
-    items: [
-      {
-        href: "/dashboard",
-        label: "Overview",
-        icon: LayoutDashboard,
-        keywords: "home dashboard summary",
-      },
-      {
-        href: "/dashboard/performance",
-        label: "Performance",
-        icon: TrendingUp,
-        keywords: "actual target kpi status cluster",
-      },
-      {
-        href: "/dashboard/submissions",
-        label: "Submissions",
-        icon: Inbox,
-        keywords: "pending submitted log",
-      },
-      {
-        href: "/submit",
-        label: "Submit KPI Report",
-        icon: Send,
-        roles: ["VA"],
-        keywords: "log data weekly monthly",
-      },
-    ],
+    label: "Overview",
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem],
   },
   {
     label: "Reports",
     items: [
-      {
-        href: "/dashboard/reports/customer-overview",
-        label: "Customer Overview",
-        icon: FileText,
-        keywords: "client contract status",
-      },
-      {
-        href: "/dashboard/reports/client-detail",
-        label: "Client Detail",
-        icon: UserSearch,
-        keywords: "drill down history trend",
-      },
-      {
-        href: "/dashboard/reports/weekly-interventions",
-        label: "Weekly Interventions",
-        icon: MessageSquareWarning,
-        keywords: "coaching escalation week",
-      },
-      {
-        href: "/dashboard/reports/lifetime-value",
-        label: "Lifetime Value",
-        icon: Gem,
-        keywords: "ltv tenure retention",
-      },
-      {
-        href: "/dashboard/reports/va-kpi-sheet",
-        label: "VA KPI Sheet",
-        icon: Grid3x3,
-        keywords: "grid spreadsheet matrix",
-      },
-    ],
-  },
-  {
-    label: "Configuration",
-    items: [
-      {
-        href: "/dashboard/kpi-library",
-        label: "KPI Library",
-        icon: BookOpen,
-        keywords: "definitions targets thresholds",
-      },
-      {
-        href: "/dashboard/connections",
-        label: "Connections",
-        icon: Link2,
-        // Legacy showed a different label per role for this same scoped
-        // page: "VA Connections" (Admin/Manager), "My Team" (Team Leader),
-        // "My VA Connections" (VA). CS Specialist had no connections nav
-        // item at all in legacy, so SERVICE_MANAGER keeps the plain label.
-        labelByRole: {
-          ADMIN: "VA Connections",
-          DM: "VA Connections",
-          OM: "My Team",
-          VA: "My VA Connections",
-        },
-        keywords: "va client pairing my team",
-      },
-      {
-        href: "/dashboard/connections/kpi-config",
-        label: "KPI Config",
-        icon: SlidersHorizontal,
-        keywords: "override per connection target",
-      },
-      {
-        href: "/dashboard/departments",
-        label: "Departments",
-        icon: Building2,
-        keywords: "services",
-      },
-      {
-        href: "/dashboard/teams",
-        label: "Teams",
-        icon: UsersRound,
-        keywords: "roster leader",
-      },
-      {
-        href: "/dashboard/interventions",
-        label: "Interventions",
-        icon: ClipboardList,
-        keywords: "coaching training escalation",
-      },
+      submissionsItem,
+      performanceItem,
+      vaKpiSheetItem,
+      lifetimeValueItem,
+      customerOverviewItem,
+      clientDetailItem,
+      weeklyInterventionsItem,
     ],
   },
   {
     label: "Administration",
     items: [
-      {
-        href: "/dashboard/users",
-        label: "Users",
-        icon: Users,
-        keywords: "roles accounts access",
-      },
-      {
-        href: "/dashboard/login-activity",
-        label: "Login Activity",
-        icon: History,
-        roles: ["ADMIN", "DM"],
-        keywords: "sign in audit last login",
-      },
-      {
-        href: "/dashboard/settings",
-        label: "System Settings",
-        icon: Settings,
-        roles: ["ADMIN"],
-        keywords: "app name week start sync",
-      },
-      {
-        href: "/dashboard/customers",
-        label: "Customers",
-        icon: Contact,
-        roles: ["ADMIN"],
-        keywords: "accounts directory",
-      },
+      usersItem,
+      loginActivityItem,
+      teamManagementItem,
+      departmentsItem,
+      kpiLibraryItem,
+      customersItem,
+      systemSettingsItem,
+      interventionsItem,
     ],
   },
 ];
 
+// DM — legacy Manager: Overview, then a "Management" group instead of
+// Administration (no Departments/Customers/System Settings — those stay
+// Admin-only), then Reports.
+const managerGroups: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem],
+  },
+  {
+    label: "Management",
+    items: [teamManagementItem, usersItem, loginActivityItem, kpiLibraryItem, interventionsItem],
+  },
+  {
+    label: "Reports",
+    items: [
+      submissionsItem,
+      performanceItem,
+      vaKpiSheetItem,
+      lifetimeValueItem,
+      customerOverviewItem,
+      clientDetailItem,
+      weeklyInterventionsItem,
+    ],
+  },
+];
+
+// OM — legacy Team Leader: a narrower Overview/Reports plus a "Tools" group.
+const teamLeaderGroups: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem],
+  },
+  {
+    label: "Reports",
+    items: [performanceItem, vaKpiSheetItem, customerOverviewItem],
+  },
+  {
+    label: "Tools",
+    items: [submissionsItem, interventionsItem],
+  },
+];
+
+// SERVICE_MANAGER — legacy CS Specialist: minimal, no Connections/KPI Config.
+const csGroups: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [dashboardItem],
+  },
+  {
+    label: "Reports",
+    items: [performanceItem, customerOverviewItem],
+  },
+];
+
+// VA — legacy VA: a single "My Work" group.
+const vaGroups: NavGroup[] = [
+  {
+    label: "My Work",
+    items: [dashboardItem, vaConnectionsItem, submitReportItem],
+  },
+];
+
+const navGroupsByRole: Record<string, NavGroup[]> = {
+  ADMIN: adminGroups,
+  DM: managerGroups,
+  OM: teamLeaderGroups,
+  SERVICE_MANAGER: csGroups,
+  VA: vaGroups,
+};
+
 /** Drops items the given role can't open anyway, and any group left empty. */
 export function visibleNavGroups(role: string): NavGroup[] {
-  return dashboardNavGroups
+  const groups = navGroupsByRole[role] ?? adminGroups;
+  return groups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => !item.roles || item.roles.includes(role)),
@@ -210,13 +298,9 @@ export function visibleNavGroups(role: string): NavGroup[] {
 
 export type NavMatch = { group: NavGroup; item: NavItem };
 
-/**
- * Longest-prefix match, so `/dashboard/connections/kpi-config` resolves to
- * KPI Config rather than lighting up Connections as well.
- */
-export function matchNavItem(pathname: string): NavMatch | null {
+function findInGroups(groups: NavGroup[], pathname: string): NavMatch | null {
   let best: NavMatch | null = null;
-  for (const group of dashboardNavGroups) {
+  for (const group of groups) {
     for (const item of group.items) {
       const hit =
         item.href === "/dashboard"
@@ -228,4 +312,16 @@ export function matchNavItem(pathname: string): NavMatch | null {
     }
   }
   return best;
+}
+
+/**
+ * Longest-prefix match against this role's own nav, so a nested page (KPI
+ * Config) doesn't also light up its parent (Connections), and the
+ * breadcrumb's group label matches what the sidebar actually shows this
+ * role. Falls back to the full Admin nav (a superset of every page) so
+ * pages reachable but not curated into a role's sidebar — e.g. an OM
+ * opening Lifetime Value directly — still get a sensible breadcrumb.
+ */
+export function matchNavItem(pathname: string, role: string): NavMatch | null {
+  return findInGroups(visibleNavGroups(role), pathname) ?? findInGroups(adminGroups, pathname);
 }

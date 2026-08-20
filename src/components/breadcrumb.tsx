@@ -10,7 +10,7 @@ import { matchNavItem, navItemLabel } from "@/lib/nav";
  */
 export function Breadcrumb({ role }: { role: string }) {
   const pathname = usePathname();
-  const match = matchNavItem(pathname);
+  const match = matchNavItem(pathname, role);
 
   if (!match) return null;
 
