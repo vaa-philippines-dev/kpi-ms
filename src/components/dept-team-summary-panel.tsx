@@ -28,7 +28,7 @@ export function DeptTeamSummaryPanel({
         <h2 className="text-sm font-semibold">{title}</h2>
         {showTeamReportLink && (
           <Link
-            href="/dashboard/submissions"
+            href="/dashboard/reports/team-submissions"
             className="shrink-0 text-xs text-accent hover:underline"
           >
             Team Report →

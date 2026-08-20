@@ -38,10 +38,12 @@ export type ConnectionRow = {
   vaName: string;
   vaEmail: string;
   departmentName: string;
+  serviceName: string | null;
   status: ConnectionStatus;
   connectionType: ConnectionType;
   isFlagged: boolean;
   notes: string | null;
+  createdAt: string;
   statusEvents: ConnectionStatusEventRow[];
 };
 
@@ -70,6 +72,23 @@ const COLUMNS: DataTableColumn<ConnectionRow>[] = [
     sortable: true,
     filterable: "select",
     className: "text-muted",
+    // Mirrors legacy's Department cell, which shows Service underneath when
+    // it differs from the department name (AppVAConnections.html connFilter()).
+    render: (v, row) => (
+      <>
+        {v as string}
+        {row.serviceName && row.serviceName !== row.departmentName && (
+          <div className="text-xs text-muted">{row.serviceName}</div>
+        )}
+      </>
+    ),
+  },
+  {
+    key: "createdAt",
+    label: "Since",
+    sortable: true,
+    className: "text-muted",
+    render: (v) => new Date(v as string).toLocaleDateString(),
   },
   {
     key: "status",
@@ -140,6 +159,7 @@ export function ConnectionsTable({
                 <p className="text-sm font-medium">{openConn.vaName}</p>
                 <p className="text-xs text-muted">
                   {openConn.vaEmail} · {openConn.departmentName}
+                  {openConn.serviceName ? ` · ${openConn.serviceName}` : ""}
                 </p>
               </div>
               {isAdmin && (

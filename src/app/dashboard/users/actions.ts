@@ -5,12 +5,26 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { UserRole } from "@/generated/prisma/enums";
 
-async function requireAdmin() {
+type ManagingSession = { id: string; role: UserRole; departmentId: string | null };
+
+// Mirrors legacy's Manager capability (Users.js: getUsers/createUser/
+// updateUser all accept ROLES.ADMIN or ROLES.MANAGER) — a DM can manage
+// users, but only within their own department, and only as OM/VA (legacy's
+// Manager create form (AppUsers.html: openCreateUser) only offers 'Team
+// Leader'/'Virtual Assistant').
+const DM_MANAGEABLE_ROLES: UserRole[] = [UserRole.OM, UserRole.VA];
+
+async function requireManager(): Promise<ManagingSession> {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
-    throw new Error("Only admins can manage users.");
+  const role = session?.user?.role;
+  if (role !== "ADMIN" && role !== "DM") {
+    throw new Error("Only admins and DMs can manage users.");
   }
-  return session;
+  return {
+    id: session!.user.id,
+    role: role as UserRole,
+    departmentId: session!.user.departmentId,
+  };
 }
 
 function optionalId(formData: FormData, key: string): string | null {
@@ -19,18 +33,27 @@ function optionalId(formData: FormData, key: string): string | null {
 }
 
 export async function createUser(formData: FormData) {
-  await requireAdmin();
+  const session = await requireManager();
   const email = String(formData.get("email") ?? "")
     .trim()
     .toLowerCase();
   const name = String(formData.get("name") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "") as UserRole;
-  const departmentId = optionalId(formData, "departmentId");
+  let departmentId = optionalId(formData, "departmentId");
   const serviceId = optionalId(formData, "serviceId");
   const teamId = optionalId(formData, "teamId");
 
   if (!email || !Object.values(UserRole).includes(role)) {
     throw new Error("Email and role are required.");
+  }
+
+  if (session.role === "DM") {
+    if (!DM_MANAGEABLE_ROLES.includes(role)) {
+      throw new Error("DMs may only create OM or VA users.");
+    }
+    // A DM can only create users in their own department, regardless of
+    // what the form submitted.
+    departmentId = session.departmentId;
   }
 
   // Pre-provisions the row so it's ready with the right role/department the
@@ -43,17 +66,35 @@ export async function createUser(formData: FormData) {
 }
 
 export async function updateUser(formData: FormData) {
-  await requireAdmin();
+  const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing user id.");
   const name = String(formData.get("name") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "") as UserRole;
-  const departmentId = optionalId(formData, "departmentId");
+  let departmentId = optionalId(formData, "departmentId");
   const serviceId = optionalId(formData, "serviceId");
   const teamId = optionalId(formData, "teamId");
 
   if (!Object.values(UserRole).includes(role)) {
     throw new Error("Invalid role.");
+  }
+
+  if (session.role === "DM") {
+    const target = await prisma.user.findUnique({ where: { id } });
+    if (!target || target.departmentId !== session.departmentId) {
+      throw new Error("You can only edit users in your own department.");
+    }
+    // A DM can only touch OM/VA accounts — without this, a DM could edit an
+    // ADMIN or SERVICE_MANAGER account that happens to share their
+    // department, since departmentId isn't restricted by role in the schema.
+    if (!DM_MANAGEABLE_ROLES.includes(target.role)) {
+      throw new Error("You can only edit OM or VA users.");
+    }
+    if (!DM_MANAGEABLE_ROLES.includes(role)) {
+      throw new Error("DMs may only assign OM or VA roles.");
+    }
+    // Locked to the DM's own department, same as on create.
+    departmentId = session.departmentId;
   }
 
   await prisma.user.update({
@@ -66,11 +107,15 @@ export async function updateUser(formData: FormData) {
 // Bulk import, one user per line: "email,name,role" (name and role
 // optional — role defaults to VA). Mirrors legacy bulkCreateUsers().
 export async function bulkCreateUsers(formData: FormData) {
-  await requireAdmin();
+  const session = await requireManager();
   const raw = String(formData.get("rows") ?? "");
-  const departmentId = optionalId(formData, "departmentId");
+  let departmentId = optionalId(formData, "departmentId");
   const serviceId = optionalId(formData, "serviceId");
   const teamId = optionalId(formData, "teamId");
+
+  if (session.role === "DM") {
+    departmentId = session.departmentId;
+  }
 
   const rows = raw
     .split("\n")
@@ -83,6 +128,9 @@ export async function bulkCreateUsers(formData: FormData) {
     const role = (roleRaw?.toUpperCase() as UserRole) || UserRole.VA;
     if (!email || !Object.values(UserRole).includes(role)) {
       throw new Error(`Invalid row: "${line}" (expected email,name,role)`);
+    }
+    if (session.role === "DM" && !DM_MANAGEABLE_ROLES.includes(role)) {
+      throw new Error(`Invalid row: "${line}" — DMs may only import OM or VA users.`);
     }
     return {
       email,
@@ -103,14 +151,25 @@ export async function bulkCreateUsers(formData: FormData) {
 }
 
 export async function toggleUserActive(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  if (id === session?.user?.id) {
+  if (id === session.id) {
     throw new Error("You can't deactivate your own account.");
   }
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return;
+  if (session.role === "DM") {
+    if (user.departmentId !== session.departmentId) {
+      throw new Error("You can only manage users in your own department.");
+    }
+    // Without this, a DM could deactivate an ADMIN or SERVICE_MANAGER
+    // account that happens to share their department, since departmentId
+    // isn't restricted by role in the schema.
+    if (!DM_MANAGEABLE_ROLES.includes(user.role)) {
+      throw new Error("You can only manage OM or VA users.");
+    }
+  }
   const activating = !user.isActive;
   await prisma.user.update({
     where: { id },

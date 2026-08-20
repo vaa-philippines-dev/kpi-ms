@@ -31,7 +31,7 @@ export default async function KpiConfigPage(
     return (
       <>
         <PageHeader
-          title="KPI Config"
+          title="KPI Configuration (0 connections)"
           description="Per-connection overrides of KPI targets and thresholds."
         />
         <ComingSoon note="No connections visible to your account yet." />
@@ -51,7 +51,7 @@ export default async function KpiConfigPage(
   return (
     <>
       <PageHeader
-        title="KPI Config"
+        title={`KPI Configuration (${connections.length} connection${connections.length === 1 ? "" : "s"})`}
         description="Per-connection overrides of KPI targets and thresholds."
       />
       <KpiConfigTable

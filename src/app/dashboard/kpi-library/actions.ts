@@ -18,10 +18,19 @@ function numberOrDefault(formData: FormData, key: string, fallback: number) {
   return Number(raw);
 }
 
+function optionalId(formData: FormData, key: string): string | null {
+  const value = String(formData.get(key) ?? "");
+  return value === "" ? null : value;
+}
+
 function parseKpiForm(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const cluster = String(formData.get("cluster") ?? "").trim();
   const departmentId = String(formData.get("departmentId") ?? "");
+  // Optional — null means the KPI applies to every connection in the
+  // department; set, it scopes the KPI to connections in that service only
+  // (see kpi-config/actions.ts and lib/alerts.ts, which both filter on this).
+  const serviceId = optionalId(formData, "serviceId");
   const direction = String(formData.get("direction") ?? "") as KpiDirection;
   const period = String(formData.get("period") ?? "") as KpiPeriod;
   const targetValue = Number(formData.get("targetValue"));
@@ -53,6 +62,7 @@ function parseKpiForm(formData: FormData) {
     name,
     cluster,
     departmentId,
+    serviceId,
     direction,
     period,
     targetValue,

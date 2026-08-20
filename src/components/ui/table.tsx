@@ -20,14 +20,20 @@ export function Th({
   children,
   className = "",
   onClick,
+  colSpan,
+  rowSpan,
 }: {
   children?: ReactNode;
   className?: string;
   onClick?: () => void;
+  colSpan?: number;
+  rowSpan?: number;
 }) {
   return (
     <th
       onClick={onClick}
+      colSpan={colSpan}
+      rowSpan={rowSpan}
       className={`px-4 py-2.5 font-medium ${onClick ? "cursor-pointer select-none hover:text-foreground" : ""} ${className}`}
     >
       {children}

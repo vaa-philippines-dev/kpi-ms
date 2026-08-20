@@ -224,10 +224,20 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     );
   }
 
-  const kpis = await prisma.kpiDefinition.findMany({
+  const kpiDefinitions = await prisma.kpiDefinition.findMany({
     where: { departmentId: connection.departmentId, period },
     orderBy: { name: "asc" },
+    include: { kpiConfigs: { where: { connectionId: connection.id } } },
   });
+  // Mirrors createSubmission()'s own kpisWithConfig filter (and legacy's
+  // IsApplicable filter in loadReportKPIs()) — a KPI marked not-applicable
+  // for this specific connection shouldn't show a blank field the VA fills
+  // in only to have the value silently dropped on submit. Also resolves the
+  // per-connection target override (KPI Config page) so the "target X" hint
+  // shown here always matches what createSubmission actually grades against.
+  const kpis = kpiDefinitions
+    .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
+    .filter(({ config }) => config?.isApplicable ?? true);
 
   // VAs can't resubmit once a period is finalized; managers (DM/OM/ADMIN)
   // can still go back and correct it — mirrors the legacy
@@ -290,12 +300,12 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
         <form action={createSubmission} className="mt-8 space-y-4">
           <input type="hidden" name="connectionId" value={connection.id} />
           <input type="hidden" name="period" value={period} />
-          {kpis.map((kpi) => (
+          {kpis.map(({ kpi, config }) => (
             <KpiValueField
               key={kpi.id}
               name={`kpi_${kpi.id}`}
               label={kpi.name}
-              hint={`target ${kpi.targetValue}, ${
+              hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
                 kpi.direction === KpiDirection.HIGHER_IS_BETTER
                   ? "higher is better"
                   : "lower is better"

@@ -14,10 +14,18 @@ export default async function ConnectionsPage(
   const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
   const departmentId =
     typeof searchParams.departmentId === "string" ? searchParams.departmentId : "";
-  const browsing = Boolean(departmentId || q);
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
+  // The "browse by department directory" landing screen exists for the
+  // admin-scale views (nav's "VA Connections") where hundreds of connections
+  // span many departments — it's just noise for the personal-scope views
+  // ("My Team" for OM, "My VA Connections" for VA per nav.ts's labelByRole),
+  // whose connectionScopeWhere() result is always a small, single-department
+  // set. Those two roles skip straight to the table, mirroring legacy's
+  // renderMyTeam()/renderVAConnections(), which never showed a department
+  // picker at all.
+  const browsing = Boolean(departmentId || q) || session.role === "VA" || session.role === "OM";
 
   const [departments, vaUsers] = await Promise.all([
     prisma.department.findMany({ orderBy: { name: "asc" } }),
@@ -114,6 +122,7 @@ export default async function ConnectionsPage(
     orderBy: [{ department: { name: "asc" } }, { clientName: "asc" }],
     include: {
       department: true,
+      service: true,
       vaUser: true,
       statusEvents: { orderBy: { changedAt: "desc" }, take: 5, include: { changedBy: true } },
     },
@@ -125,10 +134,12 @@ export default async function ConnectionsPage(
     vaName: c.vaUser.name ?? c.vaUser.email,
     vaEmail: c.vaUser.email,
     departmentName: c.department.name,
+    serviceName: c.service?.name ?? null,
     status: c.status,
     connectionType: c.connectionType,
     isFlagged: c.isFlagged,
     notes: c.notes,
+    createdAt: c.createdAt.toISOString(),
     statusEvents: c.statusEvents.map((e) => ({
       status: e.status,
       changedAt: e.changedAt.toISOString(),
@@ -162,9 +173,11 @@ export default async function ConnectionsPage(
             />
             <Button type="submit">Filter</Button>
           </form>
-          <Link href="/dashboard/connections" className="text-xs text-muted hover:underline">
-            ← Back to departments
-          </Link>
+          {session.role !== "VA" && session.role !== "OM" && (
+            <Link href="/dashboard/connections" className="text-xs text-muted hover:underline">
+              ← Back to departments
+            </Link>
+          )}
         </div>
 
         <ConnectionsTable connections={rows} isAdmin={isAdmin} />

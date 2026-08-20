@@ -1,32 +1,75 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getEffectiveSession } from "@/lib/view-as";
-import { PageHeader } from "@/components/page-header";
+import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { UsersTable, type UserRow } from "@/components/users-table";
+import { UserRole } from "@/generated/prisma/enums";
 import { createUser, bulkCreateUsers } from "./actions";
 import { UserActions } from "./user-actions";
 
 const UNASSIGNED = "Unassigned";
 
+// Mirrors legacy's Manager create-form role list (AppUsers.html:
+// openCreateUser — 'Team Leader','Virtual Assistant' only).
+const DM_ROLES: UserRole[] = [UserRole.OM, UserRole.VA];
+
+// Mirrors legacy's getUsers() ACL (Users.js) — only Admin/Manager could even
+// fetch the user list; every other role has no Users nav item at all (see
+// nav.ts). A DM is further scoped to their own department, same as legacy's
+// client-side filter in renderUsers() ("Managers see only their
+// department's users").
 export default async function UsersPage(props: PageProps<"/dashboard/users">) {
   const searchParams = await props.searchParams;
   const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
-  const departmentId =
+  const requestedDepartmentId =
     typeof searchParams.departmentId === "string" ? searchParams.departmentId : "";
-  const browsing = Boolean(departmentId || q);
 
-  const [session, departments, services, teams] = await Promise.all([
-    getEffectiveSession(),
+  const session = await getEffectiveSession();
+  if (!session) {
+    redirect("/sign-in");
+  }
+  if (session.role !== "ADMIN" && session.role !== "DM") {
+    redirect("/dashboard");
+  }
+  const isAdmin = session.role === "ADMIN";
+  const isDM = session.role === "DM";
+
+  // A DM has exactly one department to browse, so skip the picker entirely
+  // and always scope straight to it (never trusting the query param).
+  const departmentId = isDM ? (session.departmentId ?? "none") : requestedDepartmentId;
+  const browsing = isDM || Boolean(departmentId || q);
+
+  if (isDM && !session.departmentId) {
+    return (
+      <>
+        <PageHeader title="Users" description="Users in your department." />
+        <ComingSoon note="No department is assigned to your account yet — contact an admin." />
+      </>
+    );
+  }
+
+  const [departments, servicesAll, teamsAll] = await Promise.all([
     prisma.department.findMany({ orderBy: { name: "asc" } }),
     prisma.service.findMany({ orderBy: { name: "asc" } }),
     prisma.team.findMany({ orderBy: { name: "asc" } }),
   ]);
-  const isAdmin = session?.role === "ADMIN";
+  // A DM manages within their own department only, so their Add-user/Bulk
+  // import/Edit dropdowns only ever offer that one department, and the
+  // service/team lists narrow to match.
+  const scopedDepartments = isDM
+    ? departments.filter((d) => d.id === session.departmentId)
+    : departments;
+  const services = isDM ? servicesAll.filter((s) => s.departmentId === session.departmentId) : servicesAll;
+  const teams = isDM ? teamsAll.filter((t) => t.departmentId === session.departmentId) : teamsAll;
+  const canManage = isAdmin || isDM;
+  const manageableRoles = isAdmin ? Object.values(UserRole) : DM_ROLES;
 
   // Landing state: a department directory (with counts), not a giant list —
   // picking one (or searching) is what actually loads the table below.
+  // (DM skips this — see above.)
   if (!browsing) {
     const counts = await prisma.user.groupBy({ by: ["departmentId"], _count: true });
     const countByDept = new Map(counts.map((c) => [c.departmentId, c._count]));
@@ -49,11 +92,12 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
               />
               <Button type="submit">Search</Button>
             </form>
-            {isAdmin && (
+            {canManage && (
               <UserActions
-                departments={departments}
+                departments={scopedDepartments}
                 services={services}
                 teams={teams}
+                roles={manageableRoles}
                 createUser={createUser}
                 bulkCreateUsers={bulkCreateUsers}
               />
@@ -145,14 +189,16 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <form method="GET" className="flex flex-wrap gap-2">
-            <Select name="departmentId" defaultValue={departmentId} className="w-40">
-              <option value="">All departments</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </Select>
+            {!isDM && (
+              <Select name="departmentId" defaultValue={departmentId} className="w-40">
+                <option value="">All departments</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Input
               name="q"
               defaultValue={q}
@@ -162,14 +208,17 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
             <Button type="submit">Filter</Button>
           </form>
           <div className="flex shrink-0 items-center gap-3">
-            <Link href="/dashboard/users" className="text-xs text-muted hover:underline">
-              ← Back to departments
-            </Link>
-            {isAdmin && (
+            {!isDM && (
+              <Link href="/dashboard/users" className="text-xs text-muted hover:underline">
+                ← Back to departments
+              </Link>
+            )}
+            {canManage && (
               <UserActions
-                departments={departments}
+                departments={scopedDepartments}
                 services={services}
                 teams={teams}
+                roles={manageableRoles}
                 createUser={createUser}
                 bulkCreateUsers={bulkCreateUsers}
               />
@@ -179,10 +228,11 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
 
         <UsersTable
           users={rows}
-          departments={departments}
+          departments={scopedDepartments}
           services={services}
           teams={teams}
-          isAdmin={isAdmin}
+          roles={manageableRoles}
+          canManage={canManage}
         />
       </div>
     </>

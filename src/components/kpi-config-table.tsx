@@ -13,6 +13,7 @@ import {
   initKpiConfig,
   updateKpiConfig,
   deleteKpiConfig,
+  resetKpiConfig,
   type KpiConfigDetailRow,
 } from "@/app/dashboard/connections/kpi-config/actions";
 
@@ -154,9 +155,25 @@ export function KpiConfigTable({
       <Modal open={openConn !== null} onClose={close} title={openConn?.clientName ?? ""}>
         {openConn && (
           <div className="space-y-4">
-            <p className="text-xs text-muted">
-              {openConn.vaName} · {openConn.departmentName}
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted">
+                {openConn.vaName} · {openConn.departmentName}
+              </p>
+              {/* Mirrors legacy's "Reset to Defaults" (resetToDefaults() ->
+                  deleteKPIConfig + initKPIConfig back-to-back) — only shown
+                  once at least one override exists, same as legacy's
+                  hasConfig-gated button. */}
+              {isAdmin && detail && detail.rows.some((r) => r.id !== null) && (
+                <ConfirmSubmitButton
+                  action={resetKpiConfig}
+                  fields={{ connectionId: openConn.id }}
+                  label="Reset to defaults"
+                  confirmLabel="Replace all overrides with defaults?"
+                  successMessage="Reset to defaults."
+                  onSuccess={refetch}
+                />
+              )}
+            </div>
 
             {isPending || !detail ? (
               <p className="py-8 text-center text-sm text-muted">Loading…</p>

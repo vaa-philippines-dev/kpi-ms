@@ -10,8 +10,20 @@ export async function GET(request: NextRequest) {
   const session = await requireSession();
   const isAdmin = session.role === "ADMIN";
   const scope = connectionScopeWhere(session);
-  const departmentId = request.nextUrl.searchParams.get("departmentId") || undefined;
-  const effectiveScope = isAdmin && departmentId ? { ...scope, departmentId } : scope;
+  const requestedDepartmentId = request.nextUrl.searchParams.get("departmentId") || undefined;
+
+  // KPI columns are department-specific, so Admin always exports exactly one
+  // department (defaulting to the first alphabetically) — same rule the page
+  // uses, so the CSV always matches what's currently on screen.
+  let effectiveScope = scope;
+  if (isAdmin) {
+    const departments = await prisma.department.findMany({ orderBy: { name: "asc" } });
+    const departmentId =
+      requestedDepartmentId && departments.some((d) => d.id === requestedDepartmentId)
+        ? requestedDepartmentId
+        : departments[0]?.id;
+    effectiveScope = departmentId ? { departmentId } : { id: "__none__" };
+  }
 
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);

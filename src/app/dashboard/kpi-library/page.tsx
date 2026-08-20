@@ -4,13 +4,17 @@ import { KpiLibraryTable, type KpiRow } from "@/components/kpi-library-table";
 import { getEffectiveSession } from "@/lib/view-as";
 
 export default async function KpiLibraryPage() {
-  const [session, kpis, departments] = await Promise.all([
+  const [session, kpis, departments, services] = await Promise.all([
     getEffectiveSession(),
     prisma.kpiDefinition.findMany({
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
-      include: { department: true },
+      include: { department: true, service: true },
     }),
     prisma.department.findMany({ orderBy: { name: "asc" } }),
+    prisma.service.findMany({
+      orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
+      include: { department: true },
+    }),
   ]);
   const isAdmin = session?.role === "ADMIN";
 
@@ -20,11 +24,19 @@ export default async function KpiLibraryPage() {
     cluster: k.cluster,
     departmentId: k.departmentId,
     departmentName: k.department.name,
+    serviceId: k.serviceId,
+    serviceName: k.service?.name ?? null,
     direction: k.direction,
     period: k.period,
     targetValue: k.targetValue,
     deviationThresholdPct: k.deviationThresholdPct,
     criticalThresholdPct: k.criticalThresholdPct,
+  }));
+
+  const serviceOptions = services.map((s) => ({
+    id: s.id,
+    name: s.name,
+    departmentName: s.department.name,
   }));
 
   return (
@@ -37,7 +49,12 @@ export default async function KpiLibraryPage() {
       {departments.length === 0 ? (
         <ComingSoon note="Add at least one department first (Departments page) before defining KPIs." />
       ) : (
-        <KpiLibraryTable kpis={rows} departments={departments} isAdmin={isAdmin} />
+        <KpiLibraryTable
+          kpis={rows}
+          departments={departments}
+          services={serviceOptions}
+          isAdmin={isAdmin}
+        />
       )}
     </>
   );

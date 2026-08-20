@@ -16,6 +16,7 @@ import {
 } from "@/app/dashboard/kpi-library/actions";
 
 type Option = { id: string; name: string };
+type ServiceOption = { id: string; name: string; departmentName: string };
 
 export type KpiRow = {
   id: string;
@@ -23,6 +24,11 @@ export type KpiRow = {
   cluster: string;
   departmentId: string;
   departmentName: string;
+  // Optional — null means the KPI applies dept-wide (every service/connection
+  // in the department); set, it applies only to connections in that service.
+  // See kpi-config/actions.ts and lib/alerts.ts for where this is consumed.
+  serviceId: string | null;
+  serviceName: string | null;
   direction: KpiDirection;
   period: KpiPeriod;
   targetValue: number;
@@ -50,6 +56,15 @@ const COLUMNS: DataTableColumn<KpiRow>[] = [
     sortable: true,
     filterable: "select",
     className: "text-muted",
+  },
+  {
+    key: "serviceName",
+    label: "Service",
+    sortable: true,
+    filterable: "select",
+    filterPlaceholder: "All Services",
+    className: "text-muted",
+    render: (v) => (v as string | null) ?? "All Services",
   },
   {
     key: "direction",
@@ -138,6 +153,7 @@ function ClusterView({
               <tr>
                 <Th>Name</Th>
                 <Th>Department</Th>
+                <Th>Service</Th>
                 <Th>Direction</Th>
                 <Th>Period</Th>
                 <Th>Target</Th>
@@ -150,6 +166,7 @@ function ClusterView({
                 <Tr key={k.id} onClick={isAdmin ? () => onRowClick(k) : undefined}>
                   <Td>{k.name}</Td>
                   <Td className="text-muted">{k.departmentName}</Td>
+                  <Td className="text-muted">{k.serviceName ?? "All Services"}</Td>
                   <Td className="text-muted">{DIRECTION_LABELS[k.direction]}</Td>
                   <Td className="text-muted">{k.period}</Td>
                   <Td className="text-muted">{k.targetValue}</Td>
@@ -168,11 +185,13 @@ function ClusterView({
 function KpiForm({
   kpi,
   departments,
+  services,
   action,
   onDone,
 }: {
   kpi?: KpiRow;
   departments: Option[];
+  services: ServiceOption[];
   action: (formData: FormData) => void | Promise<void>;
   onDone: () => void;
 }) {
@@ -198,6 +217,14 @@ function KpiForm({
         {departments.map((d) => (
           <option key={d.id} value={d.id}>
             {d.name}
+          </option>
+        ))}
+      </Select>
+      <Select name="serviceId" defaultValue={kpi?.serviceId ?? ""}>
+        <option value="">Service (optional — applies dept-wide)</option>
+        {services.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name} ({s.departmentName})
           </option>
         ))}
       </Select>
@@ -254,10 +281,12 @@ function KpiForm({
 export function KpiLibraryTable({
   kpis,
   departments,
+  services,
   isAdmin,
 }: {
   kpis: KpiRow[];
   departments: Option[];
+  services: ServiceOption[];
   isAdmin: boolean;
 }) {
   const [editing, setEditing] = useState<KpiRow | null>(null);
@@ -312,6 +341,7 @@ export function KpiLibraryTable({
       <Modal open={adding} onClose={() => setAdding(false)} title="Add KPI">
         <KpiForm
           departments={departments}
+          services={services}
           action={createKpiDefinition}
           onDone={() => setAdding(false)}
         />
@@ -327,6 +357,7 @@ export function KpiLibraryTable({
             <KpiForm
               kpi={editing}
               departments={departments}
+              services={services}
               action={updateKpiDefinition}
               onDone={() => setEditing(null)}
             />

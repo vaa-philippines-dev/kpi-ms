@@ -93,22 +93,25 @@ function columns(): DataTableColumn<UserRow>[] {
  * Users list, rendered through the shared DataTable (search, sort,
  * per-column filters, pagination) — mirrors legacy's Users screen, which
  * was itself built on `renderDataTable()` (AppUsers.html: `renderUserPanel`).
- * Admins can click a row to edit it in a modal (name/role/department/
- * service/team + activate/deactivate) instead of the old inline
- * edit-the-whole-row form.
+ * Admins and DMs (scoped to their own department — see actions.ts) can
+ * click a row to edit it in a modal (name/role/department/service/team +
+ * activate/deactivate) instead of the old inline edit-the-whole-row form.
  */
 export function UsersTable({
   users,
   departments,
   services,
   teams,
-  isAdmin,
+  roles = Object.values(UserRole),
+  canManage,
 }: {
   users: UserRow[];
   departments: Option[];
   services: Option[];
   teams: Option[];
-  isAdmin: boolean;
+  /** Role choices offered in the edit modal — a DM only offers OM/VA (mirrors createUser's restriction). */
+  roles?: UserRole[];
+  canManage: boolean;
 }) {
   const [editing, setEditing] = useState<UserRow | null>(null);
 
@@ -119,7 +122,9 @@ export function UsersTable({
         data={users}
         getRowId={(u) => u.id}
         defaultLimit={25}
-        onRowClick={isAdmin ? (u) => setEditing(u) : undefined}
+        onRowClick={
+          canManage ? (u) => (roles.includes(u.role) ? setEditing(u) : undefined) : undefined
+        }
         emptyMessage="No users found."
       />
 
@@ -141,7 +146,7 @@ export function UsersTable({
               />
               <div className="grid grid-cols-2 gap-3">
                 <Select name="role" defaultValue={editing.role}>
-                  {Object.values(UserRole).map((r) => (
+                  {(roles.includes(editing.role) ? roles : [editing.role, ...roles]).map((r) => (
                     <option key={r} value={r}>
                       {roleLabel(r)}
                     </option>

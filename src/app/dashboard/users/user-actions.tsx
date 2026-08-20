@@ -13,12 +13,15 @@ export function UserActions({
   departments,
   services,
   teams,
+  roles = Object.values(UserRole),
   createUser,
   bulkCreateUsers,
 }: {
   departments: Option[];
   services: Option[];
   teams: Option[];
+  /** Role choices offered in the Add-user form — a DM only offers OM/VA (mirrors legacy's Manager create form). */
+  roles?: UserRole[];
   createUser: (formData: FormData) => void | Promise<void>;
   bulkCreateUsers: (formData: FormData) => void | Promise<void>;
 }) {
@@ -58,8 +61,8 @@ export function UserActions({
             className="sm:col-span-2"
           />
           <Input name="name" placeholder="Name (optional)" />
-          <Select name="role" defaultValue={UserRole.VA} required>
-            {Object.values(UserRole).map((r) => (
+          <Select name="role" defaultValue={roles.includes(UserRole.VA) ? UserRole.VA : roles[0]} required>
+            {roles.map((r) => (
               <option key={r} value={r}>
                 {roleLabel(r)}
               </option>

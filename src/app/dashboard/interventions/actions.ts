@@ -19,6 +19,9 @@ export async function createIntervention(formData: FormData) {
   const type = String(formData.get("type") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
   const actionTaken = String(formData.get("actionTaken") ?? "").trim() || null;
+  // Optional at creation, mirroring legacy's createIntervention() (Interventions.js),
+  // which lets the logger record an initial/pending outcome up front.
+  const outcome = String(formData.get("outcome") ?? "").trim() || null;
 
   if (!connectionId || !type || !description) {
     throw new Error("Connection, type, and description are required.");
@@ -30,6 +33,7 @@ export async function createIntervention(formData: FormData) {
       type,
       description,
       actionTaken,
+      outcome,
       createdById: session!.user!.id,
     },
   });

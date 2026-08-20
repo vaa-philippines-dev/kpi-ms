@@ -139,6 +139,11 @@ export function InterventionsTable({
             ))}
           </Select>
           <Input name="actionTaken" placeholder="Action taken (optional)" />
+          <Input
+            name="outcome"
+            placeholder="Initial outcome (optional)"
+            className="col-span-2 w-full sm:col-span-4"
+          />
           <Textarea
             name="description"
             placeholder="Description"

@@ -218,7 +218,10 @@ export default async function PerformancePage(
           <DeptTeamSummaryPanel
             title={session.role === "ADMIN" ? "Department Summary" : "Team Summary"}
             rows={sideRows}
-            showTeamReportLink={session.role !== "ADMIN"}
+            // Team Report (now /dashboard/reports/team-submissions) is
+            // Admin/Manager-only, same as legacy's button — DM is this
+            // app's Manager equivalent (lib/connection-scope.ts).
+            showTeamReportLink={session.role === "DM"}
           />
         </div>
       )}

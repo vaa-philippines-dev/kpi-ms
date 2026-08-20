@@ -193,6 +193,49 @@ export async function deleteKpiConfig(formData: FormData) {
   await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await prisma.kpiConfig.delete({ where: { id } });
+  // KpiConfigHistory.kpiConfigId is ON DELETE RESTRICT, so any config that
+  // was ever edited (and therefore has history rows) must have those
+  // deleted first, in the same transaction, or this throws a foreign key
+  // violation.
+  await prisma.$transaction([
+    prisma.kpiConfigHistory.deleteMany({ where: { kpiConfigId: id } }),
+    prisma.kpiConfig.delete({ where: { id } }),
+  ]);
   revalidatePath("/dashboard/connections/kpi-config");
+}
+
+// Wipes this connection's overrides and regenerates fresh ones from the
+// current KpiDefinition defaults — mirrors legacy resetToDefaults()
+// (deleteKPIConfig + initKPIConfig back-to-back). Unlike initKpiConfig,
+// this replaces every row rather than only filling in missing ones.
+export async function resetKpiConfig(formData: FormData) {
+  const session = await requireAdmin();
+  const connectionId = String(formData.get("connectionId") ?? "");
+  if (!connectionId) throw new Error("Missing connection id.");
+
+  const connection = await prisma.connection.findUnique({
+    where: { id: connectionId },
+  });
+  if (!connection) throw new Error("Connection not found.");
+
+  const applicable = await prisma.kpiDefinition.findMany({
+    where: {
+      departmentId: connection.departmentId,
+      OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+    },
+  });
+
+  await prisma.$transaction([
+    prisma.kpiConfigHistory.deleteMany({ where: { kpiConfig: { connectionId } } }),
+    prisma.kpiConfig.deleteMany({ where: { connectionId } }),
+    prisma.kpiConfig.createMany({
+      data: applicable.map((k) => ({
+        connectionId,
+        kpiDefinitionId: k.id,
+        updatedById: session!.user!.id,
+      })),
+    }),
+  ]);
+  revalidatePath("/dashboard/connections/kpi-config");
+  revalidatePath("/dashboard");
 }
