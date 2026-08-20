@@ -8,13 +8,16 @@ import {
   toDateParam,
 } from "@/lib/period";
 import { KpiPeriod } from "@/generated/prisma/enums";
+import { PeriodJumpSelect } from "./period-jump-select";
+
+const JUMP_OPTIONS_COUNT = 12;
 
 /**
- * Weekly/monthly toggle + ◀ / label / ▶ / Today navigator — mirrors
+ * Weekly/monthly toggle + ◀ / label-select / ▶ / Today navigator — mirrors
  * legacy's Global Period Selector (`AppCore.html`'s
- * `gp-btn-weekly`/`gp-btn-monthly`, `gpNav`, `gpToday`). Pure links driven
- * by `?period=` and `?date=YYYY-MM-DD` search params, so it works without
- * any client-side JS.
+ * `gp-btn-weekly`/`gp-btn-monthly`, `gp-period-select`, `gpNav`, `gpToday`).
+ * The center date-range control is itself a select (clicking it jumps
+ * straight to another period), same as legacy's.
  */
 export function PeriodNav({
   anchor,
@@ -59,6 +62,17 @@ export function PeriodNav({
       })
     : formatWeekRange(currentStart);
 
+  const jumpOptions = Array.from({ length: JUMP_OPTIONS_COUNT }, (_, i) => {
+    const start = isMonthly ? addMonths(todayStart, -i) : addDays(todayStart, -i * 7);
+    return {
+      value: toDateParam(start),
+      label: isMonthly
+        ? start.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })
+        : formatWeekRange(start),
+      href: hrefFor({ date: i === 0 ? undefined : toDateParam(start) }),
+    };
+  });
+
   const toggleActiveClass = "bg-accent/15 text-accent";
   const toggleInactiveClass = "text-muted";
   const navButtonClass =
@@ -89,9 +103,7 @@ export function PeriodNav({
         >
           <ChevronLeft className="size-4" />
         </Link>
-        <span className="min-w-[168px] rounded-md border border-surface-border bg-surface px-3 py-1 text-center text-xs font-medium">
-          {label}
-        </span>
+        <PeriodJumpSelect value={toDateParam(currentStart)} label={label} options={jumpOptions} />
         {canGoNext ? (
           <Link
             href={hrefFor({ date: toDateParam(nextStart) })}
