@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 const SIZE_CLASSES = {
   md: "max-w-lg",
   lg: "max-w-3xl",
+  xl: "max-w-6xl",
 } as const;
 
 export function Modal({
@@ -19,7 +20,9 @@ export function Modal({
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  /** "lg" is for content-heavy modals (e.g. tabbed detail views) — every other modal keeps the default. */
+  /** "lg" is for content-heavy modals (e.g. tabbed detail views); "xl" is for
+   * wide side-by-side layouts (e.g. a detail panel next to a table) — every
+   * other modal keeps the default. */
   size?: keyof typeof SIZE_CLASSES;
 }) {
   useEffect(() => {

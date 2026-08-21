@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Flag } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { StatusBadge, STATUS_LABEL } from "@/components/status-badge";
+import { PerformanceDetailModal } from "@/components/performance-detail-modal";
 import { PerformanceStatus, ConnectionType } from "@/generated/prisma/enums";
 
 const TYPE_LABELS: Record<ConnectionType, string> = {
@@ -131,11 +132,18 @@ const clientColumns: DataTableColumn<ClientSummaryRow>[] = [
 export function PerformanceSummaryTabs({
   connectionRows,
   clientRows,
+  weeklyStart,
+  isManager,
+  interventionTypes,
 }: {
   connectionRows: ConnectionSummaryRow[];
   clientRows: ClientSummaryRow[];
+  weeklyStart: string;
+  isManager: boolean;
+  interventionTypes: string[];
 }) {
   const [tab, setTab] = useState<"connection" | "client">("connection");
+  const [openConnectionId, setOpenConnectionId] = useState<string | null>(null);
 
   return (
     <div>
@@ -167,6 +175,7 @@ export function PerformanceSummaryTabs({
           data={connectionRows}
           getRowId={(r) => r.connectionId}
           defaultSort={{ key: "status", dir: "desc" }}
+          onRowClick={(r) => setOpenConnectionId(r.connectionId)}
           emptyMessage="No connections with performance data for this period."
         />
       ) : (
@@ -176,6 +185,16 @@ export function PerformanceSummaryTabs({
           getRowId={(r) => r.clientName}
           defaultSort={{ key: "status", dir: "desc" }}
           emptyMessage="No clients with performance data for this period."
+        />
+      )}
+
+      {openConnectionId && (
+        <PerformanceDetailModal
+          connectionId={openConnectionId}
+          periodStart={weeklyStart}
+          isManager={isManager}
+          interventionTypes={interventionTypes}
+          onClose={() => setOpenConnectionId(null)}
         />
       )}
     </div>

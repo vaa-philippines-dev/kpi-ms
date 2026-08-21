@@ -17,6 +17,7 @@ import {
   getDepartmentSubmissionSummary,
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
+import { getInterventionTypes } from "@/lib/settings";
 import { rollupStatus } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
@@ -41,8 +42,17 @@ export default async function PerformancePage(
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
   const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
 
-  const [totalConnections, summaries, performanceTrend, submissionTrend, sideRows] =
-    await Promise.all([
+  const isManager =
+    session.role === "ADMIN" || session.role === "DM" || session.role === "OM";
+
+  const [
+    totalConnections,
+    summaries,
+    performanceTrend,
+    submissionTrend,
+    sideRows,
+    interventionTypes,
+  ] = await Promise.all([
       prisma.connection.count({ where: scope }),
       prisma.performanceSummary.findMany({
         where: {
@@ -65,6 +75,7 @@ export default async function PerformancePage(
       session.role === "ADMIN"
         ? getDepartmentSubmissionSummary(KpiPeriod.WEEKLY, weeklyStart)
         : getTeamSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart),
+      getInterventionTypes(),
     ]);
 
   // Roll each connection's KPIs for the period up to one worst-case status —
@@ -208,7 +219,13 @@ export default async function PerformancePage(
               {connectionRows.length === 0 ? (
                 <ComingSoon note="No performance data for the current period yet — it's computed automatically as submissions come in." />
               ) : (
-                <PerformanceSummaryTabs connectionRows={connectionRows} clientRows={clientRows} />
+                <PerformanceSummaryTabs
+                  connectionRows={connectionRows}
+                  clientRows={clientRows}
+                  weeklyStart={weeklyStart.toISOString()}
+                  isManager={isManager}
+                  interventionTypes={interventionTypes}
+                />
               )}
             </div>
           </div>
