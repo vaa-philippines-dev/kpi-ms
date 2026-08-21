@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { ConnectionsTable, type ConnectionRow } from "@/components/connections-table";
 import { TeamRoster } from "@/components/team-roster";
 import { ConnectionCardGrid } from "@/components/connection-card-grid";
+import { NewConnectionModal } from "@/components/new-connection-modal";
+import { ImportConnectionsModal } from "@/components/import-connections-modal";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { createConnection, bulkCreateConnections } from "./actions";
 
 export default async function ConnectionsPage(
   props: PageProps<"/dashboard/connections">,
@@ -15,12 +16,14 @@ export default async function ConnectionsPage(
   const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
   const departmentId =
     typeof searchParams.departmentId === "string" ? searchParams.departmentId : "";
+  const openId = typeof searchParams.open === "string" ? searchParams.open : null;
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
 
-  const [departments, vaUsers] = await Promise.all([
+  const [departments, services, vaUsers] = await Promise.all([
     prisma.department.findMany({ orderBy: { name: "asc" } }),
+    prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { role: "VA" }, orderBy: { name: "asc" } }),
   ]);
   const isAdmin = session.role === "ADMIN";
@@ -118,113 +121,47 @@ export default async function ConnectionsPage(
             all — a VA's own connection count is always small. OM's roster
             (renderMyTeam()) is already scoped to one team, so the
             department picker is pointless there too. */}
-        {session.role !== "VA" && (
-          <form method="GET" className="flex flex-wrap gap-2">
-            {session.role !== "OM" && (
-              <Select name="departmentId" defaultValue={departmentId} className="w-40">
-                <option value="">All departments</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-            <Input
-              name="q"
-              defaultValue={q}
-              placeholder="Search by client or VA…"
-              className="w-full max-w-xs"
-            />
-            <Button type="submit">Filter</Button>
-          </form>
-        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {session.role !== "VA" ? (
+            <form method="GET" className="flex flex-wrap gap-2">
+              {session.role !== "OM" && (
+                <Select name="departmentId" defaultValue={departmentId} className="w-40">
+                  <option value="">All departments</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              <Input
+                name="q"
+                defaultValue={q}
+                placeholder="Search by client or VA…"
+                className="w-full max-w-xs"
+              />
+              <Button type="submit">Filter</Button>
+            </form>
+          ) : (
+            <div />
+          )}
+
+          {isAdmin && (
+            <div className="flex gap-2">
+              <ImportConnectionsModal departments={departments} services={services} />
+              <NewConnectionModal departments={departments} services={services} vaUsers={vaUsers} />
+            </div>
+          )}
+        </div>
 
         {session.role === "OM" ? (
           <TeamRoster connections={rows} />
         ) : session.role === "VA" ? (
           <ConnectionCardGrid connections={rows} />
         ) : (
-          <ConnectionsTable connections={rows} isAdmin={isAdmin} />
+          <ConnectionsTable connections={rows} isAdmin={isAdmin} initialOpenId={openId} />
         )}
-
-        {isAdmin && <AddConnectionForms departments={departments} vaUsers={vaUsers} />}
       </div>
     </>
-  );
-}
-
-function AddConnectionForms({
-  departments,
-  vaUsers,
-}: {
-  departments: { id: string; name: string }[];
-  vaUsers: { id: string; name: string | null; email: string }[];
-}) {
-  return (
-    <div className="space-y-4">
-      <details className="rounded-lg border border-dashed border-surface-border p-4">
-        <summary className="cursor-pointer text-sm font-medium">Add connection</summary>
-        <form
-          action={createConnection}
-          className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"
-        >
-          <Select name="vaUserId" required defaultValue="">
-            <option value="" disabled>
-              VA
-            </option>
-            {vaUsers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name ?? u.email}
-              </option>
-            ))}
-          </Select>
-          <Input name="clientName" placeholder="Client name" required />
-          <Select name="departmentId" required defaultValue="">
-            <option value="" disabled>
-              Department
-            </option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
-          <Button type="submit" className="col-span-2 sm:col-span-4">
-            Add Connection
-          </Button>
-        </form>
-      </details>
-
-      <details className="rounded-lg border border-dashed border-surface-border p-4">
-        <summary className="cursor-pointer text-sm font-medium">
-          Bulk import connections
-        </summary>
-        <form action={bulkCreateConnections} className="mt-4 space-y-3">
-          <p className="text-xs text-muted">
-            One per line: <code>vaEmail,clientName</code> (the VA must already
-            exist as a user)
-          </p>
-          <Textarea
-            name="rows"
-            placeholder={"testva@vaaphilippines.com,Acme Corp\nva2@vaaphilippines.com,Globex Inc"}
-            rows={4}
-            required
-            className="w-full font-mono"
-          />
-          <Select name="departmentId" required defaultValue="">
-            <option value="" disabled>
-              Department
-            </option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
-          <Button type="submit">Bulk Import</Button>
-        </form>
-      </details>
-    </div>
   );
 }

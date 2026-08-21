@@ -77,10 +77,6 @@ export type ConnectionRow = {
 const STATUS_FILTER_OPTIONS = Object.entries(CONNECTION_STATUS_LABELS).map(
   ([value, label]) => ({ value, label }),
 );
-const TYPE_FILTER_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
 
 function toDateInputValue(iso: string | null): string {
   return iso ? iso.slice(0, 10) : "";
@@ -95,18 +91,14 @@ function currentStatusSince(row: ConnectionRow): string | null {
   return match ? match.changedAt : null;
 }
 
+// Column set mirrors legacy's connFilter() DataTable exactly (AppVAConnections.html:229-249):
+// Account, VA Name, Dept / Service, Start Date, Status — no Flag or Type
+// columns in the table itself; both are still editable from the detail modal.
 function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
   return [
     {
-      key: "isFlagged",
-      label: "",
-      sortable: true,
-      className: "w-6",
-      render: (v) => (v ? <Flag className="size-3.5 fill-danger text-danger" /> : null),
-    },
-    {
       key: "clientName",
-      label: "Client",
+      label: "Account",
       sortable: true,
       filterable: true,
       // Account = Client Name + SecondaryName subline, mirrors legacy's
@@ -120,10 +112,10 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
         </>
       ),
     },
-    { key: "vaName", label: "VA", sortable: true, filterable: true, className: "text-muted" },
+    { key: "vaName", label: "VA Name", sortable: true, filterable: true, className: "text-muted" },
     {
       key: "departmentName",
-      label: "Department",
+      label: "Dept / Service",
       sortable: true,
       filterable: "select",
       className: "text-muted",
@@ -139,7 +131,7 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
     },
     {
       key: "sinceDate",
-      label: "Since",
+      label: "Start Date",
       sortable: true,
       className: "text-muted",
       render: (v) => new Date(v as string).toLocaleDateString(),
@@ -175,16 +167,6 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
         }
         return <Badge tone={CONNECTION_STATUS_TONE[status]}>{label}</Badge>;
       },
-    },
-    {
-      key: "connectionType",
-      label: "Type",
-      sortable: true,
-      filterable: "select",
-      filterOptions: TYPE_FILTER_OPTIONS,
-      className: "text-muted",
-      searchText: (row) => TYPE_LABELS[row.connectionType],
-      render: (v) => TYPE_LABELS[v as ConnectionType],
     },
   ];
 }
@@ -330,11 +312,15 @@ function ConnectionDetailTabs({
 export function ConnectionsTable({
   connections,
   isAdmin,
+  initialOpenId = null,
 }: {
   connections: ConnectionRow[];
   isAdmin: boolean;
+  // Deep-links straight into a connection's detail modal — e.g. the
+  // Performance Summary table's "View Connection" link (`?open=<id>`).
+  initialOpenId?: string | null;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const openConn = connections.find((c) => c.id === openId) ?? null;
   const columns = getColumns(isAdmin);
 
