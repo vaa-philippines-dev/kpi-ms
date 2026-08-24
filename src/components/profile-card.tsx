@@ -2,9 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut, Send, Settings } from "lucide-react";
+import { useFormStatus } from "react-dom";
+import { ChevronDown, Loader2, LogOut, Send, Settings } from "lucide-react";
 import { roleLabel } from "@/lib/roles";
 import { signOutAction } from "@/app/dashboard/actions";
+
+function LogOutButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-danger transition hover:bg-surface-hover disabled:opacity-60"
+    >
+      {pending ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+      {pending ? "Logging out…" : "Log out"}
+    </button>
+  );
+}
 
 export function ProfileCard({
   name,
@@ -91,13 +106,7 @@ export function ProfileCard({
           )}
 
           <form action={signOutAction}>
-            <button
-              type="submit"
-              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-danger transition hover:bg-surface-hover"
-            >
-              <LogOut className="size-4" />
-              Log out
-            </button>
+            <LogOutButton />
           </form>
         </div>
       )}

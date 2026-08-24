@@ -71,31 +71,38 @@ export function ViewAsControl({ viewingAs }: { viewingAs: ViewingAs | null }) {
   }
 
   return (
-    <select
-      defaultValue=""
-      disabled={isPending}
-      onChange={(e) => {
-        const role = e.target.value;
-        if (!role) return;
-        const formData = new FormData();
-        formData.set("role", role);
-        startTransition(async () => {
-          try {
-            await setViewAsRole(formData);
-          } catch (err) {
-            toast(err instanceof Error ? err.message : "Something went wrong.", "error");
-          }
-        });
-      }}
-      title="Preview the dashboard as another role"
-      className="rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none transition focus:border-accent"
-    >
-      <option value="">View as…</option>
-      {ROLE_OPTIONS.map((r) => (
-        <option key={r.value} value={r.value}>
-          {r.label}
-        </option>
-      ))}
-    </select>
+    <div className="relative">
+      <select
+        defaultValue=""
+        disabled={isPending}
+        onChange={(e) => {
+          const role = e.target.value;
+          if (!role) return;
+          const formData = new FormData();
+          formData.set("role", role);
+          startTransition(async () => {
+            try {
+              await setViewAsRole(formData);
+            } catch (err) {
+              toast(err instanceof Error ? err.message : "Something went wrong.", "error");
+            }
+          });
+        }}
+        title="Preview the dashboard as another role"
+        className={`rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-xs outline-none transition focus:border-accent ${
+          isPending ? "opacity-60" : ""
+        }`}
+      >
+        <option value="">View as…</option>
+        {ROLE_OPTIONS.map((r) => (
+          <option key={r.value} value={r.value}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      {isPending && (
+        <Loader2 className="pointer-events-none absolute top-1/2 right-1.5 size-3.5 -translate-y-1/2 animate-spin text-accent" />
+      )}
+    </div>
   );
 }

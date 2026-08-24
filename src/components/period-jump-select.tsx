@@ -1,7 +1,8 @@
 "use client";
 
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 
 /**
  * The center date-range control in PeriodNav — looks like a label but is
@@ -19,17 +20,21 @@ export function PeriodJumpSelect({
   options: { value: string; label: string; href: string }[];
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
 
   return (
     <div className="relative">
       <select
         value={value}
+        disabled={isPending}
         onChange={(e) => {
           const option = options.find((o) => o.value === e.target.value);
-          if (option) router.push(option.href);
+          if (option) startTransition(() => router.push(option.href));
         }}
         aria-label="Jump to period"
-        className="min-w-[168px] appearance-none rounded-md border border-surface-border bg-surface py-1 pr-7 pl-3 text-center text-xs font-medium outline-none transition focus:border-accent"
+        className={`min-w-[168px] appearance-none rounded-md border border-surface-border bg-surface py-1 pr-7 pl-3 text-center text-xs font-medium outline-none transition focus:border-accent ${
+          isPending ? "opacity-60" : ""
+        }`}
       >
         {options.some((o) => o.value === value) ? null : (
           <option value={value}>{label}</option>
@@ -40,7 +45,11 @@ export function PeriodJumpSelect({
           </option>
         ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 text-muted" />
+      {isPending ? (
+        <Loader2 className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 animate-spin text-muted" />
+      ) : (
+        <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 text-muted" />
+      )}
     </div>
   );
 }

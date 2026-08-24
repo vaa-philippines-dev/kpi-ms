@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
   addDays,
   addMonths,
@@ -15,6 +15,18 @@ import { KpiPeriod } from "@/generated/prisma/enums";
 import { PeriodJumpSelect } from "./period-jump-select";
 
 const JUMP_OPTIONS_COUNT = 12;
+
+/**
+ * Swaps its child for a spinner while the enclosing <Link> is navigating —
+ * the only signal a user gets that the arrow/toggle/Today click registered,
+ * since these are plain client-side transitions with no loading.tsx (the
+ * data these routes render depends on search params, so nothing here is
+ * prefetchable ahead of the exact click).
+ */
+function LinkPending({ children }: { children: React.ReactNode }) {
+  const { pending } = useLinkStatus();
+  return pending ? <Loader2 className="size-3.5 animate-spin" /> : <>{children}</>;
+}
 
 /**
  * Global Weekly/Monthly toggle + ◀ / label-select / ▶ / Today navigator,
@@ -87,13 +99,13 @@ export function PeriodNav({ weekStartDay }: { weekStartDay: number }) {
           href={hrefFor({ period: undefined, date: undefined })}
           className={`rounded px-2 py-1 ${!isMonthly ? toggleActiveClass : toggleInactiveClass}`}
         >
-          Weekly
+          <LinkPending>Weekly</LinkPending>
         </Link>
         <Link
           href={hrefFor({ period: "monthly", date: undefined })}
           className={`rounded px-2 py-1 ${isMonthly ? toggleActiveClass : toggleInactiveClass}`}
         >
-          Monthly
+          <LinkPending>Monthly</LinkPending>
         </Link>
       </div>
       <div className="flex items-center gap-1.5">
@@ -102,7 +114,9 @@ export function PeriodNav({ weekStartDay }: { weekStartDay: number }) {
           aria-label={isMonthly ? "Previous month" : "Previous week"}
           className={navButtonClass}
         >
-          <ChevronLeft className="size-4" />
+          <LinkPending>
+            <ChevronLeft className="size-4" />
+          </LinkPending>
         </Link>
         <PeriodJumpSelect value={toDateParam(currentStart)} label={label} options={jumpOptions} />
         {canGoNext ? (
@@ -111,7 +125,9 @@ export function PeriodNav({ weekStartDay }: { weekStartDay: number }) {
             aria-label={isMonthly ? "Next month" : "Next week"}
             className={navButtonClass}
           >
-            <ChevronRight className="size-4" />
+            <LinkPending>
+              <ChevronRight className="size-4" />
+            </LinkPending>
           </Link>
         ) : (
           <span aria-disabled className={disabledClass}>
@@ -123,7 +139,7 @@ export function PeriodNav({ weekStartDay }: { weekStartDay: number }) {
             href={hrefFor({ date: undefined })}
             className="rounded-md px-2 py-1 text-xs font-medium text-accent transition hover:bg-surface-hover"
           >
-            Today
+            <LinkPending>Today</LinkPending>
           </Link>
         )}
       </div>
