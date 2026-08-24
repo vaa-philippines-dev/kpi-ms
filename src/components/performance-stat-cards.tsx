@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Flag } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { PerformanceDetailModal } from "@/components/performance-detail-modal";
-import { PerformanceStatus } from "@/generated/prisma/enums";
+import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { ConnectionSummaryRow } from "@/components/performance-summary-tabs";
 
 const STATUS_CARD_STYLE: Record<PerformanceStatus, string> = {
@@ -30,13 +30,15 @@ const STATUS_CARD_LABEL: Record<PerformanceStatus, string> = {
 export function PerformanceStatCards({
   totalConnections,
   connectionRows,
-  weeklyStart,
+  periodStart,
+  period,
   isManager,
   interventionTypes,
 }: {
   totalConnections: number;
   connectionRows: ConnectionSummaryRow[];
-  weeklyStart: string;
+  periodStart: string;
+  period: KpiPeriod;
   isManager: boolean;
   interventionTypes: string[];
 }) {
@@ -118,7 +120,8 @@ export function PerformanceStatCards({
       {openConnectionId && (
         <PerformanceDetailModal
           connectionId={openConnectionId}
-          periodStart={weeklyStart}
+          periodStart={periodStart}
+          period={period}
           isManager={isManager}
           interventionTypes={interventionTypes}
           onClose={() => setOpenConnectionId(null)}

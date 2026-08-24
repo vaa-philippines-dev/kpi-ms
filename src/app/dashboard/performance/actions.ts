@@ -63,6 +63,7 @@ export type ConnectionWeekDetail = {
 export async function getConnectionWeekDetail(
   connectionId: string,
   periodStart: string,
+  period: KpiPeriod = KpiPeriod.WEEKLY,
 ): Promise<ConnectionWeekDetail> {
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
@@ -79,7 +80,7 @@ export async function getConnectionWeekDetail(
       where: { connectionId },
     }),
     prisma.performanceSummary.findMany({
-      where: { connectionId, period: KpiPeriod.WEEKLY, periodStart: periodStartDate },
+      where: { connectionId, period, periodStart: periodStartDate },
       include: { kpiDefinition: true },
     }),
     prisma.intervention.findMany({
@@ -111,7 +112,7 @@ export async function getConnectionWeekDetail(
   } else {
     const applicableKpis = await prisma.kpiDefinition.findMany({
       where: {
-        period: KpiPeriod.WEEKLY,
+        period,
         departmentId: connection.departmentId,
         OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
       },

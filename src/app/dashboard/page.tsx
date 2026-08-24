@@ -37,6 +37,13 @@ const STATUS_TILES = [
   },
 ] as const;
 
+/** "7Y 11M" — compact form for the Long-Running Connections duration pill. */
+function formatDurationCompact(days: number): string {
+  const years = Math.floor(days / 365);
+  const months = Math.floor((days % 365) / 30);
+  return `${years}Y ${months}M`;
+}
+
 export default async function DashboardOverviewPage(
   props: PageProps<"/dashboard">,
 ) {
@@ -44,12 +51,19 @@ export default async function DashboardOverviewPage(
   const anchor = parseAnchorDate(
     typeof searchParams.date === "string" ? searchParams.date : undefined,
   );
+  // Global topbar Weekly/Monthly toggle (see components/period-nav.tsx) —
+  // the admin/DM tiles and department table below must show ONE period's
+  // counts, not both blended together (previously always OR'd weekly +
+  // monthly regardless of this toggle, so a connection's monthly report
+  // from three weeks ago kept inflating the current week's tiles).
+  const selectedPeriod: KpiPeriod =
+    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
-  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
+  const selectedPeriodStart = currentPeriodStart(selectedPeriod, anchor, weekStartDay);
 
   // Team Leaders (OM) get legacy's dedicated dashboard — tabbed connection
   // cards + KPI drill-down, team-scoped trend, submission tracker — instead
@@ -117,14 +131,12 @@ export default async function DashboardOverviewPage(
     prisma.performanceSummary.findMany({
       where: {
         connection: scope,
-        OR: [
-          { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
-          { period: KpiPeriod.MONTHLY, periodStart: monthlyStart },
-        ],
+        period: selectedPeriod,
+        periodStart: selectedPeriodStart,
       },
       include: { connection: { include: { department: true } } },
     }),
-    getPerformanceTrend(scope, KpiPeriod.WEEKLY, weekStartDay, 6, anchor),
+    getPerformanceTrend(scope, selectedPeriod, weekStartDay, 6, anchor),
     getLongRunningConnections(scope),
     // Admin's "Unassigned Virtual Assistants" card — legacy's
     // getUnassignedVAs(). Fetched unconditionally since it's a cheap, small
@@ -214,19 +226,30 @@ export default async function DashboardOverviewPage(
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-surface-border bg-surface p-5">
               <h2 className="text-sm font-semibold">Performance Overview</h2>
-              <p className="mb-4 text-xs text-muted">Last 6 weeks</p>
+              <p className="mb-4 text-xs text-muted">
+                Last 6 {selectedPeriod === KpiPeriod.MONTHLY ? "months" : "weeks"}
+              </p>
               <PerformanceTrendChart points={trend} />
             </div>
 
             <div className="rounded-xl border border-surface-border bg-surface p-5">
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4 flex items-center justify-between gap-2">
                 <div>
                   <h2 className="text-sm font-semibold">Long-Running Connections</h2>
                   <p className="text-xs text-muted">Active 180+ days</p>
                 </div>
-                <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
-                  {longRunning.length} accounts
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/15 px-2.5 py-1 text-xs font-medium text-warning">
+                    <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+                    {longRunning.length} ACCOUNTS
+                  </span>
+                  <Link
+                    href="/dashboard/connections"
+                    className="rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium transition hover:bg-surface-hover"
+                  >
+                    View All
+                  </Link>
+                </div>
               </div>
 
               {longRunning.length === 0 ? (
@@ -234,32 +257,29 @@ export default async function DashboardOverviewPage(
                   No connections have crossed 180 days yet.
                 </p>
               ) : (
-                <>
-                  <ul className="space-y-2.5">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] font-medium tracking-wide text-muted uppercase">
+                      <th className="pb-2 text-left">Client</th>
+                      <th className="pb-2 text-left">VA</th>
+                      <th className="pb-2 text-right">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border">
                     {longRunning.slice(0, 5).map((c) => (
-                      <li
-                        key={c.id}
-                        className="flex items-center justify-between text-sm"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{c.clientName}</p>
-                          <p className="truncate text-xs text-muted">{c.vaName}</p>
-                        </div>
-                        <span className="shrink-0 text-xs text-muted">
-                          {c.daysActive}d
-                        </span>
-                      </li>
+                      <tr key={c.id}>
+                        <td className="py-2.5 pr-2 font-medium">{c.clientName}</td>
+                        <td className="py-2.5 pr-2 text-muted">{c.vaName}</td>
+                        <td className="py-2.5 text-right">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/15 px-2.5 py-1 text-xs font-medium text-warning">
+                            <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+                            {formatDurationCompact(c.daysActive)}
+                          </span>
+                        </td>
+                      </tr>
                     ))}
-                  </ul>
-                  {longRunning.length > 5 && (
-                    <Link
-                      href="/dashboard/connections"
-                      className="mt-3 inline-block text-xs text-accent hover:underline"
-                    >
-                      View all {longRunning.length} →
-                    </Link>
-                  )}
-                </>
+                  </tbody>
+                </table>
               )}
             </div>
           </div>

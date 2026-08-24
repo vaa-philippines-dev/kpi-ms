@@ -12,7 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { getConnectionWeekDetail, type ConnectionWeekDetail } from "@/app/dashboard/performance/actions";
 import { createIntervention } from "@/app/dashboard/interventions/actions";
 import { CONNECTION_STATUS_LABELS, CONNECTION_STATUS_TONE } from "@/lib/connection-labels";
-import { ConnectionStatus, KpiDirection } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
 function DirIndicator({ direction }: { direction: KpiDirection }) {
   return direction === KpiDirection.LOWER_IS_BETTER ? (
@@ -70,12 +70,14 @@ function StatusDotBadge({ tone, children }: { tone: DotTone; children: React.Rea
 export function PerformanceDetailModal({
   connectionId,
   periodStart,
+  period = KpiPeriod.WEEKLY,
   isManager,
   interventionTypes,
   onClose,
 }: {
   connectionId: string;
   periodStart: string;
+  period?: KpiPeriod;
   isManager: boolean;
   interventionTypes: string[];
   onClose: () => void;
@@ -87,15 +89,16 @@ export function PerformanceDetailModal({
   useEffect(() => {
     startTransition(async () => {
       try {
-        setDetail(await getConnectionWeekDetail(connectionId, periodStart));
+        setDetail(await getConnectionWeekDetail(connectionId, periodStart, period));
       } catch (e) {
         toast(e instanceof Error ? e.message : "Failed to load KPI submission detail.", "error");
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, periodStart]);
+  }, [connectionId, periodStart, period]);
 
-  const weekLabel = detail ? new Date(detail.periodStart).toLocaleDateString() : "";
+  const periodLabel = detail ? new Date(detail.periodStart).toLocaleDateString() : "";
+  const periodWord = period === KpiPeriod.MONTHLY ? "Month" : "Week";
 
   return (
     <Modal open onClose={onClose} title="KPI Submissions" size="xl">
@@ -128,7 +131,7 @@ export function PerformanceDetailModal({
               <InfoItem label="Start Date">
                 {detail.startDate ? new Date(detail.startDate).toLocaleDateString() : "—"}
               </InfoItem>
-              <InfoItem label="Week">{weekLabel}</InfoItem>
+              <InfoItem label={periodWord}>{periodLabel}</InfoItem>
               <InfoItem label="Team">{detail.teamName ?? "—"}</InfoItem>
               <InfoItem label="Team Leader">{detail.teamLeaderName ?? "—"}</InfoItem>
             </div>
@@ -136,7 +139,7 @@ export function PerformanceDetailModal({
             {!detail.hasSubmission && (
               <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
                 <AlertTriangle className="size-3.5 shrink-0" />
-                No submission received for this week
+                No submission received for this {periodWord.toLowerCase()}
               </div>
             )}
 

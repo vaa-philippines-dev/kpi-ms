@@ -6,7 +6,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
 import { StatusBadge, STATUS_LABEL } from "@/components/status-badge";
 import { PerformanceDetailModal } from "@/components/performance-detail-modal";
-import { PerformanceStatus, ConnectionType } from "@/generated/prisma/enums";
+import { KpiPeriod, PerformanceStatus, ConnectionType } from "@/generated/prisma/enums";
 
 const TYPE_LABELS: Record<ConnectionType, string> = {
   REGULAR: "Regular",
@@ -126,13 +126,15 @@ const clientColumns: DataTableColumn<ClientSummaryRow>[] = [
 export function PerformanceSummaryTabs({
   connectionRows,
   clientRows,
-  weeklyStart,
+  periodStart,
+  period,
   isManager,
   interventionTypes,
 }: {
   connectionRows: ConnectionSummaryRow[];
   clientRows: ClientSummaryRow[];
-  weeklyStart: string;
+  periodStart: string;
+  period: KpiPeriod;
   isManager: boolean;
   interventionTypes: string[];
 }) {
@@ -225,7 +227,8 @@ export function PerformanceSummaryTabs({
       {openConnectionId && (
         <PerformanceDetailModal
           connectionId={openConnectionId}
-          periodStart={weeklyStart}
+          periodStart={periodStart}
+          period={period}
           isManager={isManager}
           interventionTypes={interventionTypes}
           onClose={() => setOpenConnectionId(null)}
