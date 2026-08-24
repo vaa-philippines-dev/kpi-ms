@@ -95,10 +95,22 @@ export async function deactivateTeam(formData: FormData) {
 }
 
 export async function addTeamMember(formData: FormData) {
-  await requireAdminOrDm();
+  const session = await requireAdminOrDm();
   const teamId = String(formData.get("teamId") ?? "");
   const userId = String(formData.get("userId") ?? "");
   if (!teamId || !userId) return;
+
+  if (session?.user?.role === "DM") {
+    const team = await prisma.team.findUnique({ where: { id: teamId } });
+    if (!team || team.departmentId !== session.user.departmentId) {
+      throw new Error("DMs can only manage teams in their own department.");
+    }
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.departmentId !== session.user.departmentId) {
+      throw new Error("DMs can only add members from their own department.");
+    }
+  }
+
   await prisma.user.update({ where: { id: userId }, data: { teamId } });
   revalidatePath("/dashboard/teams");
   // Also used by the Overview page's "Unassigned Virtual Assistants" panel.
@@ -106,9 +118,24 @@ export async function addTeamMember(formData: FormData) {
 }
 
 export async function removeTeamMember(formData: FormData) {
-  await requireAdminOrDm();
+  const session = await requireAdminOrDm();
   const userId = String(formData.get("userId") ?? "");
   if (!userId) return;
+
+  if (session?.user?.role === "DM") {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { team: true },
+    });
+    if (
+      !user ||
+      user.departmentId !== session.user.departmentId ||
+      (user.team && user.team.departmentId !== session.user.departmentId)
+    ) {
+      throw new Error("DMs can only manage teams in their own department.");
+    }
+  }
+
   await prisma.user.update({ where: { id: userId }, data: { teamId: null } });
   revalidatePath("/dashboard/teams");
 }
