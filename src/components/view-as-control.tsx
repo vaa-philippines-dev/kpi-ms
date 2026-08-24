@@ -7,9 +7,12 @@ import { useToast } from "@/components/ui/toast";
 
 export type ViewingAs = {
   role: string;
+  departmentId?: string | null;
   departmentName?: string | null;
   teamName?: string | null;
 };
+
+export type ViewAsDepartment = { id: string; name: string };
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "DM", label: "Manager" },
@@ -32,19 +35,56 @@ const ROLE_LABELS: Record<string, string> = {
  * one real active user of that role under the hood), without changing
  * their own account or losing real admin privileges.
  */
-export function ViewAsControl({ viewingAs }: { viewingAs: ViewingAs | null }) {
+export function ViewAsControl({
+  viewingAs,
+  departments,
+}: {
+  viewingAs: ViewingAs | null;
+  departments: ViewAsDepartment[];
+}) {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
+  function changeDepartment(departmentId: string) {
+    if (!viewingAs) return;
+    const formData = new FormData();
+    formData.set("role", viewingAs.role);
+    if (departmentId) formData.set("departmentId", departmentId);
+    startTransition(async () => {
+      try {
+        await setViewAsRole(formData);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Something went wrong.", "error");
+      }
+    });
+  }
+
   if (viewingAs) {
-    const context = viewingAs.teamName ?? viewingAs.departmentName;
     return (
       <div className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs">
         <Eye className="size-3.5 shrink-0 text-accent" />
         <span className="whitespace-nowrap">
           Viewing as <strong>{ROLE_LABELS[viewingAs.role] ?? viewingAs.role}</strong>
-          {context && <span className="text-muted"> · {context}</span>}
         </span>
+        {departments.length > 0 && (
+          <select
+            value={viewingAs.departmentId ?? ""}
+            disabled={isPending}
+            onChange={(e) => changeDepartment(e.target.value)}
+            title="Narrow the preview to a specific department"
+            className="rounded border-none bg-transparent py-0 pr-5 text-xs text-accent outline-none disabled:opacity-50"
+          >
+            <option value="">Any department</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {viewingAs.teamName && (
+          <span className="text-muted">· {viewingAs.teamName}</span>
+        )}
         <button
           type="button"
           disabled={isPending}

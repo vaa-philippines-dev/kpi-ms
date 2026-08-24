@@ -17,24 +17,31 @@ export async function DashboardTopbar() {
   const isRealAdmin = realSession?.user?.role === "ADMIN";
   const realId = realSession?.user?.id;
 
-  const [user, alerts, weekStartDay] = await Promise.all([
+  const [user, alerts, weekStartDay, viewAsDepartments] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.id },
       select: {
         name: true,
         email: true,
+        departmentId: true,
         department: { select: { name: true } },
         team: { select: { name: true } },
       },
     }),
     getAlerts(scope, session.role),
     getWeekStartDay(),
+    // Only fetched for real admins — the one audience that can ever see the
+    // View As control that uses this list.
+    isRealAdmin
+      ? prisma.department.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } })
+      : Promise.resolve([]),
   ]);
 
   const viewingAs =
     isRealAdmin && realId && session.id !== realId && user
       ? {
           role: session.role,
+          departmentId: user.departmentId,
           departmentName: user.department?.name,
           teamName: user.team?.name,
         }
@@ -51,7 +58,9 @@ export async function DashboardTopbar() {
       </div>
 
       <div className="flex shrink-0 items-center justify-end gap-2">
-        {isRealAdmin && <ViewAsControl viewingAs={viewingAs} />}
+        {isRealAdmin && (
+          <ViewAsControl viewingAs={viewingAs} departments={viewAsDepartments} />
+        )}
         <CommandPalette role={session.role} />
         <NotificationBell alerts={alerts} />
         <ThemeToggle variant="inline" />

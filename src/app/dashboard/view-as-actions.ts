@@ -20,10 +20,14 @@ async function requireRealAdmin() {
 // Picking a role, not a specific person — under the hood this still needs
 // one real user's id to compute correct scoping (a DM's department, an
 // OM's team, a VA's own connections), so it borrows the first active user
-// with that role rather than asking the admin to pick someone by name.
+// with that role rather than asking the admin to pick someone by name. An
+// optional departmentId narrows which department that borrowed user comes
+// from (e.g. previewing a Virtual Assistant in a specific department),
+// rather than always whichever one sorts first alphabetically.
 export async function setViewAsRole(formData: FormData) {
   await requireRealAdmin();
   const role = String(formData.get("role") ?? "");
+  const departmentId = String(formData.get("departmentId") ?? "") || undefined;
   const store = await cookies();
 
   if (!role) {
@@ -36,11 +40,15 @@ export async function setViewAsRole(formData: FormData) {
   }
 
   const target = await prisma.user.findFirst({
-    where: { role: role as UserRole, isActive: true },
+    where: { role: role as UserRole, isActive: true, ...(departmentId ? { departmentId } : {}) },
     orderBy: { name: "asc" },
   });
   if (!target) {
-    throw new Error(`No active user with that role exists yet to preview.`);
+    throw new Error(
+      departmentId
+        ? "No active user with that role exists in that department to preview."
+        : "No active user with that role exists yet to preview.",
+    );
   }
 
   store.set(VIEW_AS_COOKIE, target.id, {
