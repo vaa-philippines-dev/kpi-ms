@@ -1,11 +1,14 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { KpiLibraryTable, type KpiRow } from "@/components/kpi-library-table";
 import { getEffectiveSession } from "@/lib/view-as";
 
 export default async function KpiLibraryPage() {
-  const [session, kpis, departments, services] = await Promise.all([
-    getEffectiveSession(),
+  const session = await getEffectiveSession();
+  if (!session) redirect("/sign-in");
+
+  const [kpis, departments, services] = await Promise.all([
     prisma.kpiDefinition.findMany({
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
       include: { department: true, service: true },

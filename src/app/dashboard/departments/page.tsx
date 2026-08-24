@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getEffectiveSession } from "@/lib/view-as";
 import { PageHeader } from "@/components/page-header";
@@ -12,8 +13,10 @@ import {
 import { createDepartment, createService } from "./actions";
 
 export default async function DepartmentsPage() {
-  const [session, departments, services] = await Promise.all([
-    getEffectiveSession(),
+  const session = await getEffectiveSession();
+  if (!session) redirect("/sign-in");
+
+  const [departments, services] = await Promise.all([
     prisma.department.findMany({
       orderBy: { name: "asc" },
       include: {

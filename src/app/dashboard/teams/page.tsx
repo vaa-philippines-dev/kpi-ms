@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getEffectiveSession } from "@/lib/view-as";
 import { PageHeader, ComingSoon } from "@/components/page-header";
@@ -14,6 +15,7 @@ import {
 
 export default async function TeamsPage() {
   const session = await getEffectiveSession();
+  if (!session) redirect("/sign-in");
   const role = session?.role;
   const isManager = role === "ADMIN" || role === "DM";
   const departmentFilter =
@@ -37,7 +39,7 @@ export default async function TeamsPage() {
       where: role === "DM" && session?.departmentId ? { id: session.departmentId } : {},
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({ orderBy: { email: "asc" } }),
+    prisma.user.findMany({ where: departmentFilter, orderBy: { email: "asc" } }),
   ]);
 
   return (
