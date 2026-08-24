@@ -17,37 +17,44 @@ const PAD_X = 6;
 const PAD_TOP = 14;
 
 /**
- * Smooth stacked-area system-wide status trend — mirrors legacy's
- * "Performance Overview" chart, redrawn in a lighter, iOS/macOS-Health-app
- * register: thin catmull-rom-smoothed boundaries, a soft wash under each
- * band, a crosshair + one tooltip listing every series on hover, and a
- * direct label on the final total rather than axis ticks on every value.
+ * Standard (non-stacked) system-wide status trend — mirrors legacy's
+ * "Performance Overview" chart in a lighter, iOS/macOS-Health-app register:
+ * thin catmull-rom-smoothed lines, a soft wash under each, a crosshair + one
+ * tooltip listing every series on hover.
+ *
+ * Deliberately NOT a stacked area: Ian flagged the previous stacked version
+ * as misleading (2026-08-24 dept meeting) — stacking At Risk/Critical/No
+ * Data on top of On Target made a series's on-screen height depend on every
+ * other series drawn below it, so a band could visually grow even when its
+ * own count hadn't changed. Each band is now plotted independently against
+ * the same zero baseline, so its height only ever reflects its own value.
  */
 export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  const totals = points.map((p) => p.onTarget + p.atRisk + p.critical + p.noData);
-  const max = Math.max(...totals, 1);
+  const max = Math.max(...points.flatMap((p) => BANDS.map((band) => p[band.key])), 1);
 
   const xStep = points.length > 1 ? (WIDTH - PAD_X * 2) / (points.length - 1) : 0;
   const xAt = (i: number) => PAD_X + i * xStep;
   const yAt = (v: number) => HEIGHT - (v / max) * (HEIGHT - PAD_TOP);
 
-  // Cumulative boundary curves, bottom-up: [0, onTarget, +atRisk, +critical, +noData].
-  const boundaries = useMemo<Point[][]>(() => {
-    const cum = new Array(points.length).fill(0);
-    const lines: Point[][] = [points.map((_, i) => ({ x: xAt(i), y: yAt(0) }))];
+  // Each band's own line, plus a shared zero baseline to fill down to —
+  // independent curves rather than cumulative boundaries, so nothing here
+  // stacks.
+  const { baseline, seriesLines } = useMemo(() => {
+    const baseline = points.map((_, i) => ({ x: xAt(i), y: yAt(0) }));
+    const seriesLines = new Map<(typeof BANDS)[number]["key"], Point[]>();
     for (const band of BANDS) {
-      points.forEach((p, i) => {
-        cum[i] += p[band.key];
-      });
-      lines.push(cum.map((v: number, i: number) => ({ x: xAt(i), y: yAt(v) })));
+      seriesLines.set(
+        band.key,
+        points.map((p, i) => ({ x: xAt(i), y: yAt(p[band.key]) })),
+      );
     }
-    return lines;
+    return { baseline, seriesLines };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, max]);
 
-  if (totals.every((t) => t === 0)) {
+  if (points.every((p) => BANDS.every((band) => p[band.key] === 0))) {
     return (
       <p className="py-10 text-center text-sm text-muted">
         No performance data in this window yet.
@@ -55,9 +62,7 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
     );
   }
 
-  const grandTotal = totals[totals.length - 1];
   const hovered = hoverIndex !== null ? points[hoverIndex] : null;
-  const hoveredTotal = hoverIndex !== null ? totals[hoverIndex] : null;
   const hoverX = hoverIndex !== null ? xAt(hoverIndex) : null;
 
   function handlePointerMove(e: React.PointerEvent<SVGRectElement>) {
@@ -84,38 +89,37 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
           strokeWidth={1}
         />
 
-        {BANDS.map((band, i) => {
-          const upper = boundaries[i + 1];
-          const lower = boundaries[i];
+        {BANDS.map((band) => {
+          const line = seriesLines.get(band.key)!;
           return (
             <g key={band.key}>
               <path
-                d={smoothBandPath(upper, lower)}
+                d={smoothBandPath(line, baseline)}
                 className={band.fill}
-                fillOpacity={0.14}
+                fillOpacity={0.1}
                 stroke="none"
               />
               <path
-                d={smoothLinePath(upper)}
+                d={smoothLinePath(line)}
                 className={band.stroke}
                 fill="none"
                 strokeWidth={1.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+              {/* Endpoint dot on this series' own final value — each band
+                  labels itself directly instead of sharing one stacked total. */}
+              <circle
+                cx={line[line.length - 1].x}
+                cy={line[line.length - 1].y}
+                r={2.5}
+                className={band.fill}
+                stroke="var(--surface)"
+                strokeWidth={1.5}
+              />
             </g>
           );
         })}
-
-        {/* Endpoint marker + direct label on the grand total. */}
-        <circle
-          cx={xAt(points.length - 1)}
-          cy={yAt(grandTotal)}
-          r={3.5}
-          className="fill-accent"
-          stroke="var(--surface)"
-          strokeWidth={2}
-        />
 
         {hoverX !== null && (
           <line
@@ -140,11 +144,6 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
         />
       </svg>
 
-      <div className="pointer-events-none absolute top-0 right-0 text-right">
-        <span className="text-xs font-semibold text-foreground">{grandTotal}</span>
-        <span className="ml-1 text-[10.5px] text-muted">total</span>
-      </div>
-
       {hovered && hoverX !== null && (
         <div
           className="pointer-events-none absolute top-0 z-10 w-40 rounded-lg border border-surface-border bg-surface p-2.5 text-xs shadow-lg"
@@ -163,9 +162,6 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
               month: "short",
               day: "numeric",
             })}
-            <span className="ml-1.5 font-normal text-muted">
-              · {hoveredTotal} total
-            </span>
           </p>
           <div className="space-y-1">
             {BANDS.map((band) => (

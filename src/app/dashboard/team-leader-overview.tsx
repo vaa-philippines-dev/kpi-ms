@@ -43,7 +43,11 @@ export async function TeamLeaderOverview({
       },
       orderBy: { clientName: "asc" },
     }),
-    prisma.submission.findMany({
+    // PerformanceSummary, not Submission — see lib/submission-trend.ts:
+    // legacy bulk imports write straight into PerformanceSummary and never
+    // create a Submission row, so this would undercount every connection
+    // whose current-week data came from the import rather than a live submit.
+    prisma.performanceSummary.findMany({
       where: { connection: scope, period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
       select: { connectionId: true },
     }),

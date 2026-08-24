@@ -27,6 +27,16 @@ function stepBack(periodStart: Date, period: KpiPeriod): Date {
  * connection counts toward a period's total if it already existed by that
  * period's start and isn't currently paused, rather than reconstructing
  * historical status-as-of-that-week from ConnectionStatusEvent.
+ *
+ * "Submitted" is measured by a PerformanceSummary row existing for the
+ * period, not a Submission row. The legacy data migration bulk-imports
+ * historical performance data straight into PerformanceSummary and never
+ * creates Submission rows for it (see legacy-sync/performance-sync.ts) — so
+ * checking Submission here read as 0% for every period, real data or not,
+ * since fewer than a handful of Submission rows exist system-wide pre-launch.
+ * PerformanceSummary is populated by both paths (live submissions upsert it
+ * in the same transaction as their Submission row — see submit/actions.ts),
+ * so it's the one signal that actually means "we have data for this period."
  */
 export async function getSubmissionTrend(
   scope: Prisma.ConnectionWhereInput,
@@ -57,7 +67,7 @@ export async function getSubmissionTrend(
       if (total === 0) {
         return { periodStart, submitted: 0, total: 0, pending: 0, ratePct: 0 };
       }
-      const submittedGroups = await prisma.submission.groupBy({
+      const submittedGroups = await prisma.performanceSummary.groupBy({
         by: ["connectionId"],
         where: {
           period,

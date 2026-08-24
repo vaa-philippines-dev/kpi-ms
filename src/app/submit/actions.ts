@@ -204,7 +204,13 @@ export async function createSubmission(formData: FormData) {
     }
   });
 
+  // Whitelisted, not user-controlled input, despite coming from form data —
+  // guards against an open redirect if the hidden field were ever tampered
+  // with (formData is plain HTML, not signed).
+  const requestedReturnTo = formData.get("returnTo");
+  const returnTo = requestedReturnTo === "/dashboard/submit-kpi" ? requestedReturnTo : "/submit";
+
   redirect(
-    `/submit?success=1&connectionId=${connectionId}&periodStart=${periodStart.toISOString()}`,
+    `${returnTo}?success=1&connectionId=${connectionId}&periodStart=${periodStart.toISOString()}`,
   );
 }

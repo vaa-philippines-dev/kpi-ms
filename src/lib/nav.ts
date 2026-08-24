@@ -17,7 +17,6 @@ import {
   Gem,
   Grid3x3,
   Contact,
-  Send,
   type LucideIcon,
 } from "lucide-react";
 
@@ -74,13 +73,6 @@ const kpiConfigItem: NavItem = {
   label: "KPI Configuration",
   icon: SlidersHorizontal,
   keywords: "override per connection target",
-};
-const submitReportItem: NavItem = {
-  href: "/submit",
-  label: "Submit KPI Report",
-  icon: Send,
-  roles: ["VA"],
-  keywords: "log data weekly monthly",
 };
 const submissionsItem: NavItem = {
   href: "/dashboard/submissions",
@@ -273,7 +265,10 @@ const csGroups: NavGroup[] = [
 const vaGroups: NavGroup[] = [
   {
     label: "My Work",
-    items: [dashboardItem, vaConnectionsItem, submitReportItem],
+    // No standalone "Submit KPI Report" entry — a VA submits via the Submit
+    // KPI button on a connection card (Dashboard or My VA Connections),
+    // which already knows which connection it's for.
+    items: [dashboardItem, vaConnectionsItem],
   },
 ];
 

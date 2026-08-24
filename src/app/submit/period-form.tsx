@@ -18,7 +18,16 @@ import { KpiPeriod } from "@/generated/prisma/enums";
  * to bare /submit with nothing submitted. The dim/opacity effect below is
  * purely visual (no `disabled`), so the click always goes through.
  */
-export function PeriodForm({ maxDate }: { maxDate: string }) {
+export function PeriodForm({
+  maxDate,
+  extraParams,
+}: {
+  maxDate: string;
+  /** Extra hidden fields carried through the GET navigation (e.g. a
+   * connectionId already resolved by the caller, so this step's submit
+   * doesn't lose it). */
+  extraParams?: Record<string, string>;
+}) {
   const [pendingPeriod, setPendingPeriod] = useState<KpiPeriod | null>(null);
   const isPending = pendingPeriod !== null;
 
@@ -33,6 +42,10 @@ export function PeriodForm({ maxDate }: { maxDate: string }) {
       }}
       className="mt-6 space-y-5 text-left"
     >
+      {extraParams &&
+        Object.entries(extraParams).map(([name, value]) => (
+          <input key={name} type="hidden" name={name} value={value} />
+        ))}
       <div className={`transition-opacity duration-150 ${isPending ? "opacity-50" : ""}`}>
         <label className="mb-1.5 block text-xs font-medium text-muted uppercase">
           Cadence

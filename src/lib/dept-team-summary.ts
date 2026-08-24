@@ -25,7 +25,12 @@ async function buildRow(
   if (total === 0) {
     return { id, name, submitted: 0, total: 0, ratePct: 0 };
   }
-  const submittedGroups = await prisma.submission.groupBy({
+  // Measured via PerformanceSummary, not Submission — legacy bulk imports
+  // write performance data straight into PerformanceSummary and never
+  // create a Submission row for it, so checking Submission here undercounts
+  // every period that has imported (rather than live-submitted) data. See
+  // lib/submission-trend.ts for the full explanation.
+  const submittedGroups = await prisma.performanceSummary.groupBy({
     by: ["connectionId"],
     where: {
       period,

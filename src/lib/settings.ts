@@ -20,7 +20,7 @@ export async function getInterventionTypes(): Promise<string[]> {
     .filter(Boolean);
 }
 
-export const DEFAULT_APP_NAME = "VAA KPI Monitoring System";
+export const DEFAULT_APP_NAME = "VAA KPI Ms";
 
 export async function getAppName(): Promise<string> {
   const setting = await prisma.setting.findUnique({ where: { key: "APP_NAME" } });

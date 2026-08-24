@@ -55,7 +55,11 @@ export async function getTeamSubmissionReport(
     }),
   ]);
 
-  const submissions = await prisma.submission.groupBy({
+  // PerformanceSummary, not Submission — see lib/submission-trend.ts for why
+  // (legacy bulk imports never create a Submission row, only a
+  // PerformanceSummary one, so Submission alone undercounts every imported
+  // period).
+  const submissions = await prisma.performanceSummary.groupBy({
     by: ["connectionId", "periodStart"],
     where: {
       period: KpiPeriod.WEEKLY,

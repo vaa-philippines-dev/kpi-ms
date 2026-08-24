@@ -13,8 +13,8 @@ import type { Prisma } from "@/generated/prisma/client";
  * summary for the selected week, a card grid of active connections each
  * showing Submitted or a Submit Report action, and a separate Pending
  * Connections section. Legacy built its own inline submission modal here;
- * this links straight to the existing /submit flow instead, since that's
- * already the one real submission path in this app.
+ * this links to /dashboard/submit-kpi with the connection already resolved,
+ * so a signed-in VA never has to paste their own connection's code back in.
  */
 export async function VaOverview({
   scope,
@@ -35,7 +35,11 @@ export async function VaOverview({
   const activeConns = connections.filter((c) => c.status === ConnectionStatus.ACTIVE);
   const pendingConns = connections.filter((c) => c.status === ConnectionStatus.PENDING);
 
-  const submittedRows = await prisma.submission.findMany({
+  // PerformanceSummary, not Submission — see lib/submission-trend.ts: legacy
+  // bulk imports write straight into PerformanceSummary and never create a
+  // Submission row, so this badge would undercount every connection whose
+  // current-week data came from the import rather than a live submit.
+  const submittedRows = await prisma.performanceSummary.findMany({
     where: {
       connectionId: { in: activeConns.map((c) => c.id) },
       period: KpiPeriod.WEEKLY,
@@ -98,7 +102,7 @@ export async function VaOverview({
                         Submitted
                       </span>
                     ) : (
-                      <Link href={`/submit?connectionId=${c.id}&period=${KpiPeriod.WEEKLY}`}>
+                      <Link href={`/dashboard/submit-kpi?connectionId=${c.id}`}>
                         <Button className="flex items-center gap-1.5 px-3 py-1.5 text-xs">
                           <Send className="size-3.5" />
                           Submit Report

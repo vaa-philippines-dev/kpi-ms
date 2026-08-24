@@ -7,6 +7,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      // Without this, Google skips the account chooser and silently signs
+      // in with whichever Google account is already active in the browser
+      // — often the wrong one (e.g. a personal Gmail instead of the
+      // provisioned @vaaphilippines.com account), which then fails the
+      // signIn callback below with a confusing AccessDenied.
+      authorization: { params: { prompt: "select_account" } },
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
