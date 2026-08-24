@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/status-badge";
@@ -12,7 +12,15 @@ import { useToast } from "@/components/ui/toast";
 import { getConnectionWeekDetail, type ConnectionWeekDetail } from "@/app/dashboard/performance/actions";
 import { createIntervention } from "@/app/dashboard/interventions/actions";
 import { CONNECTION_STATUS_LABELS, CONNECTION_STATUS_TONE } from "@/lib/connection-labels";
-import { ConnectionStatus } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiDirection } from "@/generated/prisma/enums";
+
+function DirIndicator({ direction }: { direction: KpiDirection }) {
+  return direction === KpiDirection.LOWER_IS_BETTER ? (
+    <ArrowDown className="size-3.5 text-warning" aria-label="Lower is better" />
+  ) : (
+    <ArrowUp className="size-3.5 text-success" aria-label="Higher is better" />
+  );
+}
 
 function InfoItem({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -138,8 +146,9 @@ export function PerformanceDetailModal({
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">KPI</th>
                     <th className="px-3 py-2 text-left font-medium">Unit</th>
-                    <th className="px-3 py-2 text-left font-medium">Weekly Target</th>
+                    <th className="px-3 py-2 text-left font-medium">Target</th>
                     <th className="px-3 py-2 text-left font-medium">Actual</th>
+                    <th className="px-3 py-2 text-center font-medium">Dir</th>
                     <th className="px-3 py-2 text-left font-medium">Status</th>
                   </tr>
                 </thead>
@@ -149,11 +158,19 @@ export function PerformanceDetailModal({
                       <td className="px-3 py-2 font-medium">{r.name}</td>
                       <td className="px-3 py-2">
                         <span className="rounded-full border border-surface-border px-2 py-0.5 text-xs text-muted">
-                          %
+                          {r.unit ?? "—"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-muted">{r.targetValue}</td>
+                      <td className="px-3 py-2 text-muted">
+                        <span className="font-medium text-foreground">{r.targetValue}</span>
+                        {r.benchmarkValue !== null && (
+                          <div className="text-xs text-muted">Benchmark: {r.benchmarkValue}</div>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-muted">{r.actualValue ?? "—"}</td>
+                      <td className="px-3 py-2 text-center">
+                        <DirIndicator direction={r.direction} />
+                      </td>
                       <td className="px-3 py-2">
                         <StatusBadge status={r.status} />
                       </td>

@@ -390,6 +390,7 @@ export async function runReferenceSync(
     const deviationThresholdPct = numOrNull(row.DeviationThreshold) ?? 10;
     const criticalThresholdPct = numOrNull(row.AtRiskThreshold) ?? 25;
     const cluster = row.Cluster || row.KPIName;
+    const unit = row.Unit || null;
 
     const variants: { period: KpiPeriod; targetValue: number | null }[] = [
       { period: KpiPeriod.WEEKLY, targetValue: numOrNull(row.WeeklyTarget) },
@@ -410,6 +411,7 @@ export async function runReferenceSync(
             direction,
             period,
             targetValue,
+            unit,
             deviationThresholdPct,
             criticalThresholdPct,
           },
@@ -420,6 +422,7 @@ export async function runReferenceSync(
             serviceId,
             direction,
             targetValue,
+            unit,
             deviationThresholdPct,
             criticalThresholdPct,
           },

@@ -114,6 +114,10 @@ model KpiDefinition {
   direction             KpiDirection
   period                KpiPeriod
   targetValue           Float
+  // Legacy KPI_Master.Unit — display-only ("%", "number", "hrs", …), never
+  // used in calculations. Nullable because it wasn't captured before this
+  // field existed; UI should fall back to "—" rather than assuming "%".
+  unit                  String?
   // On-Target boundary: |actual-target|/target <= this % (legacy default 10%).
   deviationThresholdPct Float                @default(10)
   // At-Risk/Critical boundary: above this %, status is Critical (legacy default 25%).

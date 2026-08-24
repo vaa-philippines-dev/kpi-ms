@@ -2,14 +2,27 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 export type ConnectionWeekKpiRow = {
   kpiDefinitionId: string;
   name: string;
+  unit: string | null;
+  direction: KpiDirection;
   targetValue: number;
+  // Department/master default target — shown as "Benchmark: X" only when it
+  // differs from this connection's configured targetValue (legacy's
+  // AppSettings.html connection-detail popup).
+  benchmarkValue: number | null;
   actualValue: number | null;
   status: PerformanceStatus;
+};
+
+const STATUS_SEVERITY: Record<PerformanceStatus, number> = {
+  [PerformanceStatus.CRITICAL]: 0,
+  [PerformanceStatus.AT_RISK]: 1,
+  [PerformanceStatus.ON_TARGET]: 2,
+  [PerformanceStatus.NO_DATA]: 3,
 };
 
 export type ConnectionWeekInterventionRow = {
@@ -36,13 +49,16 @@ export type ConnectionWeekDetail = {
 };
 
 /**
- * Legacy's `openConnWeekDetail()` popup (Performance Summary row click) —
- * every applicable KPI for the connection's Weekly period, joined against
- * whatever PerformanceSummary rows exist for that specific week (there are
- * none at all if the VA never submitted, same gap the "No submission
- * received" banner surfaces). Mirrors the applicable-KPI computation in
- * getKpiConfigDetail (department/service match, KpiConfig override, and
- * isApplicable opt-out).
+ * Legacy's connection-detail popup (AppSettings.html's `openConnWeekDetail`,
+ * the one with the Dir column and Benchmark subtitle) — when the week was
+ * actually submitted, it shows only the KPIs present in that submission,
+ * not the department/service's full KPI catalog; the full catalog (filtered
+ * by KpiConfig.isApplicable) is a fallback for weeks with nothing submitted
+ * yet. Showing the full catalog unconditionally — the previous bug here —
+ * made every already-submitted week look padded with dozens of unrelated
+ * "No Data" KPIs, since isApplicable is TRUE for nearly every KPI/connection
+ * pair on both legacy and this system (never used as a real per-connection
+ * filter in practice).
  */
 export async function getConnectionWeekDetail(
   connectionId: string,
@@ -58,20 +74,13 @@ export async function getConnectionWeekDetail(
 
   const periodStartDate = new Date(periodStart);
 
-  const [configs, applicableKpis, summaries, interventions] = await Promise.all([
+  const [configs, summaries, interventions] = await Promise.all([
     prisma.kpiConfig.findMany({
       where: { connectionId },
     }),
-    prisma.kpiDefinition.findMany({
-      where: {
-        period: KpiPeriod.WEEKLY,
-        departmentId: connection.departmentId,
-        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
-      },
-      orderBy: { name: "asc" },
-    }),
     prisma.performanceSummary.findMany({
       where: { connectionId, period: KpiPeriod.WEEKLY, periodStart: periodStartDate },
+      include: { kpiDefinition: true },
     }),
     prisma.intervention.findMany({
       where: { connectionId },
@@ -81,21 +90,51 @@ export async function getConnectionWeekDetail(
   ]);
 
   const configByKpi = new Map(configs.map((c) => [c.kpiDefinitionId, c]));
-  const summaryByKpi = new Map(summaries.map((s) => [s.kpiDefinitionId, s]));
 
-  const kpiRows: ConnectionWeekKpiRow[] = applicableKpis
-    .filter((kpi) => configByKpi.get(kpi.id)?.isApplicable ?? true)
-    .map((kpi) => {
-      const config = configByKpi.get(kpi.id);
-      const summary = summaryByKpi.get(kpi.id);
-      return {
-        kpiDefinitionId: kpi.id,
-        name: kpi.name,
-        targetValue: config?.targetValue ?? kpi.targetValue,
-        actualValue: summary?.actualValue ?? null,
-        status: summary?.status ?? PerformanceStatus.NO_DATA,
-      };
+  const benchmarkFor = (kpiDefinitionId: string, targetValue: number, masterTarget: number) => {
+    const config = configByKpi.get(kpiDefinitionId);
+    return config?.targetValue != null && config.targetValue !== masterTarget ? masterTarget : null;
+  };
+
+  let kpiRows: ConnectionWeekKpiRow[];
+  if (summaries.length > 0) {
+    kpiRows = summaries.map((s) => ({
+      kpiDefinitionId: s.kpiDefinitionId,
+      name: s.kpiDefinition.name,
+      unit: s.kpiDefinition.unit,
+      direction: s.kpiDefinition.direction,
+      targetValue: s.targetValue,
+      benchmarkValue: benchmarkFor(s.kpiDefinitionId, s.targetValue, s.kpiDefinition.targetValue),
+      actualValue: s.actualValue,
+      status: s.status,
+    }));
+  } else {
+    const applicableKpis = await prisma.kpiDefinition.findMany({
+      where: {
+        period: KpiPeriod.WEEKLY,
+        departmentId: connection.departmentId,
+        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+      },
+      orderBy: { name: "asc" },
     });
+    kpiRows = applicableKpis
+      .filter((kpi) => configByKpi.get(kpi.id)?.isApplicable ?? true)
+      .map((kpi) => {
+        const config = configByKpi.get(kpi.id);
+        const targetValue = config?.targetValue ?? kpi.targetValue;
+        return {
+          kpiDefinitionId: kpi.id,
+          name: kpi.name,
+          unit: kpi.unit,
+          direction: kpi.direction,
+          targetValue,
+          benchmarkValue: benchmarkFor(kpi.id, targetValue, kpi.targetValue),
+          actualValue: null,
+          status: PerformanceStatus.NO_DATA,
+        };
+      });
+  }
+  kpiRows.sort((a, b) => STATUS_SEVERITY[a.status] - STATUS_SEVERITY[b.status]);
 
   return {
     connectionId: connection.id,

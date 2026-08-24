@@ -56,18 +56,32 @@ export async function runPerformanceSync(
 ): Promise<SyncReport> {
   const report: SyncReport = {};
 
-  const [connections, kpiDefs] = await Promise.all([
+  const [connections, kpiDefs, kpiConfigs] = await Promise.all([
     prisma.connection.findMany({
       where: { externalWfmId: { not: null } },
       select: { id: true, externalWfmId: true },
     }),
     prisma.kpiDefinition.findMany({
       where: { legacyId: { not: null } },
-      select: { id: true, legacyId: true, period: true },
+      select: { id: true, legacyId: true, period: true, targetValue: true },
+    }),
+    prisma.kpiConfig.findMany({
+      select: { connectionId: true, kpiDefinitionId: true, targetValue: true },
     }),
   ]);
   const connMap = new Map(connections.map((c) => [c.externalWfmId!, c.id]));
   const kpiDefMap = new Map(kpiDefs.map((k) => [`${k.legacyId}:${k.period}`, k.id]));
+  // Legacy's own summary popup falls back to the connection's configured
+  // target, then the KPI's department default, whenever the submitted
+  // entry's own target is blank — see AppSettings.html's displayTgt chain.
+  // Mirrored here so the fallback is baked into the stored row instead of
+  // silently landing on 0 (a blank string is finite once Number()'d).
+  const defaultTargetByKpiId = new Map(kpiDefs.map((k) => [k.id, k.targetValue]));
+  const configTargetByKey = new Map(
+    kpiConfigs
+      .filter((c) => c.targetValue !== null)
+      .map((c) => [`${c.connectionId}:${c.kpiDefinitionId}`, c.targetValue!]),
+  );
 
   for (const [sheetName, period] of [
     ["KPI_Weekly_Summary", KpiPeriod.WEEKLY],
@@ -131,8 +145,17 @@ export async function runPerformanceSync(
         const parsedActual = rawActual === null ? null : Number(rawActual);
         const actualValue =
           parsedActual === null || !Number.isFinite(parsedActual) ? null : parsedActual;
-        const targetValue = Number(entry.target);
-        const safeTargetValue = Number.isFinite(targetValue) ? targetValue : 0;
+        // entry.target === "" means the legacy summary blob just never
+        // carried a target for this entry (seen on real rows) — fall back
+        // to this connection's configured target, then the KPI's default,
+        // rather than treating it as a real 0.
+        const rawTarget = (entry.target as unknown) === "" ? null : Number(entry.target);
+        const safeTargetValue =
+          rawTarget !== null && Number.isFinite(rawTarget)
+            ? rawTarget
+            : configTargetByKey.get(`${connectionId}:${kpiDefinitionId}`) ??
+              defaultTargetByKpiId.get(kpiDefinitionId) ??
+              0;
         const pct =
           actualValue !== null && safeTargetValue !== 0
             ? (actualValue / safeTargetValue) * 100
