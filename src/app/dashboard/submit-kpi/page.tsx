@@ -14,12 +14,14 @@ import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { rollupStatus } from "@/lib/performance";
+import { getKpiClusters, groupByCluster } from "@/lib/kpi-cluster";
 import { createSubmission } from "@/app/submit/actions";
 import { PeriodForm } from "@/app/submit/period-form";
+import { ClusterForm } from "@/app/submit/cluster-form";
 
 /**
  * The logged-in counterpart to /submit: reached from a "Submit KPI" button
- * on a specific connection card (Dashboard overview, My VA Connections), so
+ * on a specific connection card (Dashboard overview, My Connections), so
  * the connection is already known — no connection-code step. /submit itself
  * stays as-is for the public landing-page link, which has no connection
  * context to start from and still needs the code.
@@ -38,13 +40,14 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
       ? (searchParams.period as KpiPeriod)
       : undefined;
   const dateParam = typeof searchParams.date === "string" ? searchParams.date : undefined;
+  const clusterParam = typeof searchParams.cluster === "string" ? searchParams.cluster : undefined;
   const success = searchParams.success === "1";
 
   if (!connectionId) {
     return (
       <>
         <PageHeader title="Submit KPI" description="Log actuals for one of your connections." />
-        <ComingSoon note="Open a connection from My VA Connections and click Submit KPI to get started." />
+        <ComingSoon note="Open a connection from My Connections and click Submit KPI to get started." />
       </>
     );
   }
@@ -66,14 +69,32 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
 
   if (success) {
     const periodStartRaw = typeof searchParams.periodStart === "string" ? searchParams.periodStart : undefined;
+    const successPeriod =
+      typeof searchParams.period === "string" && Object.values(KpiPeriod).includes(searchParams.period as KpiPeriod)
+        ? searchParams.period
+        : undefined;
+    const successDate = typeof searchParams.date === "string" ? searchParams.date : undefined;
+    // Straight back to the cluster picker for this same connection/period —
+    // most VAs have more than one area to submit in a sitting.
+    const submitAnotherAreaHref = successPeriod
+      ? `/dashboard/submit-kpi?${new URLSearchParams({
+          connectionId: connection.id,
+          period: successPeriod,
+          ...(successDate ? { date: successDate } : {}),
+        }).toString()}`
+      : undefined;
     const summaries = periodStartRaw
       ? await prisma.performanceSummary.findMany({
           where: { connectionId: connection.id, periodStart: new Date(periodStartRaw) },
           include: { kpiDefinition: true },
-          orderBy: { kpiDefinition: { name: "asc" } },
+          orderBy: [{ kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { name: "asc" } }],
         })
       : [];
     const overall = summaries.length > 0 ? rollupStatus(summaries.map((s) => s.status)) : null;
+    // Grouped by cluster/area — several areas share KPI names (e.g.
+    // Facebook and Instagram both have an "Engagement Rate"), so a flat
+    // list would read as duplicates.
+    const groupedSummaries = groupByCluster(summaries);
 
     return (
       <>
@@ -87,24 +108,42 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
               <StatusBadge status={overall} />
             </div>
           )}
-          {summaries.length > 0 && (
-            <ul className="mt-4 space-y-1.5 text-left">
-              {summaries.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center justify-between rounded-lg border border-surface-border px-3 py-1.5 text-sm"
-                >
-                  <span>{s.kpiDefinition.name}</span>
-                  <StatusBadge status={s.status} />
-                </li>
+          {groupedSummaries.length > 0 && (
+            <div className="mt-4 space-y-4 text-left">
+              {groupedSummaries.map((group) => (
+                <div key={group.cluster}>
+                  <p className="mb-1.5 text-xs font-medium tracking-wide text-muted uppercase">
+                    {group.cluster}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {group.items.map((s) => (
+                      <li
+                        key={s.id}
+                        className="flex items-center justify-between rounded-lg border border-surface-border px-3 py-1.5 text-sm"
+                      >
+                        <span>{s.kpiDefinition.name}</span>
+                        <StatusBadge status={s.status} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
+          )}
+          {submitAnotherAreaHref && (
+            <Link
+              href={submitAnotherAreaHref}
+              className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:opacity-90"
+            >
+              Submit another area
+              <ArrowRight className="size-4" />
+            </Link>
           )}
           <Link
             href="/dashboard/connections"
-            className="mt-6 inline-block text-sm text-accent hover:underline"
+            className="mt-3 block text-center text-sm text-accent hover:underline"
           >
-            Back to My VA Connections
+            Back to My Connections
           </Link>
         </Card>
       </>
@@ -148,22 +187,15 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
     );
   }
 
-  const kpiDefinitions = await prisma.kpiDefinition.findMany({
-    where: { departmentId: connection.departmentId, period },
-    orderBy: { name: "asc" },
-    include: { kpiConfigs: { where: { connectionId: connection.id } } },
-  });
-  const kpis = kpiDefinitions
-    .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
-    .filter(({ config }) => config?.isApplicable ?? true);
-
   const weekStartDay = await getWeekStartDay();
   const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
-  const alreadySubmitted =
-    session.role === "VA" &&
-    (await prisma.performanceSummary.findFirst({
-      where: { connectionId: connection.id, periodStart },
-    })) !== null;
+
+  const clusters = await getKpiClusters({
+    departmentId: connection.departmentId,
+    period,
+    connectionId: connection.id,
+    periodStart,
+  });
 
   const outsideWindow =
     session.role === "VA" &&
@@ -173,19 +205,88 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
       new Date(),
     );
 
+  const headerDescription = `${connection.clientName} · ${connection.department.name} · ${
+    period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"
+  }`;
+
+  // Which cluster (e.g. Facebook, Instagram, Amazon Task-based) — lets a VA
+  // submit one focused group of KPIs at a time instead of scrolling every
+  // KPI the department has.
+  const selectedCluster = clusterParam ? clusters.find((c) => c.cluster === clusterParam) : undefined;
+  if (!clusterParam || !selectedCluster) {
+    return (
+      <>
+        <PageHeader title="Submit KPI" description={headerDescription} />
+        <Card className="mx-auto max-w-lg p-8">
+          <h2 className="text-center text-lg font-semibold tracking-tight">
+            Which area are you submitting for?
+          </h2>
+          {outsideWindow ? (
+            <p className="mt-6 text-center text-sm text-muted">
+              Submissions for {connection.department.name} are only accepted between{" "}
+              {formatManilaWindow(
+                connection.department.submissionWindowStart!,
+                connection.department.submissionWindowEnd!,
+              )}
+              . Please come back during that window.
+            </p>
+          ) : clusters.length === 0 ? (
+            <p className="mt-6 text-center text-sm text-muted">
+              No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are configured for{" "}
+              {connection.department.name} yet.
+            </p>
+          ) : (
+            <>
+              {clusterParam && (
+                <p className="mt-4 text-center text-sm text-danger">
+                  &ldquo;{clusterParam}&rdquo; isn&apos;t one of {connection.department.name}
+                  &apos;s areas — pick one below.
+                </p>
+              )}
+              <ClusterForm
+                clusters={clusters}
+                extraParams={{
+                  connectionId: connection.id,
+                  period,
+                  ...(dateParam ? { date: dateParam } : {}),
+                }}
+              />
+            </>
+          )}
+          <Link href={backToPeriodHref} className="mt-6 block text-center text-xs text-muted hover:underline">
+            Start over
+          </Link>
+        </Card>
+      </>
+    );
+  }
+
+  const kpiDefinitions = await prisma.kpiDefinition.findMany({
+    where: { departmentId: connection.departmentId, period, cluster: selectedCluster.cluster },
+    orderBy: { name: "asc" },
+    include: { kpiConfigs: { where: { connectionId: connection.id } } },
+  });
+  const kpis = kpiDefinitions
+    .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
+    .filter(({ config }) => config?.isApplicable ?? true);
+
+  const alreadySubmitted =
+    session.role === "VA" && selectedCluster.submittedCount >= selectedCluster.kpiCount;
+
+  const clusterStepHref = `/dashboard/submit-kpi?${new URLSearchParams({
+    connectionId: connection.id,
+    period,
+    ...(dateParam ? { date: dateParam } : {}),
+  }).toString()}`;
+
   return (
     <>
-      <PageHeader
-        title="Submit KPI"
-        description={`${connection.clientName} · ${connection.department.name} · ${
-          period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"
-        }`}
-      />
+      <PageHeader title="Submit KPI" description={`${headerDescription} · ${selectedCluster.cluster}`} />
       <Card className="mx-auto max-w-lg p-8">
         {alreadySubmitted ? (
           <p className="text-center text-sm text-muted">
-            This period has already been submitted. Contact your Team Leader or Manager if it
-            needs to be corrected.
+            {selectedCluster.cluster} has already been submitted for this period. Contact your
+            Team Leader or Manager if it needs to be corrected.
           </p>
         ) : outsideWindow ? (
           <p className="text-center text-sm text-muted">
@@ -198,13 +299,13 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
           </p>
         ) : kpis.length === 0 ? (
           <p className="text-center text-sm text-muted">
-            No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are configured for{" "}
-            {connection.department.name} yet.
+            No KPIs are configured for {selectedCluster.cluster} yet.
           </p>
         ) : (
           <form action={createSubmission}>
             <input type="hidden" name="connectionId" value={connection.id} />
             <input type="hidden" name="period" value={period} />
+            <input type="hidden" name="cluster" value={selectedCluster.cluster} />
             <input type="hidden" name="returnTo" value="/dashboard/submit-kpi" />
             {dateParam && <input type="hidden" name="date" value={dateParam} />}
             <div className="space-y-3">
@@ -221,6 +322,7 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
                   hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
                     kpi.direction === KpiDirection.HIGHER_IS_BETTER ? "higher is better" : "lower is better"
                   }`}
+                  cluster={selectedCluster.cluster}
                   index={i}
                 />
               ))}
@@ -231,7 +333,10 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
             </div>
           </form>
         )}
-        <Link href={backToPeriodHref} className="mt-6 block text-center text-xs text-muted hover:underline">
+        <Link href={clusterStepHref} className="mt-6 block text-center text-xs text-muted hover:underline">
+          Back to areas
+        </Link>
+        <Link href={backToPeriodHref} className="mt-1.5 block text-center text-xs text-muted hover:underline">
           Start over
         </Link>
       </Card>

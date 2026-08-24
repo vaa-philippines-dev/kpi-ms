@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckCircle2, ArrowRight, X } from "lucide-react";
+import { CheckCircle2, ArrowRight } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
@@ -15,39 +15,15 @@ import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-w
 import { rollupStatus } from "@/lib/performance";
 import { normalizeShortCode } from "@/lib/connection-short-code";
 import { checkRateLimit, formatRetryAfter } from "@/lib/rate-limit";
+import { getKpiClusters, groupByCluster } from "@/lib/kpi-cluster";
 import { createSubmission } from "./actions";
 import { PeriodForm } from "./period-form";
 import { CodeForm } from "./code-form";
+import { ClusterForm } from "./cluster-form";
 import { SubmitFade } from "./submit-fade";
+import { SubmitShell } from "./submit-shell";
 
-const TOTAL_STEPS = 3;
-
-// Presented as a modal over the landing hero — same chrome as AuthModal —
-// but /submit stays its own real URL, since it's the link VAs actually
-// bookmark/get sent directly rather than reach by clicking through "/".
-function SubmitShell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-16">
-      <HeroBackground />
-      {/* overflow-y-auto here (not on the card) is load-bearing: with ~9+
-          KPIs the card can grow taller than the viewport, and without this
-          the fixed overlay just clips it — the title and Submit button
-          become unreachable with no way to scroll to them. */}
-      <div className="animate-overlay-in fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/60 p-6 backdrop-blur-sm">
-        <Link
-          href="/"
-          aria-label="Close"
-          className="fixed top-5 right-5 z-[60] text-muted transition hover:text-foreground"
-        >
-          <X className="size-4" />
-        </Link>
-        <div className="animate-modal-pop relative my-auto w-full max-w-lg rounded-2xl border border-surface-border bg-surface p-8 shadow-2xl shadow-black/40">
-          {children}
-        </div>
-      </div>
-    </main>
-  );
-}
+const TOTAL_STEPS = 4;
 
 function StepHeader({ step, title, subtitle }: { step: number; title: string; subtitle?: string }) {
   return (
@@ -90,6 +66,7 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
       : undefined;
   const dateParam = typeof searchParams.date === "string" ? searchParams.date : undefined;
   const codeParam = typeof searchParams.code === "string" ? searchParams.code.trim() : undefined;
+  const clusterParam = typeof searchParams.cluster === "string" ? searchParams.cluster : undefined;
   const success = searchParams.success === "1";
 
   const session = await auth();
@@ -99,6 +76,23 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
       typeof searchParams.connectionId === "string" ? searchParams.connectionId : undefined;
     const successPeriodStartRaw =
       typeof searchParams.periodStart === "string" ? searchParams.periodStart : undefined;
+    const successPeriod =
+      typeof searchParams.period === "string" && Object.values(KpiPeriod).includes(searchParams.period as KpiPeriod)
+        ? searchParams.period
+        : undefined;
+    const successCode = typeof searchParams.code === "string" ? searchParams.code : undefined;
+    const successDate = typeof searchParams.date === "string" ? searchParams.date : undefined;
+    // Straight back to the cluster picker for this same connection/period —
+    // most VAs have more than one area to submit in a sitting, and
+    // shouldn't have to re-enter the period and connection code each time.
+    const submitAnotherAreaHref =
+      successPeriod && successCode
+        ? `/submit?${new URLSearchParams({
+            period: successPeriod,
+            code: successCode,
+            ...(successDate ? { date: successDate } : {}),
+          }).toString()}`
+        : undefined;
     const summaries =
       successConnectionId && successPeriodStartRaw
         ? await prisma.performanceSummary.findMany({
@@ -107,10 +101,15 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
               periodStart: new Date(successPeriodStartRaw),
             },
             include: { kpiDefinition: true },
-            orderBy: { kpiDefinition: { name: "asc" } },
+            orderBy: [{ kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { name: "asc" } }],
           })
         : [];
     const overall = summaries.length > 0 ? rollupStatus(summaries.map((s) => s.status)) : null;
+    // Grouped by cluster/area — a period can accumulate submissions from
+    // more than one area, and several areas share KPI names (e.g. Facebook
+    // and Instagram both have an "Engagement Rate"), so a flat list would
+    // read as duplicates.
+    const groupedSummaries = groupByCluster(summaries);
 
     return (
       <SubmitShell>
@@ -127,24 +126,42 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
               <StatusBadge status={overall} />
             </div>
           )}
-          {summaries.length > 0 && (
-            <ul className="mt-4 space-y-1.5 text-left">
-              {summaries.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center justify-between rounded-lg border border-surface-border px-3 py-1.5 text-sm"
-                >
-                  <span>{s.kpiDefinition.name}</span>
-                  <StatusBadge status={s.status} />
-                </li>
+          {groupedSummaries.length > 0 && (
+            <div className="mt-4 space-y-4 text-left">
+              {groupedSummaries.map((group) => (
+                <div key={group.cluster}>
+                  <p className="mb-1.5 text-xs font-medium tracking-wide text-muted uppercase">
+                    {group.cluster}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {group.items.map((s) => (
+                      <li
+                        key={s.id}
+                        className="flex items-center justify-between rounded-lg border border-surface-border px-3 py-1.5 text-sm"
+                      >
+                        <span>{s.kpiDefinition.name}</span>
+                        <StatusBadge status={s.status} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
+          )}
+          {submitAnotherAreaHref && (
+            <Link
+              href={submitAnotherAreaHref}
+              className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:opacity-90"
+            >
+              Submit another area
+              <ArrowRight className="size-4" />
+            </Link>
           )}
           <Link
             href="/submit"
-            className="mt-6 inline-block text-sm text-accent hover:underline"
+            className="mt-3 block text-center text-sm text-accent hover:underline"
           >
-            Submit another
+            Submit for a different connection
           </Link>
         </div>
       </SubmitShell>
@@ -270,8 +287,86 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     );
   }
 
+  // VAs can't resubmit once a period is finalized; managers (DM/OM/ADMIN)
+  // can still go back and correct it — mirrors the legacy
+  // isSummarySubmitted() check. Computed once up front since both the
+  // cluster picker (Step 3) and the value-entry step (Step 4) need it.
+  const weekStartDay = await getWeekStartDay();
+  const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
+
+  const clusterStepHref = `/submit?${new URLSearchParams({
+    period,
+    ...(dateParam ? { date: dateParam } : {}),
+    code: codeParam,
+  }).toString()}`;
+
+  const clusters = await getKpiClusters({
+    departmentId: connection.departmentId,
+    period,
+    connectionId: connection.id,
+    periodStart,
+  });
+
+  // Daily submission window (VAs only) — spreads submission traffic across
+  // the day instead of everyone hitting /submit at the same time. Checked
+  // before the cluster picker too, so a VA outside the window sees why
+  // there's nothing to pick rather than an empty-looking list.
+  const outsideWindow =
+    session.user.role === "VA" &&
+    !isWithinSubmissionWindow(
+      connection.department.submissionWindowStart,
+      connection.department.submissionWindowEnd,
+      new Date(),
+    );
+
+  const subtitle = `${connection.vaUser.name ?? connection.vaUser.email} · ${connection.clientName} · ${
+    connection.department.name
+  } · ${period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}`;
+
+  // Step 3: which cluster (e.g. Facebook, Instagram, Amazon Task-based) —
+  // lets a VA submit one focused group of KPIs at a time instead of
+  // scrolling every KPI the department has.
+  const selectedCluster = clusterParam ? clusters.find((c) => c.cluster === clusterParam) : undefined;
+  if (!clusterParam || !selectedCluster) {
+    return (
+      <SubmitShell>
+        <StepHeader step={3} title="Which area are you submitting for?" subtitle={subtitle} />
+        {outsideWindow ? (
+          <p className="mt-6 text-center text-sm text-muted">
+            Submissions for {connection.department.name} are only accepted
+            between{" "}
+            {formatManilaWindow(
+              connection.department.submissionWindowStart!,
+              connection.department.submissionWindowEnd!,
+            )}
+            . Please come back during that window.
+          </p>
+        ) : clusters.length === 0 ? (
+          <p className="mt-6 text-center text-sm text-muted">
+            No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are
+            configured for {connection.department.name} yet.
+          </p>
+        ) : (
+          <>
+            {clusterParam && (
+              <p className="mt-4 text-center text-sm text-danger">
+                &ldquo;{clusterParam}&rdquo; isn&apos;t one of {connection.department.name}
+                &apos;s areas — pick one below.
+              </p>
+            )}
+            <ClusterForm
+              clusters={clusters}
+              extraParams={{ period, ...(dateParam ? { date: dateParam } : {}), code: codeParam }}
+            />
+          </>
+        )}
+        <StartOverLink />
+      </SubmitShell>
+    );
+  }
+
   const kpiDefinitions = await prisma.kpiDefinition.findMany({
-    where: { departmentId: connection.departmentId, period },
+    where: { departmentId: connection.departmentId, period, cluster: selectedCluster.cluster },
     orderBy: { name: "asc" },
     include: { kpiConfigs: { where: { connectionId: connection.id } } },
   });
@@ -285,41 +380,18 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
     .filter(({ config }) => config?.isApplicable ?? true);
 
-  // VAs can't resubmit once a period is finalized; managers (DM/OM/ADMIN)
-  // can still go back and correct it — mirrors the legacy
-  // isSummarySubmitted() check.
-  const weekStartDay = await getWeekStartDay();
-  const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
   const alreadySubmitted =
-    session.user.role === "VA" &&
-    (await prisma.performanceSummary.findFirst({
-      where: { connectionId: connection.id, periodStart },
-    })) !== null;
-
-  // Daily submission window (VAs only) — spreads submission traffic across
-  // the day instead of everyone hitting /submit at the same time.
-  const outsideWindow =
-    session.user.role === "VA" &&
-    !isWithinSubmissionWindow(
-      connection.department.submissionWindowStart,
-      connection.department.submissionWindowEnd,
-      new Date(),
-    );
+    session.user.role === "VA" && selectedCluster.submittedCount >= selectedCluster.kpiCount;
 
   return (
     <SubmitShell>
-      <StepHeader
-        step={3}
-        title="Enter your KPI values"
-        subtitle={`${connection.vaUser.name ?? connection.vaUser.email} · ${connection.clientName} · ${
-          connection.department.name
-        } · ${period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}`}
-      />
+      <StepHeader step={4} title={selectedCluster.cluster} subtitle={subtitle} />
 
       {alreadySubmitted ? (
         <p className="mt-6 text-center text-sm text-muted">
-          This period has already been submitted. Contact your Team Leader or
-          Manager if it needs to be corrected.
+          {selectedCluster.cluster} has already been submitted for this
+          period. Contact your Team Leader or Manager if it needs to be
+          corrected.
         </p>
       ) : outsideWindow ? (
         <p className="mt-6 text-center text-sm text-muted">
@@ -333,13 +405,13 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
         </p>
       ) : kpis.length === 0 ? (
         <p className="mt-6 text-center text-sm text-muted">
-          No {period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are
-          configured for {connection.department.name} yet.
+          No KPIs are configured for {selectedCluster.cluster} yet.
         </p>
       ) : (
         <form action={createSubmission} className="mt-8">
           <input type="hidden" name="connectionId" value={connection.id} />
           <input type="hidden" name="period" value={period} />
+          <input type="hidden" name="cluster" value={selectedCluster.cluster} />
           {dateParam && <input type="hidden" name="date" value={dateParam} />}
           <SubmitFade>
             {/* A preview of what's about to be recorded — the VA sees this
@@ -362,6 +434,7 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
                     ? "higher is better"
                     : "lower is better"
                 }`}
+                cluster={selectedCluster.cluster}
                 index={i}
               />
             ))}
@@ -373,6 +446,12 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
         </form>
       )}
 
+      <Link
+        href={clusterStepHref}
+        className="mt-6 block text-center text-xs text-muted hover:underline"
+      >
+        Back to areas
+      </Link>
       <StartOverLink />
     </SubmitShell>
   );

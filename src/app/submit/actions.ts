@@ -22,6 +22,8 @@ export async function createSubmission(formData: FormData) {
   const anchorDate = parseAnchorDate(
     typeof formData.get("date") === "string" ? String(formData.get("date")) : undefined,
   );
+  const clusterRaw = formData.get("cluster");
+  const cluster = typeof clusterRaw === "string" && clusterRaw.length > 0 ? clusterRaw : undefined;
 
   if (!connectionId || !Object.values(KpiPeriod).includes(period)) {
     throw new Error("Missing connection or period.");
@@ -87,7 +89,8 @@ export async function createSubmission(formData: FormData) {
 
   const kpisWithConfig = connection.department.kpiDefinitions
     .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
-    .filter(({ config }) => config?.isApplicable ?? true);
+    .filter(({ config }) => config?.isApplicable ?? true)
+    .filter(({ kpi }) => !cluster || kpi.cluster === cluster);
 
   const values: { kpiDefinitionId: string; value: number | null; noData: boolean }[] = [];
   const rawPayload: Record<string, number | string> = {};
@@ -116,12 +119,22 @@ export async function createSubmission(formData: FormData) {
   const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
 
   if (session.user.role === "VA") {
+    // Scoped to just this cluster's KPIs (not the whole department/period) —
+    // clusters are submitted one at a time, so an earlier cluster's summary
+    // rows must not block a later, still-unsubmitted cluster for the same
+    // period.
     const alreadySubmitted = await prisma.performanceSummary.findFirst({
-      where: { connectionId, periodStart },
+      where: {
+        connectionId,
+        periodStart,
+        kpiDefinitionId: { in: kpisWithConfig.map(({ kpi }) => kpi.id) },
+      },
     });
     if (alreadySubmitted) {
       throw new Error(
-        "This period has already been submitted. Contact your Team Leader or Manager to correct it.",
+        cluster
+          ? `${cluster} has already been submitted for this period. Contact your Team Leader or Manager if it needs to be corrected.`
+          : "This period has already been submitted. Contact your Team Leader or Manager to correct it.",
       );
     }
   }
@@ -210,7 +223,23 @@ export async function createSubmission(formData: FormData) {
   const requestedReturnTo = formData.get("returnTo");
   const returnTo = requestedReturnTo === "/dashboard/submit-kpi" ? requestedReturnTo : "/submit";
 
-  redirect(
-    `${returnTo}?success=1&connectionId=${connectionId}&periodStart=${periodStart.toISOString()}`,
-  );
+  // Carried through so the success screen can offer a direct "submit
+  // another area" link straight back to the cluster picker for this same
+  // connection/period, instead of making the VA re-enter the period (and,
+  // on the public /submit flow, their connection code) from scratch.
+  const successParams = new URLSearchParams({
+    success: "1",
+    connectionId,
+    periodStart: periodStart.toISOString(),
+    period,
+  });
+  const dateRaw = formData.get("date");
+  if (typeof dateRaw === "string" && dateRaw) {
+    successParams.set("date", dateRaw);
+  }
+  if (returnTo === "/submit") {
+    successParams.set("code", connection.shortCode);
+  }
+
+  redirect(`${returnTo}?${successParams.toString()}`);
 }
