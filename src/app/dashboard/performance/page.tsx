@@ -4,6 +4,7 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
 import { SubmissionTrendChart } from "@/components/submission-trend-chart";
 import { DeptTeamSummaryPanel } from "@/components/dept-team-summary-panel";
+import { PerformanceStatCards } from "@/components/performance-stat-cards";
 import {
   PerformanceSummaryTabs,
   type ConnectionSummaryRow,
@@ -124,13 +125,6 @@ export default async function PerformancePage(
     }),
   );
 
-  const perfCounts = { onTarget: 0, atRisk: 0, critical: 0 };
-  for (const row of connectionRows) {
-    if (row.status === PerformanceStatus.ON_TARGET) perfCounts.onTarget++;
-    else if (row.status === PerformanceStatus.AT_RISK) perfCounts.atRisk++;
-    else if (row.status === PerformanceStatus.CRITICAL) perfCounts.critical++;
-  }
-
   const latestSubmission = submissionTrend[submissionTrend.length - 1];
 
   return (
@@ -182,24 +176,13 @@ export default async function PerformancePage(
               <div className="rounded-xl border border-surface-border bg-surface p-5">
                 <h2 className="text-sm font-semibold">Performance Trend</h2>
                 <p className="mb-4 text-xs text-muted">On Target / At Risk / Critical</p>
-                <div className="mb-4 grid grid-cols-4 gap-2">
-                  <div className="rounded-lg border border-surface-border p-3">
-                    <div className="text-2xl font-semibold">{totalConnections}</div>
-                    <div className="mt-0.5 text-xs text-muted">Total</div>
-                  </div>
-                  <div className="rounded-lg border border-success/30 p-3 text-success">
-                    <div className="text-2xl font-semibold">{perfCounts.onTarget}</div>
-                    <div className="mt-0.5 text-xs">On Target</div>
-                  </div>
-                  <div className="rounded-lg border border-warning/30 p-3 text-warning">
-                    <div className="text-2xl font-semibold">{perfCounts.atRisk}</div>
-                    <div className="mt-0.5 text-xs">At Risk</div>
-                  </div>
-                  <div className="rounded-lg border border-danger/30 p-3 text-danger">
-                    <div className="text-2xl font-semibold">{perfCounts.critical}</div>
-                    <div className="mt-0.5 text-xs">Critical</div>
-                  </div>
-                </div>
+                <PerformanceStatCards
+                  totalConnections={totalConnections}
+                  connectionRows={connectionRows}
+                  weeklyStart={weeklyStart.toISOString()}
+                  isManager={isManager}
+                  interventionTypes={interventionTypes}
+                />
                 <PerformanceTrendChart points={performanceTrend} />
               </div>
             </div>
