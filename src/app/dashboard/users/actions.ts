@@ -32,6 +32,30 @@ function optionalId(formData: FormData, key: string): string | null {
   return value === "" ? null : value;
 }
 
+// Guards against assigning a user to a team/service that belongs to a
+// different department than the one they're being placed in. Without this,
+// a DM could smuggle in a team/service from another department even though
+// departmentId itself is locked down — and connection-scope.ts's OM branch
+// keys visibility off team leadership, so this is a real cross-department
+// escalation route, not just a data-integrity nicety.
+async function assertTeamAndServiceInDepartment(
+  teamId: string | null,
+  serviceId: string | null,
+  departmentId: string | null,
+): Promise<void> {
+  const [team, service] = await Promise.all([
+    teamId ? prisma.team.findUnique({ where: { id: teamId } }) : null,
+    serviceId ? prisma.service.findUnique({ where: { id: serviceId } }) : null,
+  ]);
+
+  if (teamId && (!team || team.departmentId !== departmentId)) {
+    throw new Error("Selected team does not belong to the chosen department.");
+  }
+  if (serviceId && (!service || service.departmentId !== departmentId)) {
+    throw new Error("Selected service does not belong to the chosen department.");
+  }
+}
+
 export async function createUser(formData: FormData) {
   const session = await requireManager();
   const email = String(formData.get("email") ?? "")
@@ -55,6 +79,8 @@ export async function createUser(formData: FormData) {
     // what the form submitted.
     departmentId = session.departmentId;
   }
+
+  await assertTeamAndServiceInDepartment(teamId, serviceId, departmentId);
 
   // Pre-provisions the row so it's ready with the right role/department the
   // moment this person signs in with Google — the NextAuth jwt callback
@@ -97,6 +123,8 @@ export async function updateUser(formData: FormData) {
     departmentId = session.departmentId;
   }
 
+  await assertTeamAndServiceInDepartment(teamId, serviceId, departmentId);
+
   await prisma.user.update({
     where: { id },
     data: { name, role, departmentId, serviceId, teamId },
@@ -116,6 +144,8 @@ export async function bulkCreateUsers(formData: FormData) {
   if (session.role === "DM") {
     departmentId = session.departmentId;
   }
+
+  await assertTeamAndServiceInDepartment(teamId, serviceId, departmentId);
 
   const rows = raw
     .split("\n")
