@@ -171,6 +171,7 @@ export function PerformanceSummaryTabs({
 
       {tab === "connection" ? (
         <DataTable
+          key="connection"
           columns={connectionColumns}
           data={connectionRows}
           getRowId={(r) => r.connectionId}
@@ -180,6 +181,7 @@ export function PerformanceSummaryTabs({
         />
       ) : (
         <DataTable
+          key="client"
           columns={clientColumns}
           data={clientRows}
           getRowId={(r) => r.clientName}
