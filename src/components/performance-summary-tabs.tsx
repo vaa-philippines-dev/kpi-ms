@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Flag } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Modal } from "@/components/ui/modal";
 import { StatusBadge, STATUS_LABEL } from "@/components/status-badge";
 import { PerformanceDetailModal } from "@/components/performance-detail-modal";
 import { PerformanceStatus, ConnectionType } from "@/generated/prisma/enums";
@@ -144,6 +145,10 @@ export function PerformanceSummaryTabs({
 }) {
   const [tab, setTab] = useState<"connection" | "client">("connection");
   const [openConnectionId, setOpenConnectionId] = useState<string | null>(null);
+  const [openClientName, setOpenClientName] = useState<string | null>(null);
+
+  const connectionsForClient = (clientName: string) =>
+    connectionRows.filter((r) => r.clientName === clientName);
 
   return (
     <div>
@@ -186,8 +191,42 @@ export function PerformanceSummaryTabs({
           data={clientRows}
           getRowId={(r) => r.clientName}
           defaultSort={{ key: "status", dir: "desc" }}
+          onRowClick={(r) => setOpenClientName(r.clientName)}
           emptyMessage="No clients with performance data for this period."
         />
+      )}
+
+      {openClientName && (
+        <Modal open onClose={() => setOpenClientName(null)} title={openClientName}>
+          <ul className="divide-y divide-surface-border">
+            {connectionsForClient(openClientName).map((row) => (
+              <li key={row.connectionId}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenConnectionId(row.connectionId);
+                    setOpenClientName(null);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 py-2.5 text-left transition hover:bg-surface-hover"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      <StatusBadge status={row.status} />
+                    </p>
+                    <p className="truncate text-xs text-muted">
+                      {row.vaName} · {row.departmentName}
+                      {row.teamName ? ` · ${row.teamName}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
+                    {row.isFlagged && <Flag className="size-3.5 fill-danger text-danger" />}
+                    {row.durationDays}d
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
       )}
 
       {openConnectionId && (
