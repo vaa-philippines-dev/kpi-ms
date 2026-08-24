@@ -41,10 +41,43 @@ const numOrNull = (v: string | undefined) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
+const MONTH_ABBR: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * The legacy Connections sheet's StartDate mixes two formats depending on
+ * when the row was written — older rows from Apps Script are "Jul 04 2022"
+ * (confirmed via a live sheet dump: ~800 of ~835 rows), newer ones are
+ * ISO "2026-07-30" (~31 rows). The previous implementation assumed ISO and
+ * `.slice(0, 10)`'d everything, which truncates "Jul 04 2022" to "Jul 04
+ * 202" (losing the last digit of the year) — silently Invalid-Date on
+ * every non-ISO row, which is why ~807/838 synced connections ended up
+ * with a null startDate (and every page fell back to createdAt instead,
+ * showing the sync date for all of them). Both branches build via
+ * Date.UTC explicitly rather than `new Date(string)`, since the latter
+ * parses date-only strings in the runtime's local timezone.
+ */
 const dateOrNull = (v: string | undefined) => {
   if (v === undefined || v === "") return null;
-  const d = new Date(`${v.trim().slice(0, 10)}T00:00:00.000Z`);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const trimmed = v.trim();
+
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  }
+
+  const legacy = trimmed.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})$/);
+  if (legacy) {
+    const [, mon, d, y] = legacy;
+    const monthIndex = MONTH_ABBR[mon.toLowerCase()];
+    if (monthIndex === undefined) return null;
+    return new Date(Date.UTC(Number(y), monthIndex, Number(d)));
+  }
+
+  return null;
 };
 
 // Confirmed with the user: legacy's 5 roles map onto this schema's enum as
