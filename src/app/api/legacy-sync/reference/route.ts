@@ -6,10 +6,26 @@ export async function POST() {
   if (session?.user?.role !== "ADMIN") {
     return Response.json({ error: "Admin only" }, { status: 403 });
   }
-  try {
-    const report = await runReferenceSync(session.user.id);
-    return Response.json({ report });
-  } catch (e) {
-    return Response.json({ error: (e as Error).message }, { status: 500 });
-  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: unknown) =>
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      try {
+        const report = await runReferenceSync(session.user!.id, (phase, done, total) =>
+          send({ type: "progress", phase, done, total }),
+        );
+        send({ type: "done", report });
+      } catch (e) {
+        send({ type: "error", error: (e as Error).message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
 }

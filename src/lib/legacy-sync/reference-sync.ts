@@ -79,7 +79,10 @@ const STATUS_MAP: Record<string, ConnectionStatus> = {
  * weekly/monthly variants), a per-row existence check would mean tens of
  * thousands of extra round-trips to a remote Postgres instance.
  */
-export async function runReferenceSync(triggeredByUserId: string): Promise<SyncReport> {
+export async function runReferenceSync(
+  triggeredByUserId: string,
+  onProgress?: (phase: string, done: number, total: number) => void,
+): Promise<SyncReport> {
   const report: SyncReport = {};
 
   // --- Departments (upsert by name, already unique) ---
@@ -89,11 +92,11 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
   const existingDeptNames = new Set(
     (await prisma.department.findMany({ select: { name: true } })).map((d) => d.name),
   );
-  for (const row of legacyDepts) {
+  await mapWithConcurrency(legacyDepts, 10, async (row) => {
     try {
       if (!row.DeptID || !row.DeptName) {
         deptResult.skipped++;
-        continue;
+        return;
       }
       const willUpdate = existingDeptNames.has(row.DeptName);
       const dept = await prisma.department.upsert({
@@ -107,7 +110,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       deptResult.errors.push(`${row.DeptID}: ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("departments", done, total));
   report.departments = deptResult;
 
   // --- Services ---
@@ -119,12 +122,12 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
       (s) => s.legacyId,
     ),
   );
-  for (const row of legacySvcs) {
+  await mapWithConcurrency(legacySvcs, 10, async (row) => {
     try {
       const departmentId = deptMap.get(row.DeptID ?? "");
       if (!row.ServiceID || !row.ServiceName || !departmentId) {
         svcResult.skipped++;
-        continue;
+        return;
       }
       const willUpdate = existingSvcIds.has(row.ServiceID);
       const svc = await prisma.service.upsert({
@@ -147,7 +150,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       svcResult.errors.push(`${row.ServiceID}: ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("services", done, total));
   report.services = svcResult;
 
   // --- Users (upsert by email, already unique) ---
@@ -157,13 +160,13 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
   const existingUserEmails = new Set(
     (await prisma.user.findMany({ select: { email: true } })).map((u) => u.email),
   );
-  for (const row of legacyUsers) {
+  await mapWithConcurrency(legacyUsers, 10, async (row) => {
     try {
       const email = (row.Email ?? "").trim().toLowerCase();
       const role = ROLE_MAP[row.Role ?? ""];
       if (!row.UserID || !email || !role) {
         userResult.skipped++;
-        continue;
+        return;
       }
       const name = [row.FirstName, row.LastName].filter(Boolean).join(" ") || null;
       const departmentId = deptMap.get(row.Department ?? "");
@@ -193,7 +196,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       userResult.errors.push(`${row.UserID}: ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("users", done, total));
   report.users = userResult;
 
   // --- Teams (two-pass: create/update core fields, then wire leader refs
@@ -206,12 +209,12 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
       (t) => t.legacyId,
     ),
   );
-  for (const row of legacyTeams) {
+  await mapWithConcurrency(legacyTeams, 10, async (row) => {
     try {
       const departmentId = deptMap.get(row.DeptID ?? "");
       if (!row.TeamID || !row.TeamName || !departmentId) {
         teamResult.skipped++;
-        continue;
+        return;
       }
       const willUpdate = existingTeamIds.has(row.TeamID);
       const team = await prisma.team.upsert({
@@ -234,14 +237,14 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       teamResult.errors.push(`${row.TeamID}: ${(e as Error).message}`);
     }
-  }
-  for (const row of legacyTeams) {
+  }, (done, total) => onProgress?.("teams", done, total));
+  await mapWithConcurrency(legacyTeams, 10, async (row) => {
     const teamId = teamMap.get(row.TeamID ?? "");
-    if (!teamId) continue;
+    if (!teamId) return;
     const teamLeaderId = userMap.get(row.TeamLeaderUserID ?? "");
     const tempLeader1Id = userMap.get(row.TempLeader1UserID ?? "");
     const tempLeader2Id = userMap.get(row.TempLeader2UserID ?? "");
-    if (!teamLeaderId && !tempLeader1Id && !tempLeader2Id) continue;
+    if (!teamLeaderId && !tempLeader1Id && !tempLeader2Id) return;
     try {
       await prisma.team.update({
         where: { id: teamId },
@@ -253,7 +256,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       teamResult.errors.push(`${row.TeamID} (leader wiring): ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("teams-leaders", done, total));
   report.teams = teamResult;
 
   // --- Connections (upsert by externalWfmId = legacy ConnectionID) ---
@@ -268,13 +271,13 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
       })
     ).map((c) => c.externalWfmId),
   );
-  for (const row of legacyConns) {
+  await mapWithConcurrency(legacyConns, 10, async (row) => {
     try {
       const vaUserId = userMap.get(row.VAUserID ?? "");
       const departmentId = deptMap.get(row.DeptID ?? "");
       if (!row.ConnectionID || !vaUserId || !departmentId || !row.ClientName) {
         connResult.skipped++;
-        continue;
+        return;
       }
       const serviceId = svcMap.get(row.ServiceID ?? "");
       const teamId = teamMap.get(row.TeamID ?? "");
@@ -324,7 +327,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       connResult.errors.push(`${row.ConnectionID}: ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("connections", done, total));
   report.connections = connResult;
 
   // --- KPI_Master -> KpiDefinition (one legacy row fans out to a WEEKLY
@@ -340,11 +343,11 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
       })
     ).map((k) => `${k.legacyId}:${k.period}`),
   );
-  for (const row of legacyKpis) {
+  await mapWithConcurrency(legacyKpis, 10, async (row) => {
     const departmentId = deptMap.get(row.DeptID ?? "");
     if (!row.KPIID || !row.KPIName || !departmentId) {
       kpiResult.skipped++;
-      continue;
+      return;
     }
     const serviceId = svcMap.get(row.ServiceID ?? "");
     const direction =
@@ -395,7 +398,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
         kpiResult.errors.push(`${row.KPIID}:${period}: ${(e as Error).message}`);
       }
     }
-  }
+  }, (done, total) => onProgress?.("kpiDefinitions", done, total));
   report.kpiDefinitions = kpiResult;
 
   // --- KPI_Config (per-connection override; same fan-out as KPI_Master) ---
@@ -493,7 +496,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       cfgResult.errors.push(`${configId}:${period}: ${(e as Error).message}`);
     }
-  });
+  }, (done, total) => onProgress?.("kpiConfigs", done, total));
   report.kpiConfigs = cfgResult;
 
   // --- Interventions ---
@@ -507,12 +510,12 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
       })
     ).map((i) => i.legacyId),
   );
-  for (const row of legacyIvs) {
+  await mapWithConcurrency(legacyIvs, 10, async (row) => {
     try {
       const connectionId = connMap.get(row.ConnectionID ?? "");
       if (!row.InterventionID || !connectionId || !row.Type || !row.Description) {
         ivResult.skipped++;
-        continue;
+        return;
       }
       const createdById = userMap.get(row.CreatedBy ?? "") ?? triggeredByUserId;
       const willUpdate = existingIvIds.has(row.InterventionID);
@@ -539,7 +542,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       ivResult.errors.push(`${row.InterventionID}: ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("interventions", done, total));
   report.interventions = ivResult;
 
   // --- Settings ---
@@ -548,13 +551,13 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
   const existingSettingKeys = new Set(
     (await prisma.setting.findMany({ select: { key: true } })).map((s) => s.key),
   );
-  for (const row of legacySettings) {
+  await mapWithConcurrency(legacySettings, 10, async (row) => {
     try {
       // APP_NAME is this app's own branding, not legacy config — never
       // let a re-sync clobber it with the old system's name.
       if (!row.SettingKey || row.SettingKey === "APP_NAME") {
         settingResult.skipped++;
-        continue;
+        return;
       }
       const value = normalizeSettingValue(row.SettingKey, row.SettingValue ?? "");
       const willUpdate = existingSettingKeys.has(row.SettingKey);
@@ -568,7 +571,7 @@ export async function runReferenceSync(triggeredByUserId: string): Promise<SyncR
     } catch (e) {
       settingResult.errors.push(`${row.SettingKey}: ${(e as Error).message}`);
     }
-  }
+  }, (done, total) => onProgress?.("settings", done, total));
   report.settings = settingResult;
 
   return report;

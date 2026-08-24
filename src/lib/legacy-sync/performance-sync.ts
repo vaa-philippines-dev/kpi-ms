@@ -51,7 +51,9 @@ function parsePeriodStart(raw: string, period: KpiPeriod): Date | null {
  * below) rather than one at a time — serial awaits over that many rows
  * blew past Vercel's function timeout before this ran to completion.
  */
-export async function runPerformanceSync(): Promise<SyncReport> {
+export async function runPerformanceSync(
+  onProgress?: (phase: string, done: number, total: number) => void,
+): Promise<SyncReport> {
   const report: SyncReport = {};
 
   const [connections, kpiDefs] = await Promise.all([
@@ -184,7 +186,7 @@ export async function runPerformanceSync(): Promise<SyncReport> {
       } catch (e) {
         result.errors.push(`${job.summaryId}/${job.kpiId}: ${(e as Error).message}`);
       }
-    });
+    }, (done, total) => onProgress?.(sheetName, done, total));
 
     report[sheetName] = result;
   }

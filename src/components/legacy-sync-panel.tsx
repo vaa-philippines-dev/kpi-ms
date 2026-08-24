@@ -32,22 +32,51 @@ function ReportTable({ report }: { report: SyncReport }) {
   );
 }
 
+type Progress = { phase: string; done: number; total: number };
+
 function SyncButton({ label, endpoint }: { label: string; endpoint: string }) {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<SyncReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
 
   async function run() {
     setLoading(true);
     setError(null);
     setReport(null);
+    setProgress(null);
     try {
       const res = await fetch(endpoint, { method: "POST" });
-      const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Sync failed.");
-      } else {
-        setReport(data.report);
+        const data = await res.json().catch(() => null);
+        setError(data?.error ?? "Sync failed.");
+        return;
+      }
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setError("No response body.");
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "progress") {
+            setProgress({ phase: event.phase, done: event.done, total: event.total });
+          } else if (event.type === "done") {
+            setReport(event.report);
+            setProgress(null);
+          } else if (event.type === "error") {
+            setError(event.error);
+          }
+        }
       }
     } catch {
       setError("Network error while syncing.");
@@ -55,6 +84,8 @@ function SyncButton({ label, endpoint }: { label: string; endpoint: string }) {
       setLoading(false);
     }
   }
+
+  const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null;
 
   return (
     <div className="rounded-lg border border-surface-border p-4">
@@ -64,6 +95,25 @@ function SyncButton({ label, endpoint }: { label: string; endpoint: string }) {
           {loading ? "Syncing…" : "Run Sync"}
         </Button>
       </div>
+      {loading && (
+        <div className="mt-2 text-xs text-muted">
+          {progress ? (
+            <>
+              <div>
+                {progress.phase}: {progress.done}/{progress.total} ({pct}%)
+              </div>
+              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface-border">
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            "Starting…"
+          )}
+        </div>
+      )}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
       {report && <ReportTable report={report} />}
     </div>
