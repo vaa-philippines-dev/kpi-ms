@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { connectionScopeWhere } from "@/lib/connection-scope";
 
 async function requireManager() {
   const session = await auth();
@@ -27,6 +28,19 @@ export async function createIntervention(formData: FormData) {
     throw new Error("Connection, type, and description are required.");
   }
 
+  const scope = connectionScopeWhere({
+    id: session!.user!.id,
+    role: session!.user!.role,
+    departmentId: session!.user!.departmentId,
+    teamId: session!.user!.teamId,
+  });
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...scope },
+  });
+  if (!connection) {
+    throw new Error("Connection not found.");
+  }
+
   await prisma.intervention.create({
     data: {
       connectionId,
@@ -43,7 +57,7 @@ export async function createIntervention(formData: FormData) {
 // Full edit — mirrors legacy updateIntervention(), which could revise any
 // field, not just the outcome.
 export async function updateIntervention(formData: FormData) {
-  await requireManager();
+  const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const type = String(formData.get("type") ?? "").trim();
@@ -53,6 +67,20 @@ export async function updateIntervention(formData: FormData) {
   if (!type || !description) {
     throw new Error("Type and description are required.");
   }
+
+  const scope = connectionScopeWhere({
+    id: session!.user!.id,
+    role: session!.user!.role,
+    departmentId: session!.user!.departmentId,
+    teamId: session!.user!.teamId,
+  });
+  const existing = await prisma.intervention.findFirst({
+    where: { id, connection: scope },
+  });
+  if (!existing) {
+    throw new Error("Intervention not found.");
+  }
+
   await prisma.intervention.update({
     where: { id },
     data: { type, description, actionTaken, outcome },
@@ -61,9 +89,23 @@ export async function updateIntervention(formData: FormData) {
 }
 
 export async function deleteIntervention(formData: FormData) {
-  await requireManager();
+  const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
+
+  const scope = connectionScopeWhere({
+    id: session!.user!.id,
+    role: session!.user!.role,
+    departmentId: session!.user!.departmentId,
+    teamId: session!.user!.teamId,
+  });
+  const existing = await prisma.intervention.findFirst({
+    where: { id, connection: scope },
+  });
+  if (!existing) {
+    throw new Error("Intervention not found.");
+  }
+
   await prisma.intervention.delete({ where: { id } });
   revalidatePath("/dashboard/interventions");
 }
