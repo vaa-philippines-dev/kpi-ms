@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { readLegacySheet } from "./sheets-client";
+import { mapWithConcurrency } from "./concurrency";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { PhaseResult, SyncReport } from "./reference-sync";
 
@@ -45,7 +46,10 @@ function parsePeriodStart(raw: string, period: KpiPeriod): Date | null {
  *
  * The existence check is one batch query per period (not one per row) —
  * with ~10.7k summary rows across both sheets, a per-row findUnique would
- * mean tens of thousands of extra round-trips to a remote Postgres.
+ * mean tens of thousands of extra round-trips to a remote Postgres. The
+ * upserts themselves run with bounded concurrency (see mapWithConcurrency
+ * below) rather than one at a time — serial awaits over that many rows
+ * blew past Vercel's function timeout before this ran to completion.
  */
 export async function runPerformanceSync(): Promise<SyncReport> {
   const report: SyncReport = {};
@@ -79,6 +83,20 @@ export async function runPerformanceSync(): Promise<SyncReport> {
         })
       ).map((s) => `${s.connectionId}:${s.kpiDefinitionId}:${s.periodStart.toISOString()}`),
     );
+
+    type Job = {
+      summaryId: string;
+      kpiId: string;
+      connectionId: string;
+      kpiDefinitionId: string;
+      periodStart: Date;
+      actualValue: number | null;
+      targetValue: number;
+      pct: number | null;
+      status: PerformanceStatus;
+      willUpdate: boolean;
+    };
+    const jobs: Job[] = [];
 
     for (const row of rows) {
       const connectionId = connMap.get(row.ConnectionID ?? "");
@@ -117,37 +135,57 @@ export async function runPerformanceSync(): Promise<SyncReport> {
           actualValue !== null && safeTargetValue !== 0
             ? (actualValue / safeTargetValue) * 100
             : null;
+        const key = `${connectionId}:${kpiDefinitionId}:${periodStart.toISOString()}`;
 
-        try {
-          const key = `${connectionId}:${kpiDefinitionId}:${periodStart.toISOString()}`;
-          const willUpdate = existingKeys.has(key);
-          await prisma.performanceSummary.upsert({
-            where: {
-              connectionId_kpiDefinitionId_periodStart: {
-                connectionId,
-                kpiDefinitionId,
-                periodStart,
-              },
-            },
-            create: {
-              connectionId,
-              kpiDefinitionId,
-              period,
-              periodStart,
-              actualValue,
-              targetValue: safeTargetValue,
-              pct,
-              status,
-            },
-            update: { actualValue, targetValue: safeTargetValue, pct, status },
-          });
-          if (willUpdate) result.updated++;
-          else result.created++;
-        } catch (e) {
-          result.errors.push(`${row.SummaryID}/${entry.kpiId}: ${(e as Error).message}`);
-        }
+        jobs.push({
+          summaryId: row.SummaryID ?? "",
+          kpiId: entry.kpiId,
+          connectionId,
+          kpiDefinitionId,
+          periodStart,
+          actualValue,
+          targetValue: safeTargetValue,
+          pct,
+          status,
+          willUpdate: existingKeys.has(key),
+        });
       }
     }
+
+    await mapWithConcurrency(jobs, 10, async (job) => {
+      try {
+        await prisma.performanceSummary.upsert({
+          where: {
+            connectionId_kpiDefinitionId_periodStart: {
+              connectionId: job.connectionId,
+              kpiDefinitionId: job.kpiDefinitionId,
+              periodStart: job.periodStart,
+            },
+          },
+          create: {
+            connectionId: job.connectionId,
+            kpiDefinitionId: job.kpiDefinitionId,
+            period,
+            periodStart: job.periodStart,
+            actualValue: job.actualValue,
+            targetValue: job.targetValue,
+            pct: job.pct,
+            status: job.status,
+          },
+          update: {
+            actualValue: job.actualValue,
+            targetValue: job.targetValue,
+            pct: job.pct,
+            status: job.status,
+          },
+        });
+        if (job.willUpdate) result.updated++;
+        else result.created++;
+      } catch (e) {
+        result.errors.push(`${job.summaryId}/${job.kpiId}: ${(e as Error).message}`);
+      }
+    });
+
     report[sheetName] = result;
   }
 
