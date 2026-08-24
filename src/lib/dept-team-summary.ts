@@ -17,8 +17,16 @@ async function buildRow(
   period: KpiPeriod,
   periodStart: Date,
 ): Promise<GroupSubmissionRow> {
+  // ACTIVE only, not "anything but paused" — mirrors legacy's
+  // getDeptSubmissionSummary/getTeamSubmissionSummary (SubmissionsCore.js),
+  // which both filter to `Status === 'active'`. A connection that has ended
+  // (END_OF_CONTRACT/END_OF_PROJECT) or hasn't started yet (PENDING) was
+  // never expected to submit this period, so counting it here inflated the
+  // denominator and understated the real submission rate (e.g. legacy's
+  // 265/265 for a department read as 266/314 here, the extra 37 being that
+  // department's already-ended connections).
   const connections = await prisma.connection.findMany({
-    where: { ...scope, status: { not: ConnectionStatus.PAUSED } },
+    where: { ...scope, status: ConnectionStatus.ACTIVE },
     select: { id: true },
   });
   const total = connections.length;
@@ -47,17 +55,25 @@ async function buildRow(
   };
 }
 
-/** One row per department, for the Admin "Department Summary" side panel. */
+/**
+ * One row per department, for the Admin "Department Summary" side panel.
+ * `extraScope` narrows the connections counted within each department (team/
+ * type/status filters from the Performance page's filter bar); `departmentIds`
+ * restricts which departments get a row at all (its own "dept" filter).
+ */
 export async function getDepartmentSubmissionSummary(
   period: KpiPeriod,
   periodStart: Date,
+  extraScope: Prisma.ConnectionWhereInput = {},
+  departmentIds?: string[],
 ): Promise<GroupSubmissionRow[]> {
   const departments = await prisma.department.findMany({
+    where: departmentIds ? { id: { in: departmentIds } } : undefined,
     orderBy: { name: "asc" },
   });
   return Promise.all(
     departments.map((dept) =>
-      buildRow(dept.id, dept.name, { departmentId: dept.id }, period, periodStart),
+      buildRow(dept.id, dept.name, { departmentId: dept.id, ...extraScope }, period, periodStart),
     ),
   );
 }

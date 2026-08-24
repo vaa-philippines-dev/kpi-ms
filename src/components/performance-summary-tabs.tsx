@@ -13,15 +13,6 @@ const TYPE_LABELS: Record<ConnectionType, string> = {
   PROJECT_BASED: "Project-based",
 };
 
-const STATUS_FILTER_OPTIONS = Object.entries(STATUS_LABEL).map(([value, label]) => ({
-  value,
-  label,
-}));
-const TYPE_FILTER_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({
-  value,
-  label,
-}));
-
 export type ConnectionSummaryRow = {
   connectionId: string;
   clientName: string;
@@ -42,13 +33,17 @@ export type ClientSummaryRow = {
   isFlagged: boolean;
 };
 
+// Status / Dept / Team / Type are now filtered up at the page level (see
+// PerformanceFilterBar), which — unlike these per-column dropdowns — also
+// narrows the Performance Trend, Submission Trend, and Department/Team
+// Summary panels. Kept as plain (non-dropdown) `filterable: true` so they
+// still count toward the table's global search box.
 const connectionColumns: DataTableColumn<ConnectionSummaryRow>[] = [
   {
     key: "status",
     label: "Status",
     sortable: true,
-    filterable: "select",
-    filterOptions: STATUS_FILTER_OPTIONS,
+    filterable: true,
     searchText: (row) => STATUS_LABEL[row.status],
     render: (v) => <StatusBadge status={v as PerformanceStatus} />,
   },
@@ -58,7 +53,7 @@ const connectionColumns: DataTableColumn<ConnectionSummaryRow>[] = [
     key: "departmentName",
     label: "Dept / Service",
     sortable: true,
-    filterable: "select",
+    filterable: true,
     className: "text-muted",
   },
   {
@@ -72,15 +67,14 @@ const connectionColumns: DataTableColumn<ConnectionSummaryRow>[] = [
     key: "teamName",
     label: "Team",
     sortable: true,
-    filterable: "select",
+    filterable: true,
     className: "text-muted",
   },
   {
     key: "connectionType",
     label: "Type",
     sortable: true,
-    filterable: "select",
-    filterOptions: TYPE_FILTER_OPTIONS,
+    filterable: true,
     className: "text-muted",
     searchText: (row) => TYPE_LABELS[row.connectionType],
     render: (v) => TYPE_LABELS[v as ConnectionType],
@@ -98,8 +92,7 @@ const clientColumns: DataTableColumn<ClientSummaryRow>[] = [
     key: "status",
     label: "Status",
     sortable: true,
-    filterable: "select",
-    filterOptions: STATUS_FILTER_OPTIONS,
+    filterable: true,
     searchText: (row) => STATUS_LABEL[row.status],
     render: (v) => <StatusBadge status={v as PerformanceStatus} />,
   },
@@ -114,7 +107,7 @@ const clientColumns: DataTableColumn<ClientSummaryRow>[] = [
     key: "departmentNames",
     label: "Dept / Service",
     sortable: true,
-    filterable: "select",
+    filterable: true,
     className: "text-muted",
   },
   {
