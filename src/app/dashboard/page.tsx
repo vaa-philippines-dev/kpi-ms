@@ -8,6 +8,7 @@ import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { getPerformanceTrend } from "@/lib/trend";
 import { getLongRunningConnections } from "@/lib/long-running";
+import { rollupStatus } from "@/lib/performance";
 import { UnassignedVasPanel } from "@/components/unassigned-vas-panel";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
@@ -147,13 +148,33 @@ export default async function DashboardOverviewPage(
   const counts = emptyCounts();
   const byDepartment = new Map<string, typeof counts>();
 
+  // Roll each connection's KPIs (weekly + monthly combined, same convention
+  // as dashboard/performance's connectionRows) up to one worst-case status
+  // before tallying — summaries has one row per KPI per connection, so
+  // counting rows directly (the previous approach) multiplied every
+  // connection with more than one weekly/monthly KPI, inflating On
+  // Target/At Risk/Critical well past the Active Connections count above
+  // them (e.g. 1,343 status-tile total against only 644 active connections).
+  const byConnection = new Map<
+    string,
+    { deptName: string; statuses: PerformanceStatus[] }
+  >();
   for (const s of summaries) {
-    counts[s.status]++;
-    const deptName = s.connection.department.name;
+    const existing = byConnection.get(s.connectionId);
+    if (existing) existing.statuses.push(s.status);
+    else
+      byConnection.set(s.connectionId, {
+        deptName: s.connection.department.name,
+        statuses: [s.status],
+      });
+  }
+  for (const { deptName, statuses } of byConnection.values()) {
+    const rolled = rollupStatus(statuses);
+    counts[rolled]++;
     if (!byDepartment.has(deptName)) {
       byDepartment.set(deptName, emptyCounts());
     }
-    byDepartment.get(deptName)![s.status]++;
+    byDepartment.get(deptName)![rolled]++;
   }
 
   return (
