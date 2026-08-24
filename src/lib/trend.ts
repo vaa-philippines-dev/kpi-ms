@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
+import { rollupStatus } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -24,8 +25,18 @@ function stepBack(periodStart: Date, period: KpiPeriod): Date {
 /**
  * System-wide status counts for the last `periods` weeks/months, oldest
  * first — mirrors legacy's getSystemPerformanceTrend() "Performance
- * Overview" chart. One indexed groupBy per period rather than one big scan,
- * since this runs on every Overview render.
+ * Overview" chart, which counts one rolled-up status per *connection* per
+ * period (legacy's summary sheet stores exactly one row per connection-week,
+ * with a single already-computed Status field).
+ *
+ * PerformanceSummary here instead stores one row per *KPI* per
+ * connection-week, so counting rows directly (the previous approach) double-
+ * (or triple-, or quadruple-) counts every connection with more than one
+ * weekly KPI, inflating totals well past legacy's connection-count and
+ * skewing the on-target/at-risk/critical mix. Rolling each connection's rows
+ * up to one worst-case status first (via rollupStatus, the same helper the
+ * Performance Summary table and every other per-connection status display in
+ * this app already uses) restores an apples-to-apples count.
  */
 export async function getPerformanceTrend(
   scope: Prisma.ConnectionWhereInput,
@@ -44,11 +55,16 @@ export async function getPerformanceTrend(
 
   return Promise.all(
     starts.map(async (periodStart) => {
-      const rows = await prisma.performanceSummary.groupBy({
-        by: ["status"],
+      const rows = await prisma.performanceSummary.findMany({
         where: { connection: scope, period, periodStart },
-        _count: true,
+        select: { connectionId: true, status: true },
       });
+      const byConnection = new Map<string, PerformanceStatus[]>();
+      for (const r of rows) {
+        const statuses = byConnection.get(r.connectionId);
+        if (statuses) statuses.push(r.status);
+        else byConnection.set(r.connectionId, [r.status]);
+      }
       const point: TrendPoint = {
         periodStart,
         onTarget: 0,
@@ -56,11 +72,12 @@ export async function getPerformanceTrend(
         critical: 0,
         noData: 0,
       };
-      for (const r of rows) {
-        if (r.status === PerformanceStatus.ON_TARGET) point.onTarget = r._count;
-        else if (r.status === PerformanceStatus.AT_RISK) point.atRisk = r._count;
-        else if (r.status === PerformanceStatus.CRITICAL) point.critical = r._count;
-        else point.noData = r._count;
+      for (const statuses of byConnection.values()) {
+        const rolled = rollupStatus(statuses);
+        if (rolled === PerformanceStatus.ON_TARGET) point.onTarget++;
+        else if (rolled === PerformanceStatus.AT_RISK) point.atRisk++;
+        else if (rolled === PerformanceStatus.CRITICAL) point.critical++;
+        else point.noData++;
       }
       return point;
     }),

@@ -13,6 +13,7 @@ export type LongRunningConnection = {
 const TERMINAL_STATUSES: ConnectionStatus[] = [
   ConnectionStatus.END_OF_CONTRACT,
   ConnectionStatus.END_OF_PROJECT,
+  ConnectionStatus.INACTIVE,
 ];
 
 /**

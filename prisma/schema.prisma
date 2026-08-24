@@ -41,6 +41,12 @@ enum ConnectionStatus {
   END_OF_CONTRACT
   END_OF_PROJECT
   PENDING
+  // Legacy's 6th status (AppVAConnections.html) — a manual on/off toggle
+  // distinct from Paused: reversible back to Active via the same "Set
+  // Active" quick action Paused gets, not a terminal state like End of
+  // Contract/Project. Previously unmapped in reference-sync.ts, so every
+  // Inactive legacy connection silently defaulted to ACTIVE here.
+  INACTIVE
 }
 
 enum ConnectionType {

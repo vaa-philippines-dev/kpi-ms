@@ -12,6 +12,7 @@ import { ConnectionStatus, PerformanceStatus } from "@/generated/prisma/enums";
 const CONNECTION_STATUS_TONE: Record<ConnectionStatus, "success" | "warning" | "danger" | "neutral"> = {
   [ConnectionStatus.ACTIVE]: "success",
   [ConnectionStatus.PAUSED]: "warning",
+  [ConnectionStatus.INACTIVE]: "warning",
   [ConnectionStatus.PENDING]: "neutral",
   [ConnectionStatus.END_OF_CONTRACT]: "danger",
   [ConnectionStatus.END_OF_PROJECT]: "danger",

@@ -49,9 +49,13 @@ export async function getTeamSubmissionReport(
       include: { department: true, teamLeader: true },
       orderBy: { name: "asc" },
     }),
+    // ACTIVE only — same fix as lib/dept-team-summary.ts and
+    // lib/submission-trend.ts: "not paused" was also sweeping in ended
+    // (END_OF_CONTRACT/END_OF_PROJECT) and not-yet-started (PENDING)
+    // connections, and would now catch INACTIVE too.
     prisma.connection.findMany({
-      where: { ...scope, teamId: { in: teamIds }, status: { not: ConnectionStatus.PAUSED } },
-      select: { id: true, teamId: true, createdAt: true },
+      where: { ...scope, teamId: { in: teamIds }, status: ConnectionStatus.ACTIVE },
+      select: { id: true, teamId: true, createdAt: true, startDate: true },
     }),
   ]);
 
@@ -81,7 +85,10 @@ export async function getTeamSubmissionReport(
   return teams.map((team) => {
     const teamConns = connsByTeam.get(team.id) ?? [];
     const weekPoints: TeamWeekPoint[] = starts.map((periodStart) => {
-      const countable = teamConns.filter((c) => c.createdAt <= periodStart);
+      // Real business start date, not row-creation time — see
+      // lib/submission-trend.ts for why createdAt alone flattens every
+      // pre-sync week to 0.
+      const countable = teamConns.filter((c) => (c.startDate ?? c.createdAt) <= periodStart);
       const total = countable.length;
       const submitted = countable.filter((c) =>
         submittedSet.has(`${c.id}:${periodStart.getTime()}`),

@@ -8,6 +8,7 @@ export const CONNECTION_STATUS_LABELS: Record<ConnectionStatus, string> = {
   END_OF_CONTRACT: "End of Contract",
   END_OF_PROJECT: "End of Project",
   PENDING: "Pending",
+  INACTIVE: "Inactive",
 };
 
 export function connectionStatusLabel(status: ConnectionStatus): string {
@@ -24,6 +25,10 @@ export const CONNECTION_STATUS_TONE: Record<
   ACTIVE: "success",
   PENDING: "neutral",
   PAUSED: "warning",
+  // Same tone as Paused, not the terminal statuses below — it's a
+  // reversible manual toggle (gets the same "Set Active" quick action),
+  // not a permanent end state.
+  INACTIVE: "warning",
   END_OF_CONTRACT: "danger",
   END_OF_PROJECT: "danger",
 };

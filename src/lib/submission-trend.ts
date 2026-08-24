@@ -25,8 +25,12 @@ function stepBack(periodStart: Date, period: KpiPeriod): Date {
  * Submission-rate trend for the last `periods` weeks/months, oldest first —
  * mirrors legacy's getSubmissionTrendData(). Simplified vs. legacy: a
  * connection counts toward a period's total if it already existed by that
- * period's start and isn't currently paused, rather than reconstructing
- * historical status-as-of-that-week from ConnectionStatusEvent.
+ * period's start and is currently ACTIVE, rather than reconstructing
+ * historical status-as-of-that-week from ConnectionStatusEvent. Legacy's own
+ * getSubmissionTrendData/getSubmissionStatusList filter the same way (current
+ * Status === 'active', not merely "not paused") — an ended (END_OF_CONTRACT/
+ * END_OF_PROJECT) or not-yet-started (PENDING) connection was never expected
+ * to submit and shouldn't inflate the denominator.
  *
  * "Submitted" is measured by a PerformanceSummary row existing for the
  * period, not a Submission row. The legacy data migration bulk-imports
@@ -55,11 +59,31 @@ export async function getSubmissionTrend(
 
   return Promise.all(
     starts.map(async (periodStart) => {
+      // Real business start date, not row-creation time — every legacy-
+      // migrated connection's createdAt is stamped at whatever moment the
+      // reference sync last ran, not when it actually began. Filtering on
+      // createdAt alone excluded virtually every migrated connection from
+      // every week before the most recent sync, collapsing `total` to ~0
+      // and flattening the whole trend to 0% until the most recent couple
+      // of weeks. startDate carries the real date; fall back to createdAt
+      // only for the rare row where startDate is genuinely unknown.
+      // AND'd as separate objects, not spread — `scope` itself carries an
+      // OR (e.g. an OM's team-leader-or-own-connections clause); merging a
+      // second top-level `OR:` key in via spread would silently clobber it
+      // instead of combining, leaking every connection past that role's
+      // actual visibility scope.
       const countable = await prisma.connection.findMany({
         where: {
-          ...scope,
-          createdAt: { lte: periodStart },
-          status: { not: ConnectionStatus.PAUSED },
+          AND: [
+            scope,
+            { status: ConnectionStatus.ACTIVE },
+            {
+              OR: [
+                { startDate: { lte: periodStart } },
+                { startDate: null, createdAt: { lte: periodStart } },
+              ],
+            },
+          ],
         },
         select: { id: true },
       });

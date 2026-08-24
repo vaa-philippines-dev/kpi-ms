@@ -97,6 +97,11 @@ const STATUS_MAP: Record<string, ConnectionStatus> = {
   "End of Contract": ConnectionStatus.END_OF_CONTRACT,
   "End of Project": ConnectionStatus.END_OF_PROJECT,
   Pending: ConnectionStatus.PENDING,
+  // Previously missing — every "Inactive" row silently fell through to the
+  // ACTIVE default below, inflating every active-connection count (Total
+  // cards, department/team submission-rate denominators) by however many
+  // Inactive connections that scope had.
+  Inactive: ConnectionStatus.INACTIVE,
 };
 
 /**
