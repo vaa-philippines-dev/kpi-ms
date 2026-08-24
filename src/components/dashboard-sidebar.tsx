@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { PanelLeft, PanelLeftOpen } from "lucide-react";
 import { matchNavItem, navItemLabel, visibleNavGroups } from "@/lib/nav";
 import { LogoBadge } from "@/components/logo-badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 function NavLink({
   href,
@@ -67,10 +68,12 @@ export function DashboardSidebar({
   const activeHref = matchNavItem(pathname, role)?.item.href ?? null;
 
   const renderGroups = (collapsedNav: boolean) =>
-    groups.map((group) => (
+    groups.map((group, index) => (
       <div key={group.label}>
         {!collapsedNav && (
-          <p className="px-2 pt-3.5 pb-1 text-[10.5px] tracking-wide text-muted first:pt-0">
+          <p
+            className={`px-2 pb-1 text-[10.5px] tracking-wide text-muted ${index === 0 ? "" : "pt-3.5"}`}
+          >
             {group.label}
           </p>
         )}
@@ -96,7 +99,7 @@ export function DashboardSidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-3 border-r border-surface-border bg-surface py-2.5">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-3 bg-surface py-2.5">
         <LogoBadge className="h-6 w-6 shrink-0 object-contain" />
         <button
           type="button"
@@ -107,15 +110,15 @@ export function DashboardSidebar({
           <PanelLeftOpen className="h-4 w-4" />
         </button>
 
-        <nav className="flex flex-1 flex-col items-center gap-3 overflow-y-auto pt-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {renderGroups(true)}
-        </nav>
+        <ScrollArea className="flex-1">
+          <nav className="flex flex-col items-center gap-3 pt-1">{renderGroups(true)}</nav>
+        </ScrollArea>
       </aside>
     );
   }
 
   return (
-    <aside className="flex h-full w-[212px] shrink-0 flex-col border-r border-surface-border bg-surface px-2 py-2.5">
+    <aside className="flex h-full w-[212px] shrink-0 flex-col bg-surface px-2 py-2.5">
       <div className="flex items-center justify-between gap-2 px-2 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           <LogoBadge className="h-7 w-7 shrink-0 object-contain" />
@@ -133,9 +136,9 @@ export function DashboardSidebar({
         </button>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-px overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {renderGroups(false)}
-      </nav>
+      <ScrollArea className="flex-1">
+        <nav className="flex flex-col gap-px pr-1">{renderGroups(false)}</nav>
+      </ScrollArea>
     </aside>
   );
 }
