@@ -17,6 +17,7 @@ import {
   Gem,
   Grid3x3,
   Contact,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 
@@ -60,13 +61,27 @@ const vaConnectionsItem: NavItem = {
   icon: Link2,
   // Legacy showed a different label per role for this same scoped page:
   // "VA Connections" (Admin/Manager), "My Team" (Team Leader), "My VA
-  // Connections" (VA). CS Specialist had no connections nav item at all in
-  // legacy, so it never appears in that role's groups below.
+  // Connections" (VA — renamed to "My Connections" per user feedback, less
+  // redundant since the VA already knows these are their own). CS Specialist
+  // had no connections nav item at all in legacy, so it never appears in
+  // that role's groups below.
   labelByRole: {
     OM: "My Team",
-    VA: "My VA Connections",
+    VA: "My Connections",
   },
-  keywords: "va client pairing my team",
+  keywords: "va client pairing my team my connections",
+};
+const myKpiItem: NavItem = {
+  href: "/dashboard/kpi",
+  label: "KPI",
+  icon: Target,
+  keywords: "my kpis targets actual status ongoing current",
+};
+const historyItem: NavItem = {
+  href: "/dashboard/history",
+  label: "History",
+  icon: History,
+  keywords: "trend past weeks months over time streak",
 };
 const kpiConfigItem: NavItem = {
   href: "/dashboard/connections/kpi-config",
@@ -165,7 +180,14 @@ const interventionsItem: NavItem = {
   href: "/dashboard/interventions",
   label: "Interventions",
   icon: ClipboardList,
-  keywords: "coaching training escalation",
+  // Already scoped correctly for a VA by connectionScopeWhere (their own
+  // connections only) and already read-only when isManager is false — see
+  // InterventionsTable — so surfacing it to VAs needed no new page, just
+  // this nav entry and a role-aware label/description on the page itself.
+  labelByRole: {
+    VA: "My Interventions",
+  },
+  keywords: "coaching training escalation my interventions",
 };
 
 // Group names, order, and item placement per role mirror the legacy sidebar
@@ -261,14 +283,17 @@ const csGroups: NavGroup[] = [
   },
 ];
 
-// VA — legacy VA: a single "My Work" group.
+// VA — legacy VA: a single "My Work" group. KPI, History, and My
+// Interventions are all new (not in legacy) — previously a VA had no way to
+// check their current KPI standing, whether it's trending up or down over
+// time, or what's been logged against them, between submissions.
 const vaGroups: NavGroup[] = [
   {
     label: "My Work",
     // No standalone "Submit KPI Report" entry — a VA submits via the Submit
-    // KPI button on a connection card (Dashboard or My VA Connections),
-    // which already knows which connection it's for.
-    items: [dashboardItem, vaConnectionsItem],
+    // KPI button on a connection card (Dashboard or My Connections), which
+    // already knows which connection it's for.
+    items: [dashboardItem, vaConnectionsItem, myKpiItem, historyItem, interventionsItem],
   },
 ];
 

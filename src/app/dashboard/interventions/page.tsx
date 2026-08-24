@@ -63,8 +63,12 @@ export default async function InterventionsPage() {
   return (
     <>
       <PageHeader
-        title="Interventions"
-        description="Coaching, training, and escalation actions logged against a connection."
+        title={role === "VA" ? "My Interventions" : "Interventions"}
+        description={
+          role === "VA"
+            ? "Coaching, training, and escalation actions logged for you — read-only."
+            : "Coaching, training, and escalation actions logged against a connection."
+        }
       />
 
       <InterventionsTable

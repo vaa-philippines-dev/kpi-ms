@@ -7,7 +7,7 @@ import { ConnectionStatus } from "@/generated/prisma/enums";
 import type { ConnectionRow } from "@/components/connections-table";
 
 /**
- * VA ("My VA Connections") view — mirrors legacy's `renderVAConnections()`
+ * VA ("My Connections") view — mirrors legacy's `renderVAConnections()`
  * (AppVAConnections.html:812-843), a card grid rather than the flat table
  * Admin/DM/OM get: one card per connection with Client Name, status badge,
  * Secondary Name, and "Started: date". Each active connection also links
