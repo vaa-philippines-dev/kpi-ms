@@ -1,15 +1,23 @@
 import { google } from "googleapis";
-import path from "path";
 
 const LEGACY_SHEET_ID = "1uAr7WKpgtbmLz02ZOtC3uM487l8QvERQqE7-OSQEeQ0";
-const KEY_PATH = path.join(process.cwd(), "secrets", "legacy-service-account.json");
 
 let sheetsClient: ReturnType<typeof google.sheets> | null = null;
+
+function loadServiceAccountCredentials() {
+  const b64 = process.env.LEGACY_SERVICE_ACCOUNT_JSON_B64;
+  if (!b64) {
+    throw new Error(
+      "LEGACY_SERVICE_ACCOUNT_JSON_B64 is not set. Base64-encode secrets/legacy-service-account.json and set it as an env var (locally in .env, and in the Vercel project's Environment Variables) instead of relying on the file being present on disk.",
+    );
+  }
+  return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+}
 
 async function getSheetsClient() {
   if (sheetsClient) return sheetsClient;
   const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_PATH,
+    credentials: loadServiceAccountCredentials(),
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
   sheetsClient = google.sheets({ version: "v4", auth });
