@@ -1,8 +1,6 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { StatusBadge } from "@/components/status-badge";
+import { CustomerOverviewTable, type CustomerRow } from "@/components/customer-overview-table";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import {
   addDays,
@@ -10,7 +8,6 @@ import {
   currentPeriodStart,
   daysSince,
   endOfMonth,
-  formatDuration,
   parseAnchorDate,
 } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
@@ -24,11 +21,6 @@ const PERF_RANK: Record<PerformanceStatus, number> = {
   [PerformanceStatus.NO_DATA]: 1,
 };
 
-// Fixed p0..p5 fields (oldest to newest) instead of an array, so each period
-// can be a normal DataTableColumn key — DataTable filters/sorts by directly
-// indexing `row[key]`, which an array index can't satisfy.
-const PERIOD_KEYS = ["p0", "p1", "p2", "p3", "p4", "p5"] as const;
-
 type Customer = {
   clientName: string;
   secondaryName: string | null;
@@ -40,21 +32,6 @@ type Customer = {
   activeConnCount: number;
   maxDays: number;
   periodStatuses: (PerformanceStatus | null)[];
-};
-
-type CustomerRow = {
-  clientName: string;
-  secondaryName: string | null;
-  departmentName: string;
-  sampleConnectionId: string;
-  activeConnCount: number;
-  maxDays: number;
-  p0: PerformanceStatus | null;
-  p1: PerformanceStatus | null;
-  p2: PerformanceStatus | null;
-  p3: PerformanceStatus | null;
-  p4: PerformanceStatus | null;
-  p5: PerformanceStatus | null;
 };
 
 // Per-client rollup across all connections and the last 6 weeks/months —
@@ -175,55 +152,7 @@ export default async function CustomerOverviewPage(
     p5: c.periodStatuses[5],
   }));
 
-  function renderStatus(v: unknown) {
-    return v ? <StatusBadge status={v as PerformanceStatus} /> : <span className="text-muted">—</span>;
-  }
-
-  const columns: DataTableColumn<CustomerRow>[] = [
-    {
-      key: "clientName",
-      label: "Client",
-      sortable: true,
-      filterable: true,
-      render: (v, row) => (
-        <div>
-          <Link
-            href={`/dashboard/reports/client-detail?connectionId=${row.sampleConnectionId}`}
-            className="font-medium hover:text-accent hover:underline"
-          >
-            {v as string}
-          </Link>
-          {row.secondaryName && <div className="text-xs text-muted">{row.secondaryName}</div>}
-        </div>
-      ),
-    },
-    {
-      key: "departmentName",
-      label: "Department",
-      sortable: true,
-      filterable: "select",
-      className: "text-muted",
-    },
-    {
-      key: "activeConnCount",
-      label: "Active",
-      sortable: true,
-      className: "text-center text-muted",
-    },
-    {
-      key: "maxDays",
-      label: "Duration",
-      sortable: true,
-      className: "text-muted",
-      render: (v) => formatDuration(v as number),
-    },
-    ...PERIOD_KEYS.map((key, i) => ({
-      key,
-      label: periods[i].label,
-      className: "text-center",
-      render: renderStatus,
-    })),
-  ];
+  const periodLabels = periods.map((p) => p.label);
 
   return (
     <>
@@ -268,13 +197,7 @@ export default async function CustomerOverviewPage(
             </div>
           </div>
 
-          <DataTable
-            columns={columns}
-            data={rows}
-            getRowId={(r) => r.clientName}
-            defaultLimit={25}
-            emptyMessage="No customers match the current filters."
-          />
+          <CustomerOverviewTable rows={rows} periodLabels={periodLabels} />
         </div>
       )}
     </>
