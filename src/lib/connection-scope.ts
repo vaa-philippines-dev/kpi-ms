@@ -78,3 +78,45 @@ export function connectionScopeWhere(
       return { vaUserId: session.id };
   }
 }
+
+/**
+ * Department-only scoping for models that hang directly off a department
+ * with no Connection relation to walk through (e.g. KpiDefinition) — same
+ * role semantics as connectionScopeWhere's DM/OPS_MANAGER/OM branches:
+ * ADMIN and SERVICE_MANAGER see every department, DM/OPS_MANAGER/OM are
+ * locked to their own, everyone else has no legitimate reason to be here
+ * and sees nothing.
+ */
+export function departmentScopeWhere(
+  session: ScopingSession,
+): { departmentId?: string; id?: string } {
+  switch (session.role) {
+    case UserRole.ADMIN:
+    case UserRole.SERVICE_MANAGER:
+      return {};
+    case UserRole.DM:
+    case UserRole.OPS_MANAGER:
+    case UserRole.OM:
+      return session.departmentId ? { departmentId: session.departmentId } : { id: "__none__" };
+    default:
+      return { id: "__none__" };
+  }
+}
+
+/**
+ * Single-record counterpart to departmentScopeWhere, for server actions
+ * validating one write instead of filtering a list — same role semantics.
+ */
+export function canAccessDepartment(session: ScopingSession, departmentId: string): boolean {
+  switch (session.role) {
+    case UserRole.ADMIN:
+    case UserRole.SERVICE_MANAGER:
+      return true;
+    case UserRole.DM:
+    case UserRole.OPS_MANAGER:
+    case UserRole.OM:
+      return session.departmentId === departmentId;
+    default:
+      return false;
+  }
+}

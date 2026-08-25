@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { KpiLibraryTable, type KpiRow } from "@/components/kpi-library-table";
 import { getEffectiveSession } from "@/lib/view-as";
+import { departmentScopeWhere } from "@/lib/connection-scope";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 const MANAGER_ROLES = new Set(["ADMIN", "DM", "OPS_MANAGER", "OM"]);
@@ -18,14 +19,25 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
   const selectedPeriod: KpiPeriod =
     searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
 
+  // DM/OPS_MANAGER/OM only ever see their own department's KPIs — a manager
+  // browsing the library previously saw (and could edit/delete) every other
+  // department's definitions too, since only ADMIN/SERVICE_MANAGER are
+  // meant to be unscoped here (see connection-scope.ts's role table).
+  const scope = departmentScopeWhere(session);
+  const isUnrestricted = session.role === "ADMIN" || session.role === "SERVICE_MANAGER";
+
   const [kpis, departments, services] = await Promise.all([
     prisma.kpiDefinition.findMany({
-      where: { period: selectedPeriod },
+      where: { period: selectedPeriod, ...scope },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
       include: { department: true, service: true },
     }),
-    prisma.department.findMany({ orderBy: { name: "asc" } }),
+    prisma.department.findMany({
+      where: isUnrestricted ? {} : { id: session.departmentId ?? "__none__" },
+      orderBy: { name: "asc" },
+    }),
     prisma.service.findMany({
+      where: isUnrestricted ? {} : { departmentId: session.departmentId ?? "__none__" },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
       include: { department: true },
     }),

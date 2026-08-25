@@ -3,15 +3,38 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { canAccessDepartment, type ScopingSession } from "@/lib/connection-scope";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
-async function requireManager() {
+async function requireManager(): Promise<ScopingSession> {
   const session = await auth();
   const role = session?.user?.role;
   if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
     throw new Error("Only Admins, DMs, Ops Managers, or OMs can manage the KPI Library.");
   }
-  return session;
+  return {
+    id: session!.user!.id,
+    role,
+    departmentId: session!.user!.departmentId,
+    teamId: session!.user!.teamId,
+  };
+}
+
+async function assertDepartmentAccess(session: ScopingSession, departmentId: string) {
+  if (!canAccessDepartment(session, departmentId)) {
+    throw new Error("You can only manage KPIs in your own department.");
+  }
+}
+
+async function findAccessibleKpi(session: ScopingSession, id: string) {
+  const existing = await prisma.kpiDefinition.findUnique({
+    where: { id },
+    select: { departmentId: true },
+  });
+  if (!existing || !canAccessDepartment(session, existing.departmentId)) {
+    throw new Error("KPI not found.");
+  }
+  return existing;
 }
 
 function numberOrDefault(formData: FormData, key: string, fallback: number) {
@@ -74,25 +97,31 @@ function parseKpiForm(formData: FormData) {
 }
 
 export async function createKpiDefinition(formData: FormData) {
-  await requireManager();
+  const session = await requireManager();
   const data = parseKpiForm(formData);
+  await assertDepartmentAccess(session, data.departmentId);
   await prisma.kpiDefinition.create({ data });
   revalidatePath("/dashboard/kpi-library");
 }
 
 export async function updateKpiDefinition(formData: FormData) {
-  await requireManager();
+  const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing KPI id.");
   const data = parseKpiForm(formData);
+  // Check both the KPI's current department and the one it's being moved
+  // to — a manager can't edit their way into or out of another department.
+  await findAccessibleKpi(session, id);
+  await assertDepartmentAccess(session, data.departmentId);
   await prisma.kpiDefinition.update({ where: { id }, data });
   revalidatePath("/dashboard/kpi-library");
 }
 
 export async function deleteKpiDefinition(formData: FormData) {
-  await requireManager();
+  const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
+  await findAccessibleKpi(session, id);
   try {
     await prisma.kpiDefinition.delete({ where: { id } });
   } catch {
@@ -104,11 +133,12 @@ export async function deleteKpiDefinition(formData: FormData) {
 // Lightweight move used by the By Cluster view's drag-and-drop — reassigns
 // only the `cluster` field instead of round-tripping the full KPI form.
 export async function moveKpiCluster(id: string, cluster: string) {
-  await requireManager();
+  const session = await requireManager();
   const trimmed = cluster.trim();
   if (!id || !trimmed) {
     throw new Error("Missing KPI id or cluster name.");
   }
+  await findAccessibleKpi(session, id);
   await prisma.kpiDefinition.update({ where: { id }, data: { cluster: trimmed } });
   revalidatePath("/dashboard/kpi-library");
 }
