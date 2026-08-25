@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { formatDuration } from "@/lib/period";
@@ -33,6 +34,9 @@ function renderStatus(v: unknown) {
  * Server Component straight into a "use client" component (they aren't
  * serializable across that boundary). The server page just hands over plain
  * row data and period labels; this owns the column/render definitions.
+ *
+ * The whole row is clickable (not just the client name) — both take you to
+ * that client's Client Detail page, which surfaces the Client + VA pairing.
  */
 export function CustomerOverviewTable({
   rows,
@@ -41,6 +45,7 @@ export function CustomerOverviewTable({
   rows: CustomerRow[];
   periodLabels: string[];
 }) {
+  const router = useRouter();
   const columns: DataTableColumn<CustomerRow>[] = [
     {
       key: "clientName",
@@ -51,6 +56,7 @@ export function CustomerOverviewTable({
         <div>
           <Link
             href={`/dashboard/reports/client-detail?connectionId=${row.sampleConnectionId}`}
+            onClick={(e) => e.stopPropagation()}
             className="font-medium hover:text-accent hover:underline"
           >
             {v as string}
@@ -93,6 +99,9 @@ export function CustomerOverviewTable({
       data={rows}
       getRowId={(r) => r.clientName}
       defaultLimit={25}
+      onRowClick={(row) =>
+        router.push(`/dashboard/reports/client-detail?connectionId=${row.sampleConnectionId}`)
+      }
       emptyMessage="No customers match the current filters."
     />
   );

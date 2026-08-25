@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { CustomerOverviewTable, type CustomerRow } from "@/components/customer-overview-table";
+import { CustomerStatusCards, type StatusCustomer } from "@/components/customer-status-cards";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import {
   addDays,
@@ -25,6 +26,7 @@ type Customer = {
   clientName: string;
   secondaryName: string | null;
   departmentNames: Set<string>;
+  vaNames: Set<string>;
   // First connection encountered for this client — used only to land the
   // Client Detail drill-down link on *a* connection for this client; its
   // own combobox lets the user switch to a different one if needed.
@@ -80,6 +82,7 @@ export default async function CustomerOverviewPage(
       startDate: true,
       createdAt: true,
       department: { select: { name: true } },
+      vaUser: { select: { name: true, email: true } },
       performanceSummaries: {
         where: { period, periodStart: { in: periods.map((p) => p.start) } },
         select: { periodStart: true, status: true },
@@ -95,6 +98,7 @@ export default async function CustomerOverviewPage(
       clientName: c.clientName,
       secondaryName: c.secondaryName,
       departmentNames: new Set(),
+      vaNames: new Set(),
       sampleConnectionId: c.id,
       activeConnCount: 0,
       maxDays: 0,
@@ -102,6 +106,7 @@ export default async function CustomerOverviewPage(
     };
     if (tenureDays > cust.maxDays) cust.maxDays = tenureDays;
     cust.departmentNames.add(c.department.name);
+    cust.vaNames.add(c.vaUser.name ?? c.vaUser.email);
     customerMap.set(c.clientName, cust);
 
     // In scope for this window only if it had started by the last period —
@@ -132,10 +137,21 @@ export default async function CustomerOverviewPage(
 
   const activeCustomers = customers.length;
   const activeConnections = customers.reduce((sum, c) => sum + c.activeConnCount, 0);
-  const latest = customers.map((c) => c.periodStatuses[c.periodStatuses.length - 1]);
-  const criticalCount = latest.filter((s) => s === PerformanceStatus.CRITICAL).length;
-  const onTargetCount = latest.filter((s) => s === PerformanceStatus.ON_TARGET).length;
-  const atRiskCount = latest.filter((s) => s === PerformanceStatus.AT_RISK).length;
+
+  const toStatusCustomer = (c: Customer): StatusCustomer => ({
+    clientName: c.clientName,
+    secondaryName: c.secondaryName,
+    vaName: [...c.vaNames].sort().join(", "),
+    departmentName: [...c.departmentNames].sort().join(", "),
+    sampleConnectionId: c.sampleConnectionId,
+  });
+  const byLatestStatus = (status: PerformanceStatus) =>
+    customers
+      .filter((c) => c.periodStatuses[c.periodStatuses.length - 1] === status)
+      .map(toStatusCustomer);
+  const criticalCustomers = byLatestStatus(PerformanceStatus.CRITICAL);
+  const onTargetCustomers = byLatestStatus(PerformanceStatus.ON_TARGET);
+  const atRiskCustomers = byLatestStatus(PerformanceStatus.AT_RISK);
 
   const rows: CustomerRow[] = customers.map((c) => ({
     clientName: c.clientName,
@@ -174,28 +190,13 @@ export default async function CustomerOverviewPage(
         <ComingSoon note="No connections visible to your account yet." />
       ) : (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <div className="rounded-xl border border-surface-border bg-surface p-4">
-              <div className="text-3xl font-semibold">{activeCustomers}</div>
-              <div className="mt-1 text-sm text-muted">Active Customers</div>
-            </div>
-            <div className="rounded-xl border border-surface-border bg-surface p-4">
-              <div className="text-3xl font-semibold">{activeConnections}</div>
-              <div className="mt-1 text-sm text-muted">Active Connections</div>
-            </div>
-            <div className="rounded-xl border border-danger/30 bg-surface p-4 text-danger">
-              <div className="text-3xl font-semibold">{criticalCount}</div>
-              <div className="mt-1 text-sm">Critical</div>
-            </div>
-            <div className="rounded-xl border border-success/30 bg-surface p-4 text-success">
-              <div className="text-3xl font-semibold">{onTargetCount}</div>
-              <div className="mt-1 text-sm">On Target</div>
-            </div>
-            <div className="rounded-xl border border-warning/30 bg-surface p-4 text-warning">
-              <div className="text-3xl font-semibold">{atRiskCount}</div>
-              <div className="mt-1 text-sm">At Risk</div>
-            </div>
-          </div>
+          <CustomerStatusCards
+            activeCustomers={activeCustomers}
+            activeConnections={activeConnections}
+            critical={criticalCustomers}
+            onTarget={onTargetCustomers}
+            atRisk={atRiskCustomers}
+          />
 
           <CustomerOverviewTable rows={rows} periodLabels={periodLabels} />
         </div>
