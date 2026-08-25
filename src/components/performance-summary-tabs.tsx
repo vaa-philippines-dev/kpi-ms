@@ -6,6 +6,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
 import { StatusBadge, STATUS_LABEL } from "@/components/status-badge";
 import { PerformanceDetailModal } from "@/components/performance-detail-modal";
+import { formatDuration } from "@/lib/period";
 import { KpiPeriod, PerformanceStatus, ConnectionType } from "@/generated/prisma/enums";
 
 const TYPE_LABELS: Record<ConnectionType, string> = {
@@ -61,7 +62,7 @@ const connectionColumns: DataTableColumn<ConnectionSummaryRow>[] = [
     label: "Duration",
     sortable: true,
     className: "text-muted",
-    render: (v) => `${v}d`,
+    render: (v) => formatDuration(v as number),
   },
   {
     key: "teamName",
@@ -215,7 +216,7 @@ export function PerformanceSummaryTabs({
                   </div>
                   <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
                     {row.isFlagged && <Flag className="size-3.5 fill-danger text-danger" />}
-                    {row.durationDays}d
+                    {formatDuration(row.durationDays)}
                   </div>
                 </button>
               </li>

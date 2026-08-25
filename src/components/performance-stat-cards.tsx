@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/modal";
 import { PerformanceDetailModal } from "@/components/performance-detail-modal";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { ConnectionSummaryRow } from "@/components/performance-summary-tabs";
+import { formatDuration } from "@/lib/period";
 
 const STATUS_CARD_STYLE: Record<PerformanceStatus, string> = {
   [PerformanceStatus.ON_TARGET]: "border-success/30 text-success",
@@ -107,7 +108,7 @@ export function PerformanceStatCards({
                     </div>
                     <div className="flex shrink-0 items-center gap-2 text-xs text-muted">
                       {row.isFlagged && <Flag className="size-3.5 fill-danger text-danger" />}
-                      {row.durationDays}d
+                      {formatDuration(row.durationDays)}
                     </div>
                   </button>
                 </li>
