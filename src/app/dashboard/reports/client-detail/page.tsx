@@ -1,9 +1,9 @@
-import Link from "next/link";
+import { Download } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
-import { StatusBadge } from "@/components/status-badge";
-import { Sparkline } from "@/components/sparkline";
+import { ClientKpiTrendChart } from "@/components/client-kpi-trend-chart";
+import { PerformanceHistoryCalendar } from "@/components/performance-history-calendar";
 import { ConnectionCombobox } from "@/components/connection-combobox";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { CONNECTION_STATUS_LABELS } from "@/lib/connection-labels";
@@ -61,14 +61,14 @@ export default async function ClientDetailPage(
 
   const trendsByKpi = new Map<
     string,
-    { name: string; points: { periodStart: Date; pct: number }[] }
+    { id: string; name: string; points: { periodStart: Date; pct: number }[] }
   >();
   if (connection) {
     for (const s of connection.performanceSummaries) {
       if (s.pct === null) continue;
       const key = s.kpiDefinitionId;
       if (!trendsByKpi.has(key)) {
-        trendsByKpi.set(key, { name: s.kpiDefinition.name, points: [] });
+        trendsByKpi.set(key, { id: key, name: s.kpiDefinition.name, points: [] });
       }
       trendsByKpi.get(key)!.points.push({ periodStart: s.periodStart, pct: s.pct });
     }
@@ -95,20 +95,34 @@ export default async function ClientDetailPage(
           <ComingSoon note="Choose a connection above to see its detail." />
         ) : (
           <>
-            <a
-              href={`/api/export/client-detail?connectionId=${connection.id}`}
-              className="inline-block text-xs text-accent hover:underline"
-            >
-              Export CSV →
-            </a>
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-surface-border p-5">
+              <div className="flex flex-wrap gap-x-8 gap-y-3">
+                <div>
+                  <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">VA</p>
+                  <p className="text-lg font-semibold">
+                    {connection.vaUser.name ?? connection.vaUser.email}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">
+                    Client
+                  </p>
+                  <p className="text-lg font-semibold">{connection.clientName}</p>
+                </div>
+                <div className="self-end">
+                  <p className="text-xs text-muted">
+                    {connection.department.name} · {CONNECTION_STATUS_LABELS[connection.status]}
+                  </p>
+                </div>
+              </div>
 
-            <div className="rounded-xl border border-surface-border p-5">
-              <h2 className="text-lg font-semibold">
-                {connection.vaUser.name ?? connection.vaUser.email} · {connection.clientName}
-              </h2>
-              <p className="text-xs text-muted">
-                {connection.department.name} · {CONNECTION_STATUS_LABELS[connection.status]}
-              </p>
+              <a
+                href={`/api/export/client-detail?connectionId=${connection.id}`}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border px-3 py-2 text-sm font-medium transition hover:bg-surface-hover"
+              >
+                <Download className="size-4" />
+                Export CSV
+              </a>
             </div>
 
             {trendsByKpi.size > 0 && (
@@ -116,14 +130,7 @@ export default async function ClientDetailPage(
                 <h3 className="mb-3 text-sm font-semibold text-muted uppercase">
                   Performance trend (% of target)
                 </h3>
-                <div className="flex flex-wrap gap-6">
-                  {[...trendsByKpi.entries()].map(([kpiId, trend]) => (
-                    <div key={kpiId}>
-                      <p className="mb-1 text-xs text-muted">{trend.name}</p>
-                      <Sparkline values={trend.points.map((p) => p.pct)} />
-                    </div>
-                  ))}
-                </div>
+                <ClientKpiTrendChart series={[...trendsByKpi.values()]} />
               </div>
             )}
 
@@ -134,32 +141,17 @@ export default async function ClientDetailPage(
               {connection.performanceSummaries.length === 0 ? (
                 <p className="text-sm text-muted">No submissions recorded yet.</p>
               ) : (
-                <Table>
-                  <TableHead>
-                    <tr>
-                      <Th>Period</Th>
-                      <Th>KPI</Th>
-                      <Th>Actual</Th>
-                      <Th>Target</Th>
-                      <Th>Status</Th>
-                    </tr>
-                  </TableHead>
-                  <tbody>
-                    {connection.performanceSummaries.map((s) => (
-                      <Tr key={s.id}>
-                        <Td className="text-muted">
-                          {s.period} · {s.periodStart.toLocaleDateString()}
-                        </Td>
-                        <Td>{s.kpiDefinition.name}</Td>
-                        <Td className="text-muted">{s.actualValue ?? "—"}</Td>
-                        <Td className="text-muted">{s.targetValue}</Td>
-                        <Td>
-                          <StatusBadge status={s.status} />
-                        </Td>
-                      </Tr>
-                    ))}
-                  </tbody>
-                </Table>
+                <PerformanceHistoryCalendar
+                  entries={connection.performanceSummaries.map((s) => ({
+                    id: s.id,
+                    kpiName: s.kpiDefinition.name,
+                    period: s.period,
+                    periodStart: s.periodStart,
+                    actualValue: s.actualValue,
+                    targetValue: s.targetValue,
+                    status: s.status,
+                  }))}
+                />
               )}
             </div>
 
@@ -212,12 +204,6 @@ export default async function ClientDetailPage(
             </div>
           </>
         )}
-        <Link
-          href="/dashboard/reports/customer-overview"
-          className="block text-xs text-muted hover:underline"
-        >
-          ← Back to Customer Overview
-        </Link>
       </div>
     </>
   );

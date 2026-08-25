@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Search, ChevronDown, Check } from "lucide-react";
+import { Search, ChevronDown, Check, Loader2 } from "lucide-react";
 import { Select } from "@/components/ui/input";
 
 export type ConnectionOption = {
@@ -33,6 +41,7 @@ export function ConnectionCombobox({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const selected = options.find((o) => o.id === selectedId);
 
   const [open, setOpen] = useState(false);
@@ -68,7 +77,9 @@ export function ConnectionCombobox({
   function select(option: ConnectionOption) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("connectionId", option.id);
-    router.push(`${pathname}?${params.toString()}`);
+    startTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
     setOpen(false);
     setQuery("");
   }
@@ -128,18 +139,26 @@ export function ConnectionCombobox({
             setHighlighted(0);
           }}
           onKeyDown={handleKeyDown}
+          disabled={isPending}
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
           aria-controls={listboxId}
+          aria-busy={isPending}
           placeholder="Search by client or VA name…"
-          className="w-full rounded-lg border border-surface-border bg-surface py-2.5 pr-9 pl-9 text-sm outline-none transition focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/40"
-        />
-        <ChevronDown
-          className={`pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted transition ${
-            open ? "rotate-180" : ""
+          className={`w-full rounded-lg border border-surface-border bg-surface py-2.5 pr-9 pl-9 text-sm outline-none transition focus:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent/40 ${
+            isPending ? "opacity-60" : ""
           }`}
         />
+        {isPending ? (
+          <Loader2 className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-muted" />
+        ) : (
+          <ChevronDown
+            className={`pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted transition ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        )}
 
         {open && (
           <div
