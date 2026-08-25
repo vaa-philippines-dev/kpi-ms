@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { KpiPeriod } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
+import type { Prisma } from "@/generated/prisma/client";
 
 async function requireAdmin() {
   const session = await auth();
@@ -14,14 +15,20 @@ async function requireAdmin() {
   return session;
 }
 
-export type KpiConfigDetailRow = {
-  id: string | null; // null = not yet configured, showing the KPI Library default
+export type KpiConfigPeriodInfo = {
   kpiDefinitionId: string;
-  name: string;
-  // A single legacy KPI maps to up to two KpiDefinition rows here — one for
-  // its Weekly target, one for its Monthly target (same name, different
-  // period) — so this must be shown or the two rows look like duplicates.
-  period: KpiPeriod;
+  configId: string | null; // null = not yet configured, showing the KPI Library default
+  targetValue: number;
+  defaultTargetValue: number;
+};
+
+// One row per (name, cluster) pair, merging the Weekly and Monthly
+// KpiDefinition rows a single legacy KPI maps to (same name/cluster,
+// different period) into the columns the UI shows side by side.
+// Deviation/critical/applicable/notes are edited as one shared value across
+// both periods (see updateKpiConfig), even though they're stored per-period
+// underneath.
+export type KpiConfigGroupRow = {
   // Legacy's KPI_Master keys applicability off ServiceID alone, never
   // Cluster (see KPIConfig.js's `k.ServiceID === serviceId` filter — no
   // cluster check), so two KPIs can legitimately share a name AND a
@@ -29,11 +36,18 @@ export type KpiConfigDetailRow = {
   // again for "Walmart PPC") and both apply to the same connection. Ported
   // as-is from legacy; cluster is shown here so the two don't read as an
   // accidental duplicate.
+  key: string;
+  name: string;
   cluster: string;
-  targetValue: number;
+  unit: string | null;
+  direction: KpiDirection;
+  weekly: KpiConfigPeriodInfo | null;
+  monthly: KpiConfigPeriodInfo | null;
   deviationThresholdPct: number;
   criticalThresholdPct: number;
   isApplicable: boolean;
+  notes: string | null;
+  hasOverride: boolean;
 };
 
 // Lazily loaded when a row's modal opens, rather than preloading every
@@ -70,39 +84,57 @@ export async function getKpiConfigDetail(connectionId: string) {
     }),
   ]);
 
-  const configuredIds = new Set(configs.map((c) => c.kpiDefinitionId));
-  const rows: KpiConfigDetailRow[] = [
-    ...configs.map((c) => ({
-      id: c.id,
-      kpiDefinitionId: c.kpiDefinitionId,
-      name: c.kpiDefinition.name,
-      period: c.kpiDefinition.period,
-      cluster: c.kpiDefinition.cluster,
-      targetValue: c.targetValue ?? c.kpiDefinition.targetValue,
-      deviationThresholdPct:
-        c.deviationThresholdPct ?? c.kpiDefinition.deviationThresholdPct,
-      criticalThresholdPct:
-        c.criticalThresholdPct ?? c.kpiDefinition.criticalThresholdPct,
-      isApplicable: c.isApplicable,
-    })),
-    ...applicableKpis
-      .filter((k) => !configuredIds.has(k.id))
-      .map((k) => ({
-        id: null,
-        kpiDefinitionId: k.id,
-        name: k.name,
-        period: k.period,
-        cluster: k.cluster,
-        targetValue: k.targetValue,
-        deviationThresholdPct: k.deviationThresholdPct,
-        criticalThresholdPct: k.criticalThresholdPct,
-        isApplicable: true,
-      })),
-  ];
+  const configByDefId = new Map(configs.map((c) => [c.kpiDefinitionId, c]));
+
+  // Group by (name, cluster) so a KPI's Weekly and Monthly KpiDefinition
+  // rows land in one KpiConfigGroupRow with side-by-side target columns,
+  // in the same order applicableKpis was fetched in (name, cluster, period).
+  const groups = new Map<string, KpiConfigGroupRow>();
+  for (const def of applicableKpis) {
+    const key = `${def.name}::${def.cluster}`;
+    const config = configByDefId.get(def.id) ?? null;
+    const periodInfo: KpiConfigPeriodInfo = {
+      kpiDefinitionId: def.id,
+      configId: config?.id ?? null,
+      targetValue: config?.targetValue ?? def.targetValue,
+      defaultTargetValue: def.targetValue,
+    };
+
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        name: def.name,
+        cluster: def.cluster,
+        unit: def.unit,
+        direction: def.direction,
+        weekly: null,
+        monthly: null,
+        deviationThresholdPct: config?.deviationThresholdPct ?? def.deviationThresholdPct,
+        criticalThresholdPct: config?.criticalThresholdPct ?? def.criticalThresholdPct,
+        isApplicable: config?.isApplicable ?? true,
+        notes: config?.notes ?? null,
+        hasOverride: false,
+      };
+      groups.set(key, group);
+    }
+    if (config) {
+      // Deviation/critical/applicable/notes are shared across both periods
+      // in the UI — prefer whichever period already has an override so an
+      // existing customization isn't masked by the other period's default.
+      group.deviationThresholdPct = config.deviationThresholdPct ?? group.deviationThresholdPct;
+      group.criticalThresholdPct = config.criticalThresholdPct ?? group.criticalThresholdPct;
+      group.isApplicable = config.isApplicable;
+      group.notes = config.notes ?? group.notes;
+      group.hasOverride = true;
+    }
+    if (def.period === KpiPeriod.WEEKLY) group.weekly = periodInfo;
+    else group.monthly = periodInfo;
+  }
 
   return {
     missingCount: applicableKpis.length - configs.length,
-    rows,
+    rows: Array.from(groups.values()),
   };
 }
 
@@ -152,72 +184,102 @@ export async function initKpiConfig(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-// Updates one KpiConfig row's overrides, logging one KpiConfigHistory entry
-// per changed field — mirrors legacy updateKPIConfig().
+// Upserts up to two KpiConfig rows (one per period) for a single KPI group
+// in one submit — the redesigned editor edits Weekly and Monthly targets
+// side by side but treats Deviation/At Risk Max/Applicable/Notes as one
+// shared value synced to both periods, even though each is stored on its
+// own KpiConfig row underneath. Logs one KpiConfigHistory entry per changed
+// field per row — mirrors legacy updateKPIConfig(), merged across periods.
 export async function updateKpiConfig(formData: FormData) {
   const session = await requireAdmin();
-  const id = String(formData.get("id") ?? "");
-  if (!id) throw new Error("Missing config id.");
+  const connectionId = String(formData.get("connectionId") ?? "");
+  if (!connectionId) throw new Error("Missing connection id.");
 
-  const targetValue = numberOrNull(formData, "targetValue");
   const deviationThresholdPct = numberOrNull(formData, "deviationThresholdPct");
   const criticalThresholdPct = numberOrNull(formData, "criticalThresholdPct");
   const isApplicable = formData.get("isApplicable") === "on";
+  const notesRaw = formData.get("notes");
+  const notes = notesRaw === null || notesRaw === "" ? null : String(notesRaw);
 
-  const existing = await prisma.kpiConfig.findUnique({ where: { id } });
-  if (!existing) throw new Error("Config not found.");
+  const periods: { kpiDefinitionId: string; targetValue: number | null }[] = [];
+  const weeklyDefId = formData.get("weeklyKpiDefinitionId");
+  if (weeklyDefId) {
+    periods.push({
+      kpiDefinitionId: String(weeklyDefId),
+      targetValue: numberOrNull(formData, "weeklyTargetValue"),
+    });
+  }
+  const monthlyDefId = formData.get("monthlyKpiDefinitionId");
+  if (monthlyDefId) {
+    periods.push({
+      kpiDefinitionId: String(monthlyDefId),
+      targetValue: numberOrNull(formData, "monthlyTargetValue"),
+    });
+  }
+  if (periods.length === 0) throw new Error("Missing KPI definition id.");
 
-  const fields: [string, number | boolean | null, number | boolean | null][] = [
-    ["targetValue", existing.targetValue, targetValue],
-    [
-      "deviationThresholdPct",
-      existing.deviationThresholdPct,
+  const existingConfigs = await prisma.kpiConfig.findMany({
+    where: { connectionId, kpiDefinitionId: { in: periods.map((p) => p.kpiDefinitionId) } },
+  });
+  const existingByDefId = new Map(existingConfigs.map((c) => [c.kpiDefinitionId, c]));
+
+  const operations: Prisma.PrismaPromise<unknown>[] = [];
+  for (const p of periods) {
+    const existing = existingByDefId.get(p.kpiDefinitionId);
+    const data = {
+      targetValue: p.targetValue,
       deviationThresholdPct,
-    ],
-    ["criticalThresholdPct", existing.criticalThresholdPct, criticalThresholdPct],
-    ["isApplicable", existing.isApplicable, isApplicable],
-  ];
-  const changed = fields.filter(([, oldV, newV]) => oldV !== newV);
+      criticalThresholdPct,
+      isApplicable,
+      notes,
+    };
 
-  if (changed.length > 0) {
-    await prisma.$transaction([
+    if (!existing) {
+      operations.push(
+        prisma.kpiConfig.create({
+          data: {
+            connectionId,
+            kpiDefinitionId: p.kpiDefinitionId,
+            updatedById: session!.user!.id,
+            ...data,
+          },
+        }),
+      );
+      continue;
+    }
+
+    const fields: [string, number | boolean | string | null, number | boolean | string | null][] = [
+      ["targetValue", existing.targetValue, data.targetValue],
+      ["deviationThresholdPct", existing.deviationThresholdPct, data.deviationThresholdPct],
+      ["criticalThresholdPct", existing.criticalThresholdPct, data.criticalThresholdPct],
+      ["isApplicable", existing.isApplicable, data.isApplicable],
+      ["notes", existing.notes, data.notes],
+    ];
+    const changed = fields.filter(([, oldV, newV]) => oldV !== newV);
+    if (changed.length === 0) continue;
+
+    operations.push(
       prisma.kpiConfig.update({
-        where: { id },
-        data: {
-          targetValue,
-          deviationThresholdPct,
-          criticalThresholdPct,
-          isApplicable,
-          version: { increment: 1 },
-          updatedById: session!.user!.id,
-        },
+        where: { id: existing.id },
+        data: { ...data, version: { increment: 1 }, updatedById: session!.user!.id },
       }),
+    );
+    operations.push(
       prisma.kpiConfigHistory.createMany({
         data: changed.map(([fieldChanged, oldValue, newValue]) => ({
-          kpiConfigId: id,
+          kpiConfigId: existing.id,
           fieldChanged,
           oldValue: oldValue === null ? null : String(oldValue),
           newValue: newValue === null ? null : String(newValue),
           changedById: session!.user!.id,
         })),
       }),
-    ]);
+    );
   }
-  revalidatePath("/dashboard/connections/kpi-config");
-}
 
-export async function deleteKpiConfig(formData: FormData) {
-  await requireAdmin();
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  // KpiConfigHistory.kpiConfigId is ON DELETE RESTRICT, so any config that
-  // was ever edited (and therefore has history rows) must have those
-  // deleted first, in the same transaction, or this throws a foreign key
-  // violation.
-  await prisma.$transaction([
-    prisma.kpiConfigHistory.deleteMany({ where: { kpiConfigId: id } }),
-    prisma.kpiConfig.delete({ where: { id } }),
-  ]);
+  if (operations.length > 0) {
+    await prisma.$transaction(operations);
+  }
   revalidatePath("/dashboard/connections/kpi-config");
 }
 

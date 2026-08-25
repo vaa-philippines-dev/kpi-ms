@@ -212,6 +212,9 @@ model KpiConfig {
   deviationThresholdPct Float?
   criticalThresholdPct  Float?
   isApplicable          Boolean            @default(true)
+  // Free-text admin notes on this override — shown in the KPI Configuration
+  // editor, never used in calculations.
+  notes                 String?
   version               Int                @default(1)
   history               KpiConfigHistory[]
   updatedBy             User               @relation(fields: [updatedById], references: [id])
