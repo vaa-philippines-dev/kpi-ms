@@ -2,7 +2,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
-import { STATUS_LABEL } from "@/components/status-badge";
 import { Sparkline } from "@/components/sparkline";
 import { DeptTeamSummaryPanel } from "@/components/dept-team-summary-panel";
 import {
@@ -123,21 +122,21 @@ export default async function SubmissionsPage(
   const excludedCount = connections.length - trackedConnections.length;
 
   const trackerRows: SubmissionTrackerRow[] = trackedConnections.map((c) => {
-    const status = trackerStatus(c.id);
+    const submitted = trackerStatus(c.id) !== null;
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
       clientName: c.clientName,
       departmentName: c.department.name,
-      status,
-      statusLabel: status ? STATUS_LABEL[status] : "Pending",
+      submitted,
+      statusLabel: submitted ? "Submitted" : "Pending",
     };
   });
 
   // Scorecards — mirrors legacy's Submitted / Pending / VAs Complete stat
   // cards (AppSubmissions.html: `_subStatCard`), now computed for whichever
   // period the navbar toggle currently selects, rather than always weekly.
-  const periodSubmittedCount = trackerRows.filter((r) => r.status !== null).length;
+  const periodSubmittedCount = trackerRows.filter((r) => r.submitted).length;
   const periodTotal = trackerRows.length;
   const periodPendingCount = periodTotal - periodSubmittedCount;
   const periodRatePct = periodTotal > 0 ? Math.round((periodSubmittedCount / periodTotal) * 100) : 0;

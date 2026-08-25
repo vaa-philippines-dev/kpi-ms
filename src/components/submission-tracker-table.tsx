@@ -2,23 +2,26 @@
 
 import { useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { SubmissionEditModal } from "@/components/submission-edit-modal";
-import { PerformanceStatus } from "@/generated/prisma/enums";
 
 export type SubmissionTrackerRow = {
   connectionId: string;
   vaName: string;
   clientName: string;
   departmentName: string;
-  status: PerformanceStatus | null;
+  submitted: boolean;
   statusLabel: string;
 };
 
-function statusCell(status: PerformanceStatus | null) {
-  return status ? (
-    <StatusBadge status={status} />
+// This column tracks whether a submission came in for the period, not how
+// it performed against target — performance status belongs on the
+// Performance page. Showing On Target/At Risk here (as PerformanceStatus
+// once did) reads as a performance judgment on a submission-tracking grid,
+// which isn't what this table is for.
+function statusCell(submitted: boolean) {
+  return submitted ? (
+    <Badge tone="success">Submitted</Badge>
   ) : (
     <Badge tone="warning">Pending</Badge>
   );
@@ -62,7 +65,7 @@ function getColumns(
       label: periodLabel,
       sortable: true,
       filterable: "select",
-      render: (_v, row) => statusCell(row.status),
+      render: (_v, row) => statusCell(row.submitted),
     },
   ];
 }
