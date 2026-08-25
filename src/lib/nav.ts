@@ -141,7 +141,7 @@ const loginActivityItem: NavItem = {
   href: "/dashboard/login-activity",
   label: "Login Activity",
   icon: History,
-  roles: ["ADMIN", "DM"],
+  roles: ["ADMIN", "DM", "OPS_MANAGER"],
   keywords: "sign in audit last login",
 };
 const teamManagementItem: NavItem = {
@@ -267,7 +267,7 @@ const teamLeaderGroups: NavGroup[] = [
   },
   {
     label: "Tools",
-    items: [submissionsItem, interventionsItem],
+    items: [submissionsItem, interventionsItem, kpiLibraryItem],
   },
 ];
 
@@ -300,6 +300,9 @@ const vaGroups: NavGroup[] = [
 const navGroupsByRole: Record<string, NavGroup[]> = {
   ADMIN: adminGroups,
   DM: managerGroups,
+  // Ops Manager is department-wide/DM-equivalent by spec — reuses the exact
+  // same nav groups as DM rather than a parallel copy that could drift.
+  OPS_MANAGER: managerGroups,
   OM: teamLeaderGroups,
   SERVICE_MANAGER: csGroups,
   VA: vaGroups,

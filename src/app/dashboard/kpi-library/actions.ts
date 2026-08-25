@@ -5,11 +5,13 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
-async function requireAdmin() {
+async function requireManager() {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
-    throw new Error("Only admins can manage the KPI Library.");
+  const role = session?.user?.role;
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
+    throw new Error("Only Admins, DMs, Ops Managers, or OMs can manage the KPI Library.");
   }
+  return session;
 }
 
 function numberOrDefault(formData: FormData, key: string, fallback: number) {
@@ -72,14 +74,14 @@ function parseKpiForm(formData: FormData) {
 }
 
 export async function createKpiDefinition(formData: FormData) {
-  await requireAdmin();
+  await requireManager();
   const data = parseKpiForm(formData);
   await prisma.kpiDefinition.create({ data });
   revalidatePath("/dashboard/kpi-library");
 }
 
 export async function updateKpiDefinition(formData: FormData) {
-  await requireAdmin();
+  await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing KPI id.");
   const data = parseKpiForm(formData);
@@ -88,7 +90,7 @@ export async function updateKpiDefinition(formData: FormData) {
 }
 
 export async function deleteKpiDefinition(formData: FormData) {
-  await requireAdmin();
+  await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   try {
@@ -96,5 +98,17 @@ export async function deleteKpiDefinition(formData: FormData) {
   } catch {
     throw new Error("Can't delete a KPI that already has submissions recorded against it.");
   }
+  revalidatePath("/dashboard/kpi-library");
+}
+
+// Lightweight move used by the By Cluster view's drag-and-drop — reassigns
+// only the `cluster` field instead of round-tripping the full KPI form.
+export async function moveKpiCluster(id: string, cluster: string) {
+  await requireManager();
+  const trimmed = cluster.trim();
+  if (!id || !trimmed) {
+    throw new Error("Missing KPI id or cluster name.");
+  }
+  await prisma.kpiDefinition.update({ where: { id }, data: { cluster: trimmed } });
   revalidatePath("/dashboard/kpi-library");
 }

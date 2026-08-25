@@ -1,18 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { List, LayoutGrid } from "lucide-react";
+import { useMemo, useState, type DragEvent } from "react";
+import { List, LayoutGrid, GripVertical } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
+import { useToast } from "@/components/ui/toast";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 import {
   createKpiDefinition,
   updateKpiDefinition,
   deleteKpiDefinition,
+  moveKpiCluster,
 } from "@/app/dashboard/kpi-library/actions";
 
 type Option = { id: string; name: string };
@@ -41,12 +43,19 @@ const DIRECTION_LABELS: Record<KpiDirection, string> = {
   LOWER_IS_BETTER: "Lower is better",
 };
 
+const PERIOD_LABELS: Record<KpiPeriod, string> = {
+  WEEKLY: "Weekly",
+  MONTHLY: "Monthly",
+};
+
 const DIRECTION_OPTIONS = Object.entries(DIRECTION_LABELS).map(([value, label]) => ({
   value,
   label,
 }));
-const PERIOD_OPTIONS = Object.values(KpiPeriod).map((p) => ({ value: p, label: p }));
 
+// The page filters to a single period from the global Weekly/Monthly topbar
+// toggle before these rows ever get here, so a per-row Period column would
+// always read the same value — dropped from both views for that reason.
 const COLUMNS: DataTableColumn<KpiRow>[] = [
   { key: "name", label: "Name", sortable: true, filterable: true },
   { key: "cluster", label: "Cluster", sortable: true, filterable: "select", className: "text-muted" },
@@ -54,7 +63,7 @@ const COLUMNS: DataTableColumn<KpiRow>[] = [
     key: "departmentName",
     label: "Department",
     sortable: true,
-    filterable: "select",
+    filterable: true,
     className: "text-muted",
   },
   {
@@ -76,14 +85,6 @@ const COLUMNS: DataTableColumn<KpiRow>[] = [
     searchText: (row) => DIRECTION_LABELS[row.direction],
     render: (v) => DIRECTION_LABELS[v as KpiDirection],
   },
-  {
-    key: "period",
-    label: "Period",
-    sortable: true,
-    filterable: "select",
-    filterOptions: PERIOD_OPTIONS,
-    className: "text-muted",
-  },
   { key: "targetValue", label: "Target", sortable: true, className: "text-muted" },
   {
     key: "deviationThresholdPct",
@@ -102,22 +103,31 @@ const COLUMNS: DataTableColumn<KpiRow>[] = [
 ];
 
 const UNCLUSTERED = "— No Cluster —";
+const NEW_CLUSTER_VALUE = "__new__";
 
 /**
  * Grouped-by-cluster read view — mirrors legacy's cluster view
  * (AppKPI.html: `_buildClusterView()`), sub-grouped by department within
- * each cluster. Rows are clickable (same edit modal as the List view) for
- * admins.
+ * each cluster. Rows are clickable (same edit modal as the List view) and,
+ * for managers, draggable onto another cluster's section to reassign them
+ * without opening the edit modal at all.
  */
 function ClusterView({
   kpis,
-  isAdmin,
+  canManage,
   onRowClick,
+  pendingClusters,
+  onMove,
 }: {
   kpis: KpiRow[];
-  isAdmin: boolean;
+  canManage: boolean;
   onRowClick: (k: KpiRow) => void;
+  pendingClusters: string[];
+  onMove: (id: string, cluster: string) => void;
 }) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverCluster, setDragOverCluster] = useState<string | null>(null);
+
   const clusters = useMemo(() => {
     const byCluster = new Map<string, KpiRow[]>();
     for (const k of kpis) {
@@ -125,12 +135,17 @@ function ClusterView({
       if (!byCluster.has(key)) byCluster.set(key, []);
       byCluster.get(key)!.push(k);
     }
+    // Clusters created via "+ New Cluster" that don't have a KPI in them
+    // yet — kept as empty drop targets until a KPI actually lands in one.
+    for (const name of pendingClusters) {
+      if (!byCluster.has(name)) byCluster.set(name, []);
+    }
     return [...byCluster.entries()].sort(([a], [b]) => {
       if (a === UNCLUSTERED) return 1;
       if (b === UNCLUSTERED) return -1;
       return a.localeCompare(b);
     });
-  }, [kpis]);
+  }, [kpis, pendingClusters]);
 
   if (clusters.length === 0) {
     return (
@@ -140,45 +155,180 @@ function ClusterView({
     );
   }
 
+  function handleDrop(e: DragEvent<HTMLDivElement>, cluster: string) {
+    e.preventDefault();
+    setDragOverCluster(null);
+    const id = e.dataTransfer.getData("text/plain");
+    setDraggingId(null);
+    if (!id) return;
+    const dragged = kpis.find((k) => k.id === id);
+    if (!dragged || (dragged.cluster.trim() || UNCLUSTERED) === cluster) return;
+    onMove(id, cluster);
+  }
+
   return (
     <div className="space-y-8">
-      {clusters.map(([cluster, rows]) => (
-        <div key={cluster}>
-          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            {cluster}
-            <span className="font-normal text-muted">({rows.length})</span>
-          </h3>
-          <Table>
-            <TableHead>
-              <tr>
-                <Th>Name</Th>
-                <Th>Department</Th>
-                <Th>Service</Th>
-                <Th>Direction</Th>
-                <Th>Period</Th>
-                <Th>Target</Th>
-                <Th>At Risk %</Th>
-                <Th>Critical %</Th>
-              </tr>
-            </TableHead>
-            <tbody>
-              {rows.map((k) => (
-                <Tr key={k.id} onClick={isAdmin ? () => onRowClick(k) : undefined}>
-                  <Td>{k.name}</Td>
-                  <Td className="text-muted">{k.departmentName}</Td>
-                  <Td className="text-muted">{k.serviceName ?? "All Services"}</Td>
-                  <Td className="text-muted">{DIRECTION_LABELS[k.direction]}</Td>
-                  <Td className="text-muted">{k.period}</Td>
-                  <Td className="text-muted">{k.targetValue}</Td>
-                  <Td className="text-muted">{k.deviationThresholdPct}%</Td>
-                  <Td className="text-muted">{k.criticalThresholdPct}%</Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        </div>
-      ))}
+      {clusters.map(([cluster, rows]) => {
+        const droppable = canManage && cluster !== UNCLUSTERED;
+        return (
+          <div
+            key={cluster}
+            onDragOver={
+              droppable
+                ? (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverCluster(cluster);
+                  }
+                : undefined
+            }
+            onDragLeave={droppable ? () => setDragOverCluster((c) => (c === cluster ? null : c)) : undefined}
+            onDrop={droppable ? (e) => handleDrop(e, cluster) : undefined}
+            className={`rounded-xl p-2 -m-2 transition ${
+              dragOverCluster === cluster ? "bg-accent/5 ring-2 ring-accent/30" : ""
+            }`}
+          >
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+              {cluster}
+              <span className="font-normal text-muted">({rows.length})</span>
+            </h3>
+            {rows.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-surface-border py-6 text-center text-xs text-muted">
+                Drag a KPI here to add it to this cluster.
+              </p>
+            ) : (
+              <Table>
+                <TableHead>
+                  <tr>
+                    {canManage && <Th className="w-8" />}
+                    <Th>Name</Th>
+                    <Th>Department</Th>
+                    <Th>Service</Th>
+                    <Th>Direction</Th>
+                    <Th>Target</Th>
+                    <Th>At Risk %</Th>
+                    <Th>Critical %</Th>
+                  </tr>
+                </TableHead>
+                <tbody>
+                  {rows.map((k) => (
+                    <Tr
+                      key={k.id}
+                      onClick={canManage ? () => onRowClick(k) : undefined}
+                      className={draggingId === k.id ? "opacity-40" : ""}
+                    >
+                      {canManage && (
+                        <Td className="text-muted">
+                          <span
+                            draggable
+                            role="button"
+                            aria-label={`Drag ${k.name} to another cluster`}
+                            onClick={(e) => e.stopPropagation()}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData("text/plain", k.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggingId(k.id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingId(null);
+                              setDragOverCluster(null);
+                            }}
+                            className="inline-flex cursor-grab active:cursor-grabbing"
+                          >
+                            <GripVertical className="size-4" />
+                          </span>
+                        </Td>
+                      )}
+                      <Td>{k.name}</Td>
+                      <Td className="text-muted">{k.departmentName}</Td>
+                      <Td className="text-muted">{k.serviceName ?? "All Services"}</Td>
+                      <Td className="text-muted">{DIRECTION_LABELS[k.direction]}</Td>
+                      <Td className="text-muted">{k.targetValue}</Td>
+                      <Td className="text-muted">{k.deviationThresholdPct}%</Td>
+                      <Td className="text-muted">{k.criticalThresholdPct}%</Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </div>
+        );
+      })}
     </div>
+  );
+}
+
+/**
+ * Cluster picker — a dropdown of every cluster already in use, plus an
+ * "+ Add new cluster…" option that swaps in a plain text field for a brand
+ * new name. Replaces the old free-text box so a KPI can only land in an
+ * existing cluster unless someone deliberately creates a new one.
+ */
+function ClusterField({
+  clusters,
+  initialCluster,
+}: {
+  clusters: string[];
+  initialCluster?: string;
+}) {
+  const startsAsCustom = !!initialCluster && !clusters.includes(initialCluster);
+  const [mode, setMode] = useState<"select" | "custom">(
+    clusters.length === 0 || startsAsCustom ? "custom" : "select",
+  );
+  const [customValue, setCustomValue] = useState(startsAsCustom ? (initialCluster ?? "") : "");
+  const [selectValue, setSelectValue] = useState(!startsAsCustom ? (initialCluster ?? "") : "");
+
+  if (mode === "custom") {
+    return (
+      <div className="flex gap-2 sm:col-span-2">
+        <Input
+          name="cluster"
+          placeholder="New cluster name"
+          value={customValue}
+          onChange={(e) => setCustomValue(e.target.value)}
+          required
+          autoFocus={clusters.length > 0}
+          className="flex-1"
+        />
+        {clusters.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            className="shrink-0 px-3 py-2 text-xs"
+            onClick={() => setMode("select")}
+          >
+            Choose existing
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Select
+      name="cluster"
+      required
+      value={selectValue}
+      onChange={(e) => {
+        if (e.target.value === NEW_CLUSTER_VALUE) {
+          setMode("custom");
+          setCustomValue("");
+        } else {
+          setSelectValue(e.target.value);
+        }
+      }}
+    >
+      <option value="" disabled>
+        Select a cluster…
+      </option>
+      {clusters.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+      <option value={NEW_CLUSTER_VALUE}>+ Add new cluster…</option>
+    </Select>
   );
 }
 
@@ -186,86 +336,130 @@ function KpiForm({
   kpi,
   departments,
   services,
+  clusters,
+  defaultPeriod,
   action,
   onDone,
 }: {
   kpi?: KpiRow;
   departments: Option[];
   services: ServiceOption[];
+  clusters: string[];
+  defaultPeriod: KpiPeriod;
   action: (formData: FormData) => void | Promise<void>;
   onDone: () => void;
 }) {
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+
+  function handleSubmit(formData: FormData) {
+    setSaving(true);
+    (async () => {
+      try {
+        await action(formData);
+        toast(kpi ? "KPI updated." : "KPI added.", "success");
+        onDone();
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Something went wrong.", "error");
+      } finally {
+        setSaving(false);
+      }
+    })();
+  }
+
   return (
-    <form
-      action={action}
-      onSubmit={onDone}
-      className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-    >
+    <form action={handleSubmit} className="space-y-5">
       {kpi && <input type="hidden" name="id" value={kpi.id} />}
-      <Input
-        name="name"
-        placeholder="KPI name"
-        defaultValue={kpi?.name}
-        required
-        className="sm:col-span-2"
-      />
-      <Input name="cluster" placeholder="Cluster" defaultValue={kpi?.cluster} required />
-      <Select name="departmentId" required defaultValue={kpi?.departmentId ?? ""}>
-        <option value="" disabled>
-          Department
-        </option>
-        {departments.map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.name}
-          </option>
-        ))}
-      </Select>
-      <Select name="serviceId" defaultValue={kpi?.serviceId ?? ""}>
-        <option value="">Service (optional — applies dept-wide)</option>
-        {services.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name} ({s.departmentName})
-          </option>
-        ))}
-      </Select>
-      <Select name="direction" defaultValue={kpi?.direction ?? KpiDirection.HIGHER_IS_BETTER}>
-        {Object.values(KpiDirection).map((d) => (
-          <option key={d} value={d}>
-            {DIRECTION_LABELS[d]}
-          </option>
-        ))}
-      </Select>
-      <Select name="period" defaultValue={kpi?.period ?? KpiPeriod.MONTHLY}>
-        {Object.values(KpiPeriod).map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-      </Select>
-      <Input
-        name="targetValue"
-        type="number"
-        step="any"
-        placeholder="Target value"
-        defaultValue={kpi?.targetValue}
-        required
-      />
-      <Input
-        name="deviationThresholdPct"
-        type="number"
-        step="any"
-        placeholder="At Risk % (default 10)"
-        defaultValue={kpi?.deviationThresholdPct}
-      />
-      <Input
-        name="criticalThresholdPct"
-        type="number"
-        step="any"
-        placeholder="Critical % (default 25)"
-        defaultValue={kpi?.criticalThresholdPct}
-      />
-      <Button type="submit" className="col-span-2 sm:col-span-4">
-        {kpi ? "Save" : "Add KPI"}
+
+      <div>
+        <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
+          Basic info
+        </h3>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Input
+            name="name"
+            placeholder="KPI name"
+            defaultValue={kpi?.name}
+            required
+            className="col-span-2"
+          />
+          <ClusterField clusters={clusters} initialCluster={kpi?.cluster} />
+          <Select name="departmentId" required defaultValue={kpi?.departmentId ?? ""}>
+            <option value="" disabled>
+              Department
+            </option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </Select>
+          <Select name="serviceId" defaultValue={kpi?.serviceId ?? ""} className="col-span-2 sm:col-span-4">
+            <option value="">Service (optional — applies dept-wide)</option>
+            {services.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.departmentName})
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
+          Measurement
+        </h3>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Select name="direction" defaultValue={kpi?.direction ?? KpiDirection.HIGHER_IS_BETTER}>
+            {Object.values(KpiDirection).map((d) => (
+              <option key={d} value={d}>
+                {DIRECTION_LABELS[d]}
+              </option>
+            ))}
+          </Select>
+          <Select name="period" defaultValue={kpi?.period ?? defaultPeriod}>
+            {Object.values(KpiPeriod).map((p) => (
+              <option key={p} value={p}>
+                {PERIOD_LABELS[p]}
+              </option>
+            ))}
+          </Select>
+          <Input
+            name="targetValue"
+            type="number"
+            step="any"
+            placeholder="Target value"
+            defaultValue={kpi?.targetValue}
+            required
+            className="col-span-2"
+          />
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
+          Alert thresholds
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            name="deviationThresholdPct"
+            type="number"
+            step="any"
+            placeholder="At Risk % (default 10)"
+            defaultValue={kpi?.deviationThresholdPct}
+          />
+          <Input
+            name="criticalThresholdPct"
+            type="number"
+            step="any"
+            placeholder="Critical % (default 25)"
+            defaultValue={kpi?.criticalThresholdPct}
+          />
+        </div>
+      </div>
+
+      <Button type="submit" loading={saving} className="w-full">
+        {kpi ? "Save changes" : "Add KPI"}
       </Button>
     </form>
   );
@@ -282,66 +476,193 @@ export function KpiLibraryTable({
   kpis,
   departments,
   services,
-  isAdmin,
+  clusters,
+  canManage,
+  defaultPeriod,
 }: {
   kpis: KpiRow[];
   departments: Option[];
   services: ServiceOption[];
-  isAdmin: boolean;
+  clusters: string[];
+  canManage: boolean;
+  defaultPeriod: KpiPeriod;
 }) {
+  const { toast } = useToast();
   const [editing, setEditing] = useState<KpiRow | null>(null);
   const [adding, setAdding] = useState(false);
-  const [view, setView] = useState<"list" | "cluster">("list");
+  // Defaults to the grouped view — easier to scan a department's clusters at
+  // a glance, and it's what drag-and-drop reassignment needs anyway.
+  const [view, setView] = useState<"list" | "cluster">("cluster");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [pendingClusters, setPendingClusters] = useState<string[]>([]);
+  const [addingCluster, setAddingCluster] = useState(false);
+  const [newClusterName, setNewClusterName] = useState("");
+
+  const filteredKpis = useMemo(
+    () => (departmentFilter ? kpis.filter((k) => k.departmentId === departmentFilter) : kpis),
+    [kpis, departmentFilter],
+  );
+
+  const allClusters = useMemo(
+    () => Array.from(new Set([...clusters, ...pendingClusters])).sort((a, b) => a.localeCompare(b)),
+    [clusters, pendingClusters],
+  );
+
+  const clusterCount = useMemo(
+    () => new Set(filteredKpis.map((k) => k.cluster.trim()).filter(Boolean)).size,
+    [filteredKpis],
+  );
+
+  function commitNewCluster() {
+    const name = newClusterName.trim();
+    if (name && !allClusters.includes(name)) {
+      setPendingClusters((p) => [...p, name]);
+      setView("cluster");
+    }
+    setNewClusterName("");
+    setAddingCluster(false);
+  }
+
+  function handleMove(id: string, cluster: string) {
+    (async () => {
+      try {
+        await moveKpiCluster(id, cluster);
+        toast(`Moved to "${cluster}".`, "success");
+        setPendingClusters((p) => p.filter((c) => c !== cluster));
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Couldn't move that KPI.", "error");
+      }
+    })();
+  }
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex gap-1 rounded-lg border border-surface-border bg-surface p-0.5">
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-              view === "list"
-                ? "bg-surface-hover text-foreground"
-                : "text-muted hover:text-foreground"
-            }`}
-          >
-            <List className="size-3.5" />
-            List
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("cluster")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-              view === "cluster"
-                ? "bg-surface-hover text-foreground"
-                : "text-muted hover:text-foreground"
-            }`}
-          >
-            <LayoutGrid className="size-3.5" />
-            By Cluster
-          </button>
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-1 rounded-lg border border-surface-border bg-surface p-0.5">
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  view === "list"
+                    ? "bg-surface-hover text-foreground"
+                    : "text-muted hover:text-foreground"
+                }`}
+              >
+                <List className="size-3.5" />
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("cluster")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  view === "cluster"
+                    ? "bg-surface-hover text-foreground"
+                    : "text-muted hover:text-foreground"
+                }`}
+              >
+                <LayoutGrid className="size-3.5" />
+                By Cluster
+              </button>
+            </div>
+            <Select
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+              className="w-auto"
+              aria-label="Filter by department"
+            >
+              <option value="">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+            <span className="text-xs text-muted">
+              {filteredKpis.length} KPI{filteredKpis.length === 1 ? "" : "s"} · {clusterCount} cluster
+              {clusterCount === 1 ? "" : "s"}
+            </span>
+          </div>
+          {canManage && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="px-3 py-2 text-xs"
+                onClick={() => setAddingCluster((v) => !v)}
+              >
+                + New Cluster
+              </Button>
+              <Button onClick={() => setAdding(true)}>+ Add KPI</Button>
+            </div>
+          )}
         </div>
-        {isAdmin && <Button onClick={() => setAdding(true)}>+ Add KPI</Button>}
+
+        {addingCluster && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-surface-border p-2">
+            <Input
+              autoFocus
+              value={newClusterName}
+              onChange={(e) => setNewClusterName(e.target.value)}
+              placeholder="New cluster name"
+              className="max-w-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitNewCluster();
+                } else if (e.key === "Escape") {
+                  setAddingCluster(false);
+                  setNewClusterName("");
+                }
+              }}
+            />
+            <Button type="button" className="px-3 py-1.5 text-xs" onClick={commitNewCluster}>
+              Create
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="px-3 py-1.5 text-xs"
+              onClick={() => {
+                setAddingCluster(false);
+                setNewClusterName("");
+              }}
+            >
+              Cancel
+            </Button>
+            <span className="text-xs text-muted">
+              Switches to By Cluster — drag a KPI into it there to save, or pick it from the KPI form.
+            </span>
+          </div>
+        )}
       </div>
 
       {view === "list" ? (
         <DataTable
           columns={COLUMNS}
-          data={kpis}
+          data={filteredKpis}
           getRowId={(k) => k.id}
           defaultLimit={25}
-          onRowClick={isAdmin ? (k) => setEditing(k) : undefined}
-          emptyMessage="No KPIs defined yet."
+          onRowClick={canManage ? (k) => setEditing(k) : undefined}
+          emptyMessage="No KPIs match the current filters."
         />
       ) : (
-        <ClusterView kpis={kpis} isAdmin={isAdmin} onRowClick={setEditing} />
+        <ClusterView
+          kpis={filteredKpis}
+          canManage={canManage}
+          onRowClick={setEditing}
+          pendingClusters={pendingClusters}
+          onMove={handleMove}
+        />
       )}
 
-      <Modal open={adding} onClose={() => setAdding(false)} title="Add KPI">
+      <Modal open={adding} onClose={() => setAdding(false)} title="Add KPI" size="lg">
         <KpiForm
           departments={departments}
           services={services}
+          clusters={allClusters}
+          defaultPeriod={defaultPeriod}
           action={createKpiDefinition}
           onDone={() => setAdding(false)}
         />
@@ -351,6 +672,7 @@ export function KpiLibraryTable({
         open={editing !== null}
         onClose={() => setEditing(null)}
         title={editing?.name ?? ""}
+        size="lg"
       >
         {editing && (
           <div className="space-y-4">
@@ -358,6 +680,8 @@ export function KpiLibraryTable({
               kpi={editing}
               departments={departments}
               services={services}
+              clusters={allClusters}
+              defaultPeriod={defaultPeriod}
               action={updateKpiDefinition}
               onDone={() => setEditing(null)}
             />

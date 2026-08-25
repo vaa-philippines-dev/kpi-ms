@@ -3,13 +3,24 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { KpiLibraryTable, type KpiRow } from "@/components/kpi-library-table";
 import { getEffectiveSession } from "@/lib/view-as";
+import { KpiPeriod } from "@/generated/prisma/enums";
 
-export default async function KpiLibraryPage() {
+const MANAGER_ROLES = new Set(["ADMIN", "DM", "OPS_MANAGER", "OM"]);
+
+export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-library">) {
   const session = await getEffectiveSession();
   if (!session) redirect("/sign-in");
 
+  const searchParams = await props.searchParams;
+  // Global topbar Weekly/Monthly toggle (see components/period-nav.tsx) — the
+  // library previously ignored it and always listed every KPI regardless of
+  // period, so weekly and monthly definitions were interleaved everywhere.
+  const selectedPeriod: KpiPeriod =
+    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
+
   const [kpis, departments, services] = await Promise.all([
     prisma.kpiDefinition.findMany({
+      where: { period: selectedPeriod },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
       include: { department: true, service: true },
     }),
@@ -19,7 +30,7 @@ export default async function KpiLibraryPage() {
       include: { department: true },
     }),
   ]);
-  const isAdmin = session?.role === "ADMIN";
+  const canManage = MANAGER_ROLES.has(session.role);
 
   const rows: KpiRow[] = kpis.map((k) => ({
     id: k.id,
@@ -42,11 +53,15 @@ export default async function KpiLibraryPage() {
     departmentName: s.department.name,
   }));
 
+  const clusters = Array.from(new Set(rows.map((r) => r.cluster.trim()).filter(Boolean))).sort(
+    (a, b) => a.localeCompare(b),
+  );
+
   return (
     <>
       <PageHeader
         title="KPI Library"
-        description="KPI definitions, targets, deviation thresholds, and department clusters."
+        description={`${selectedPeriod === "MONTHLY" ? "Monthly" : "Weekly"} KPI definitions, targets, deviation thresholds, and department clusters. Use the Weekly / Monthly toggle above to switch.`}
       />
 
       {departments.length === 0 ? (
@@ -56,7 +71,9 @@ export default async function KpiLibraryPage() {
           kpis={rows}
           departments={departments}
           services={serviceOptions}
-          isAdmin={isAdmin}
+          clusters={clusters}
+          canManage={canManage}
+          defaultPeriod={selectedPeriod}
         />
       )}
     </>
