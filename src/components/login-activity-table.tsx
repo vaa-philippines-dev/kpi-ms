@@ -15,7 +15,7 @@ export type LoginActivityRow = {
   isActive: boolean;
 };
 
-const ROLE_FILTER_OPTIONS = ["ADMIN", "DM", "OM", "SERVICE_MANAGER", "VA"].map((r) => ({
+const ROLE_FILTER_OPTIONS = ["ADMIN", "DM", "OPS_MANAGER", "OM", "SERVICE_MANAGER", "VA"].map((r) => ({
   value: r,
   label: roleLabel(r),
 }));

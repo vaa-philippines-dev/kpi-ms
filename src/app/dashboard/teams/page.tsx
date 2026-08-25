@@ -17,9 +17,10 @@ export default async function TeamsPage() {
   const session = await getEffectiveSession();
   if (!session) redirect("/sign-in");
   const role = session?.role;
-  const isManager = role === "ADMIN" || role === "DM";
+  const isDeptScopedManager = role === "DM" || role === "OPS_MANAGER";
+  const isManager = role === "ADMIN" || isDeptScopedManager;
   const departmentFilter =
-    role === "DM" && session?.departmentId
+    isDeptScopedManager && session?.departmentId
       ? { departmentId: session.departmentId }
       : {};
 
@@ -36,7 +37,7 @@ export default async function TeamsPage() {
       },
     }),
     prisma.department.findMany({
-      where: role === "DM" && session?.departmentId ? { id: session.departmentId } : {},
+      where: isDeptScopedManager && session?.departmentId ? { id: session.departmentId } : {},
       orderBy: { name: "asc" },
     }),
     prisma.user.findMany({ where: departmentFilter, orderBy: { email: "asc" } }),

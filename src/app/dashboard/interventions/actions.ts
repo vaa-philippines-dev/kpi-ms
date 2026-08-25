@@ -8,8 +8,8 @@ import { connectionScopeWhere } from "@/lib/connection-scope";
 async function requireManager() {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM" && role !== "OM") {
-    throw new Error("Only Admins, DMs, or OMs can log interventions.");
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
+    throw new Error("Only Admins, DMs, Ops Managers, or OMs can log interventions.");
   }
   return session;
 }

@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
-import { computeStatus } from "@/lib/performance";
+import { recomputePerformanceSummary } from "@/lib/performance";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit";
@@ -162,59 +162,12 @@ export async function createSubmission(formData: FormData) {
     // "no data available" are excluded; if every record for a KPI is
     // no-data, the aggregate comes back null and computeStatus reports
     // NO_DATA, same as if nothing were submitted at all.
-    for (const { kpi, config } of kpisWithConfig) {
-      const total = await tx.submissionRecord.aggregate({
-        where: {
-          kpiDefinitionId: kpi.id,
-          noData: false,
-          submission: { connectionId, periodStart },
-        },
-        _sum: { value: true },
-      });
-      const actualValue = total._sum.value ?? null;
-      const targetValue = config?.targetValue ?? kpi.targetValue;
-      const deviationThresholdPct =
-        config?.deviationThresholdPct ?? kpi.deviationThresholdPct;
-      const criticalThresholdPct =
-        config?.criticalThresholdPct ?? kpi.criticalThresholdPct;
-      const status = computeStatus(
-        kpi.direction,
-        targetValue,
-        actualValue,
-        deviationThresholdPct,
-        criticalThresholdPct,
-      );
-      const pct =
-        actualValue !== null && targetValue !== 0
-          ? (actualValue / targetValue) * 100
-          : null;
-
-      await tx.performanceSummary.upsert({
-        where: {
-          connectionId_kpiDefinitionId_periodStart: {
-            connectionId,
-            kpiDefinitionId: kpi.id,
-            periodStart,
-          },
-        },
-        create: {
-          connectionId,
-          kpiDefinitionId: kpi.id,
-          period,
-          periodStart,
-          actualValue,
-          targetValue,
-          pct,
-          status,
-        },
-        update: {
-          actualValue,
-          targetValue,
-          pct,
-          status,
-        },
-      });
-    }
+    await recomputePerformanceSummary(tx, {
+      connectionId,
+      period,
+      periodStart,
+      kpiDefinitionIds: kpisWithConfig.map(({ kpi }) => kpi.id),
+    });
   });
 
   // Whitelisted, not user-controlled input, despite coming from form data —

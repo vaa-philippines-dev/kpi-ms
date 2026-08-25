@@ -93,7 +93,12 @@ export function KpiConfigTable({
         emptyMessage="No connections found."
       />
 
-      <Modal open={openConn !== null} onClose={close} title={openConn?.clientName ?? ""}>
+      <Modal
+        open={openConn !== null}
+        onClose={close}
+        title={openConn?.clientName ?? ""}
+        size="xl"
+      >
         {openConn && (
           <div className="space-y-4">
             <p className="text-xs text-muted">

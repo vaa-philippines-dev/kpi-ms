@@ -8,13 +8,14 @@ import { requireSession } from "@/lib/connection-scope";
 // — same stat cards, same DataTable-backed report.
 export default async function LoginActivityPage() {
   const session = await requireSession();
-  if (session.role !== "ADMIN" && session.role !== "DM") {
+  if (session.role !== "ADMIN" && session.role !== "DM" && session.role !== "OPS_MANAGER") {
     redirect("/dashboard");
   }
+  const isDeptScopedManager = session.role === "DM" || session.role === "OPS_MANAGER";
 
   const users = await prisma.user.findMany({
     where:
-      session.role === "DM" && session.departmentId
+      isDeptScopedManager && session.departmentId
         ? { departmentId: session.departmentId }
         : {},
     orderBy: { lastLogin: "desc" },

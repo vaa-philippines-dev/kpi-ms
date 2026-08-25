@@ -13,14 +13,15 @@ import { UserActions } from "./user-actions";
 const UNASSIGNED = "Unassigned";
 
 // Mirrors legacy's Manager create-form role list (AppUsers.html:
-// openCreateUser — 'Team Leader','Virtual Assistant' only).
+// openCreateUser — 'Team Leader','Virtual Assistant' only). Ops Manager is
+// DM-equivalent, so it gets the same manageable-role list.
 const DM_ROLES: UserRole[] = [UserRole.OM, UserRole.VA];
 
 // Mirrors legacy's getUsers() ACL (Users.js) — only Admin/Manager could even
 // fetch the user list; every other role has no Users nav item at all (see
-// nav.ts). A DM is further scoped to their own department, same as legacy's
-// client-side filter in renderUsers() ("Managers see only their
-// department's users").
+// nav.ts). A DM (or the DM-equivalent Ops Manager) is further scoped to
+// their own department, same as legacy's client-side filter in
+// renderUsers() ("Managers see only their department's users").
 export default async function UsersPage(props: PageProps<"/dashboard/users">) {
   const searchParams = await props.searchParams;
   const q = typeof searchParams.q === "string" ? searchParams.q.trim() : "";
@@ -31,14 +32,15 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
   if (!session) {
     redirect("/sign-in");
   }
-  if (session.role !== "ADMIN" && session.role !== "DM") {
+  if (session.role !== "ADMIN" && session.role !== "DM" && session.role !== "OPS_MANAGER") {
     redirect("/dashboard");
   }
   const isAdmin = session.role === "ADMIN";
-  const isDM = session.role === "DM";
+  const isDM = session.role === "DM" || session.role === "OPS_MANAGER";
 
-  // A DM has exactly one department to browse, so skip the picker entirely
-  // and always scope straight to it (never trusting the query param).
+  // A DM/Ops Manager has exactly one department to browse, so skip the
+  // picker entirely and always scope straight to it (never trusting the
+  // query param).
   const departmentId = isDM ? (session.departmentId ?? "none") : requestedDepartmentId;
   const browsing = isDM || Boolean(departmentId || q);
 
@@ -80,7 +82,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
       <>
         <PageHeader
           title="Users"
-          description="Dashboard users and roles (Admin, DM, OM, Service Manager, VA)."
+          description="Dashboard users and roles (Admin, DM, Ops Manager, OM, Service Manager, VA)."
         />
         <div className="max-w-3xl space-y-6">
           <div className="flex items-center justify-between gap-2">
@@ -183,7 +185,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
     <>
       <PageHeader
         title="Users"
-        description="Dashboard users and roles (Admin, DM, OM, Service Manager, VA)."
+        description="Dashboard users and roles (Admin, DM, Ops Manager, OM, Service Manager, VA)."
       />
 
       <div className="space-y-6">

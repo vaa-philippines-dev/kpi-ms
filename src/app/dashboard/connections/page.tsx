@@ -27,6 +27,20 @@ export default async function ConnectionsPage(
     prisma.user.findMany({ where: { role: "VA" }, orderBy: { name: "asc" } }),
   ]);
   const isAdmin = session.role === "ADMIN";
+  const isDeptScopedManager = session.role === "DM" || session.role === "OPS_MANAGER";
+  // DM/Ops Manager can add connections too, but only within their own
+  // department — the modal gets a department-locked, pre-filtered slice
+  // instead of the full org-wide lists Admin sees.
+  const canCreateConnection = isAdmin || isDeptScopedManager;
+  const newConnectionDepartments = isDeptScopedManager
+    ? departments.filter((d) => d.id === session.departmentId)
+    : departments;
+  const newConnectionServices = isDeptScopedManager
+    ? services.filter((s) => s.departmentId === session.departmentId)
+    : services;
+  const newConnectionVaUsers = isDeptScopedManager
+    ? vaUsers.filter((u) => u.departmentId === session.departmentId)
+    : vaUsers;
 
   if (departments.length === 0) {
     return (
@@ -146,10 +160,19 @@ export default async function ConnectionsPage(
             <div />
           )}
 
-          {isAdmin && (
+          {canCreateConnection && (
             <div className="flex gap-2">
-              <ImportConnectionsModal departments={departments} services={services} />
-              <NewConnectionModal departments={departments} services={services} vaUsers={vaUsers} />
+              {isAdmin && (
+                <ImportConnectionsModal departments={departments} services={services} />
+              )}
+              {canCreateConnection && (
+                <NewConnectionModal
+                  departments={newConnectionDepartments}
+                  services={newConnectionServices}
+                  vaUsers={newConnectionVaUsers}
+                  lockedDepartmentId={isDeptScopedManager ? (session.departmentId ?? undefined) : undefined}
+                />
+              )}
             </div>
           )}
         </div>

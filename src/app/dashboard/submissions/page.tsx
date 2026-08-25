@@ -34,12 +34,19 @@ export default async function SubmissionsPage(
   const anchor = parseAnchorDate(
     typeof searchParams.date === "string" ? searchParams.date : undefined,
   );
+  // Mirrors PeriodNav's own reading of ?period= — same page, same toggle.
+  const selectedPeriod: KpiPeriod =
+    typeof searchParams.period === "string" && searchParams.period === "monthly"
+      ? KpiPeriod.MONTHLY
+      : KpiPeriod.WEEKLY;
+  const isMonthly = selectedPeriod === KpiPeriod.MONTHLY;
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
   const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
+  const selectedPeriodStart = isMonthly ? monthlyStart : weeklyStart;
   const trendStart = new Date(
     weeklyStart.getTime() - (TREND_WEEKS - 1) * 7 * 24 * 60 * 60 * 1000,
   );
@@ -54,10 +61,8 @@ export default async function SubmissionsPage(
       prisma.performanceSummary.findMany({
         where: {
           connection: scope,
-          OR: [
-            { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
-            { period: KpiPeriod.MONTHLY, periodStart: monthlyStart },
-          ],
+          period: selectedPeriod,
+          periodStart: selectedPeriodStart,
         },
       }),
       prisma.submission.findMany({
@@ -97,18 +102,17 @@ export default async function SubmissionsPage(
     (w) => countsByWeek.get(w.toISOString()) ?? 0,
   );
 
-  // Submitted-vs-pending tracker: worst-case status per connection/period,
-  // or "not submitted" (distinct from NO_DATA, which means a submission
-  // explicitly marked a KPI as having no data) when no summary row exists
-  // yet — mirrors the legacy AppSubmissions grid.
-  const byConnectionPeriod = new Map<string, PerformanceStatus[]>();
+  // Submitted-vs-pending tracker: worst-case status per connection for the
+  // selected period, or "not submitted" (distinct from NO_DATA, which means
+  // a submission explicitly marked a KPI as having no data) when no summary
+  // row exists yet — mirrors the legacy AppSubmissions grid.
+  const statusesByConnection = new Map<string, PerformanceStatus[]>();
   for (const s of currentSummaries) {
-    const key = `${s.connectionId}:${s.period}`;
-    if (!byConnectionPeriod.has(key)) byConnectionPeriod.set(key, []);
-    byConnectionPeriod.get(key)!.push(s.status);
+    if (!statusesByConnection.has(s.connectionId)) statusesByConnection.set(s.connectionId, []);
+    statusesByConnection.get(s.connectionId)!.push(s.status);
   }
-  function trackerStatus(connectionId: string, period: KpiPeriod) {
-    const statuses = byConnectionPeriod.get(`${connectionId}:${period}`);
+  function trackerStatus(connectionId: string) {
+    const statuses = statusesByConnection.get(connectionId);
     if (!statuses || statuses.length === 0) return null;
     return rollupStatus(statuses);
   }
@@ -119,42 +123,50 @@ export default async function SubmissionsPage(
   const excludedCount = connections.length - trackedConnections.length;
 
   const trackerRows: SubmissionTrackerRow[] = trackedConnections.map((c) => {
-    const weeklyStatus = trackerStatus(c.id, KpiPeriod.WEEKLY);
-    const monthlyStatus = trackerStatus(c.id, KpiPeriod.MONTHLY);
+    const status = trackerStatus(c.id);
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
       clientName: c.clientName,
       departmentName: c.department.name,
-      weeklyStatus,
-      weeklyStatusLabel: weeklyStatus ? STATUS_LABEL[weeklyStatus] : "Pending",
-      monthlyStatus,
-      monthlyStatusLabel: monthlyStatus ? STATUS_LABEL[monthlyStatus] : "Pending",
+      status,
+      statusLabel: status ? STATUS_LABEL[status] : "Pending",
     };
   });
 
   // Scorecards — mirrors legacy's Submitted / Pending / VAs Complete stat
-  // cards (AppSubmissions.html: `_subStatCard`), based on the weekly column
-  // of the tracker above (legacy shows one set of cards for whichever
-  // period is toggled; this app shows both periods side by side in the
-  // table, so the cards summarize the weekly period specifically).
-  const weeklySubmittedCount = trackerRows.filter((r) => r.weeklyStatus !== null).length;
-  const weeklyTotal = trackerRows.length;
-  const weeklyPendingCount = weeklyTotal - weeklySubmittedCount;
-  const weeklyRatePct = weeklyTotal > 0 ? Math.round((weeklySubmittedCount / weeklyTotal) * 100) : 0;
+  // cards (AppSubmissions.html: `_subStatCard`), now computed for whichever
+  // period the navbar toggle currently selects, rather than always weekly.
+  const periodSubmittedCount = trackerRows.filter((r) => r.status !== null).length;
+  const periodTotal = trackerRows.length;
+  const periodPendingCount = periodTotal - periodSubmittedCount;
+  const periodRatePct = periodTotal > 0 ? Math.round((periodSubmittedCount / periodTotal) * 100) : 0;
   const vaGroups = new Map<string, { total: number; submitted: number }>();
   for (const c of trackedConnections) {
     const group = vaGroups.get(c.vaUserId) ?? { total: 0, submitted: 0 };
     group.total++;
-    if (trackerStatus(c.id, KpiPeriod.WEEKLY)) group.submitted++;
+    if (trackerStatus(c.id)) group.submitted++;
     vaGroups.set(c.vaUserId, group);
   }
   const vasTotal = vaGroups.size;
   const vasComplete = [...vaGroups.values()].filter((g) => g.submitted === g.total).length;
 
   // Mirrors legacy's Team Report button, shown to Administrator/Manager
-  // only — DM is this app's Manager equivalent (lib/connection-scope.ts).
-  const canViewTeamReport = session.role === UserRole.ADMIN || session.role === UserRole.DM;
+  // only — DM and the DM-equivalent OPS_MANAGER are this app's Manager
+  // equivalent (lib/connection-scope.ts).
+  const canViewTeamReport =
+    session.role === UserRole.ADMIN ||
+    session.role === UserRole.DM ||
+    session.role === UserRole.OPS_MANAGER;
+
+  // Who can correct/remove a wrongly-dated submission (click a VA's name in
+  // the tracker table below) — kept in sync with SUBMISSION_EDITOR_ROLES in
+  // ./actions.ts.
+  const canEditSubmissions =
+    session.role === UserRole.ADMIN ||
+    session.role === UserRole.DM ||
+    session.role === UserRole.OPS_MANAGER ||
+    session.role === UserRole.OM;
 
   return (
     <>
@@ -190,48 +202,6 @@ export default async function SubmissionsPage(
       ) : (
         <div className="grid gap-4 xl:grid-cols-[1fr_260px]">
           <div className="min-w-0 space-y-4">
-            {trendCounts.some((c) => c > 0) && (
-              <div className="rounded-xl border border-surface-border bg-surface p-5">
-                <h2 className="text-sm font-semibold">Weekly Submission Volume</h2>
-                <p className="mb-4 text-xs text-muted">Last {TREND_WEEKS} weeks</p>
-                <Sparkline values={trendCounts} width={300} height={50} />
-              </div>
-            )}
-
-            <div className="rounded-xl border border-surface-border bg-surface p-5">
-              <h2 className="mb-4 text-sm font-semibold">Current Period Status</h2>
-              <div className="mb-4 grid grid-cols-3 gap-3">
-                <div className={`rounded-lg border p-3 ${rateStyle(weeklyRatePct)}`}>
-                  <div className="text-2xl font-semibold">
-                    {weeklySubmittedCount} / {weeklyTotal}
-                  </div>
-                  <div className="mt-0.5 text-xs">Submitted ({weeklyRatePct}%)</div>
-                </div>
-                <div
-                  className={`rounded-lg border p-3 ${
-                    weeklyPendingCount > 0 ? "border-warning/30 text-warning" : "border-success/30 text-success"
-                  }`}
-                >
-                  <div className="text-2xl font-semibold">{weeklyPendingCount}</div>
-                  <div className="mt-0.5 text-xs">Pending</div>
-                </div>
-                <div className="rounded-lg border border-surface-border p-3">
-                  <div className="text-2xl font-semibold">
-                    {vasComplete} / {vasTotal}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted">VAs Complete</div>
-                </div>
-              </div>
-              {excludedCount > 0 && (
-                <p className="mb-3 text-xs text-muted">
-                  {excludedCount} paused/ended connection
-                  {excludedCount === 1 ? "" : "s"} excluded — not expected to
-                  submit while inactive.
-                </p>
-              )}
-              <SubmissionTrackerTable rows={trackerRows} />
-            </div>
-
             <div className="rounded-xl border border-surface-border bg-surface p-5">
               <h2 className="mb-4 text-sm font-semibold">Recent Submissions</h2>
               {recentSubmissions.length === 0 ? (
@@ -271,6 +241,54 @@ export default async function SubmissionsPage(
                 </Table>
               )}
             </div>
+
+            <div className="rounded-xl border border-surface-border bg-surface p-5">
+              <h2 className="mb-4 text-sm font-semibold">
+                Current Period Status <span className="font-normal text-muted">({isMonthly ? "Monthly" : "Weekly"})</span>
+              </h2>
+              <div className="mb-4 grid grid-cols-3 gap-3">
+                <div className={`rounded-lg border p-3 ${rateStyle(periodRatePct)}`}>
+                  <div className="text-2xl font-semibold">
+                    {periodSubmittedCount} / {periodTotal}
+                  </div>
+                  <div className="mt-0.5 text-xs">Submitted ({periodRatePct}%)</div>
+                </div>
+                <div
+                  className={`rounded-lg border p-3 ${
+                    periodPendingCount > 0 ? "border-warning/30 text-warning" : "border-success/30 text-success"
+                  }`}
+                >
+                  <div className="text-2xl font-semibold">{periodPendingCount}</div>
+                  <div className="mt-0.5 text-xs">Pending</div>
+                </div>
+                <div className="rounded-lg border border-surface-border p-3">
+                  <div className="text-2xl font-semibold">
+                    {vasComplete} / {vasTotal}
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted">VAs Complete</div>
+                </div>
+              </div>
+              {excludedCount > 0 && (
+                <p className="mb-3 text-xs text-muted">
+                  {excludedCount} paused/ended connection
+                  {excludedCount === 1 ? "" : "s"} excluded — not expected to
+                  submit while inactive.
+                </p>
+              )}
+              <SubmissionTrackerTable
+                rows={trackerRows}
+                periodLabel={isMonthly ? "Monthly" : "Weekly"}
+                canEdit={canEditSubmissions}
+              />
+            </div>
+
+            {trendCounts.some((c) => c > 0) && (
+              <div className="rounded-xl border border-surface-border bg-surface p-5">
+                <h2 className="text-sm font-semibold">Weekly Submission Volume</h2>
+                <p className="mb-4 text-xs text-muted">Last {TREND_WEEKS} weeks</p>
+                <Sparkline values={trendCounts} width={300} height={50} />
+              </div>
+            )}
           </div>
 
           <DeptTeamSummaryPanel

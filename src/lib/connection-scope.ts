@@ -32,8 +32,9 @@ export async function requireSession(): Promise<ScopingSession> {
 /**
  * Server-side authoritative connection visibility, by role:
  * VA -> own connections only; OM (Team Leader equivalent) -> connections of
- * users on teams they lead; DM (Manager equivalent) -> connections in their
- * department; ADMIN and SERVICE_MANAGER (CS Specialist equivalent) ->
+ * users on teams they lead; DM (Manager equivalent) and OPS_MANAGER
+ * (Operations Manager, same department-wide scope as DM) -> connections in
+ * their department; ADMIN and SERVICE_MANAGER (CS Specialist equivalent) ->
  * everything. Unlike the legacy Apps Script app (which trusted a
  * client-asserted userId/role), this reads off the server-verified session,
  * so it can't be spoofed from the browser.
@@ -53,6 +54,7 @@ export function connectionScopeWhere(
     case UserRole.SERVICE_MANAGER:
       return {};
     case UserRole.DM:
+    case UserRole.OPS_MANAGER:
       return session.departmentId ? { departmentId: session.departmentId } : { id: "__none__" };
     case UserRole.OM:
       return {

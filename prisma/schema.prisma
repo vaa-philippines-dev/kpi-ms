@@ -30,6 +30,10 @@ enum PerformanceStatus {
 enum UserRole {
   ADMIN
   DM
+  // Operations Manager — department-wide permissions equivalent to DM
+  // (Manager). Distinct from OM below, which despite the short name is the
+  // legacy "Team Leader" role (own connections + led-team connections only).
+  OPS_MANAGER
   OM
   SERVICE_MANAGER
   VA

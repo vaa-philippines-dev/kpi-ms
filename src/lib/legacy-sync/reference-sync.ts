@@ -191,54 +191,10 @@ export async function runReferenceSync(
   }, (done, total) => onProgress?.("services", done, total));
   report.services = svcResult;
 
-  // --- Users (upsert by email, already unique) ---
-  const userResult = emptyResult();
-  const userMap = new Map<string, string>(); // legacy UserID -> our id
-  const legacyUsers = await readLegacySheet("Users");
-  const existingUserEmails = new Set(
-    (await prisma.user.findMany({ select: { email: true } })).map((u) => u.email),
-  );
-  await mapWithConcurrency(legacyUsers, 10, async (row) => {
-    try {
-      const email = (row.Email ?? "").trim().toLowerCase();
-      const role = ROLE_MAP[row.Role ?? ""];
-      if (!row.UserID || !email || !role) {
-        userResult.skipped++;
-        return;
-      }
-      const name = [row.FirstName, row.LastName].filter(Boolean).join(" ") || null;
-      const departmentId = deptMap.get(row.Department ?? "");
-      const serviceId = svcMap.get(row.ServiceID ?? "");
-      const willUpdate = existingUserEmails.has(email);
-      const user = await prisma.user.upsert({
-        where: { email },
-        create: {
-          email,
-          name,
-          role,
-          departmentId,
-          serviceId,
-          isActive: boolFromLegacy(row.IsActive),
-        },
-        update: {
-          name,
-          role,
-          departmentId,
-          serviceId,
-          isActive: boolFromLegacy(row.IsActive),
-        },
-      });
-      userMap.set(row.UserID, user.id);
-      if (willUpdate) userResult.updated++;
-      else userResult.created++;
-    } catch (e) {
-      userResult.errors.push(`${row.UserID}: ${(e as Error).message}`);
-    }
-  }, (done, total) => onProgress?.("users", done, total));
-  report.users = userResult;
-
-  // --- Teams (two-pass: create/update core fields, then wire leader refs
-  // now that userMap is fully populated) ---
+  // --- Teams (core fields only — done before Users so each legacy user's
+  // own TeamID column, the sheet's actual source of truth for membership,
+  // can be resolved to our team id below; leader refs are wired in a second
+  // pass after Users, once userMap is populated) ---
   const teamResult = emptyResult();
   const teamMap = new Map<string, string>(); // legacy TeamID -> our id
   const legacyTeams = await readLegacySheet("Teams");
@@ -276,6 +232,62 @@ export async function runReferenceSync(
       teamResult.errors.push(`${row.TeamID}: ${(e as Error).message}`);
     }
   }, (done, total) => onProgress?.("teams", done, total));
+
+  // --- Users (upsert by email, already unique) ---
+  const userResult = emptyResult();
+  const userMap = new Map<string, string>(); // legacy UserID -> our id
+  const legacyUsers = await readLegacySheet("Users");
+  const existingUserEmails = new Set(
+    (await prisma.user.findMany({ select: { email: true } })).map((u) => u.email),
+  );
+  await mapWithConcurrency(legacyUsers, 10, async (row) => {
+    try {
+      const email = (row.Email ?? "").trim().toLowerCase();
+      const role = ROLE_MAP[row.Role ?? ""];
+      if (!row.UserID || !email || !role) {
+        userResult.skipped++;
+        return;
+      }
+      const name = [row.FirstName, row.LastName].filter(Boolean).join(" ") || null;
+      const departmentId = deptMap.get(row.Department ?? "");
+      const serviceId = svcMap.get(row.ServiceID ?? "");
+      // The Users tab's own TeamID column (not the Teams tab) is legacy's
+      // source of truth for team membership — addTeamMember/removeTeamMember/
+      // transferTeamMember all write it directly onto the user row, for
+      // leaders and regular members alike.
+      const teamId = teamMap.get(row.TeamID ?? "");
+      const willUpdate = existingUserEmails.has(email);
+      const user = await prisma.user.upsert({
+        where: { email },
+        create: {
+          email,
+          name,
+          role,
+          departmentId,
+          serviceId,
+          teamId,
+          isActive: boolFromLegacy(row.IsActive),
+        },
+        update: {
+          name,
+          role,
+          departmentId,
+          serviceId,
+          teamId,
+          isActive: boolFromLegacy(row.IsActive),
+        },
+      });
+      userMap.set(row.UserID, user.id);
+      if (willUpdate) userResult.updated++;
+      else userResult.created++;
+    } catch (e) {
+      userResult.errors.push(`${row.UserID}: ${(e as Error).message}`);
+    }
+  }, (done, total) => onProgress?.("users", done, total));
+  report.users = userResult;
+
+  // --- Teams: wire leader/temp-leader refs now that userMap is populated
+  // (membership itself was already set above from each user's own TeamID) ---
   await mapWithConcurrency(legacyTeams, 10, async (row) => {
     const teamId = teamMap.get(row.TeamID ?? "");
     if (!teamId) return;
@@ -288,9 +300,6 @@ export async function runReferenceSync(
         where: { id: teamId },
         data: { teamLeaderId, tempLeader1Id, tempLeader2Id },
       });
-      if (teamLeaderId) {
-        await prisma.user.update({ where: { id: teamLeaderId }, data: { teamId } });
-      }
     } catch (e) {
       teamResult.errors.push(`${row.TeamID} (leader wiring): ${(e as Error).message}`);
     }

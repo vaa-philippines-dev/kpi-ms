@@ -23,7 +23,11 @@ export default async function TeamSubmissionReportPage(
   props: PageProps<"/dashboard/reports/team-submissions">,
 ) {
   const session = await requireSession();
-  if (session.role !== UserRole.ADMIN && session.role !== UserRole.DM) {
+  if (
+    session.role !== UserRole.ADMIN &&
+    session.role !== UserRole.DM &&
+    session.role !== UserRole.OPS_MANAGER
+  ) {
     redirect("/dashboard/submissions");
   }
 

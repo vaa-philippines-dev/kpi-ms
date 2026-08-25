@@ -8,17 +8,19 @@ import { UserRole } from "@/generated/prisma/enums";
 type ManagingSession = { id: string; role: UserRole; departmentId: string | null };
 
 // Mirrors legacy's Manager capability (Users.js: getUsers/createUser/
-// updateUser all accept ROLES.ADMIN or ROLES.MANAGER) — a DM can manage
-// users, but only within their own department, and only as OM/VA (legacy's
-// Manager create form (AppUsers.html: openCreateUser) only offers 'Team
-// Leader'/'Virtual Assistant').
+// updateUser all accept ROLES.ADMIN or ROLES.MANAGER) — a DM (or the
+// DM-equivalent Ops Manager) can manage users, but only within their own
+// department, and only as OM/VA (legacy's Manager create form
+// (AppUsers.html: openCreateUser) only offers 'Team Leader'/'Virtual
+// Assistant').
 const DM_MANAGEABLE_ROLES: UserRole[] = [UserRole.OM, UserRole.VA];
+const DEPT_SCOPED_MANAGER_ROLES: UserRole[] = [UserRole.DM, UserRole.OPS_MANAGER];
 
 async function requireManager(): Promise<ManagingSession> {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM") {
-    throw new Error("Only admins and DMs can manage users.");
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER") {
+    throw new Error("Only admins, DMs, and Ops Managers can manage users.");
   }
   return {
     id: session!.user.id,
@@ -71,7 +73,7 @@ export async function createUser(formData: FormData) {
     throw new Error("Email and role are required.");
   }
 
-  if (session.role === "DM") {
+  if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
     if (!DM_MANAGEABLE_ROLES.includes(role)) {
       throw new Error("DMs may only create OM or VA users.");
     }
@@ -105,7 +107,7 @@ export async function updateUser(formData: FormData) {
     throw new Error("Invalid role.");
   }
 
-  if (session.role === "DM") {
+  if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target || target.departmentId !== session.departmentId) {
       throw new Error("You can only edit users in your own department.");
@@ -141,7 +143,7 @@ export async function bulkCreateUsers(formData: FormData) {
   const serviceId = optionalId(formData, "serviceId");
   const teamId = optionalId(formData, "teamId");
 
-  if (session.role === "DM") {
+  if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
     departmentId = session.departmentId;
   }
 
@@ -159,7 +161,7 @@ export async function bulkCreateUsers(formData: FormData) {
     if (!email || !Object.values(UserRole).includes(role)) {
       throw new Error(`Invalid row: "${line}" (expected email,name,role)`);
     }
-    if (session.role === "DM" && !DM_MANAGEABLE_ROLES.includes(role)) {
+    if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role) && !DM_MANAGEABLE_ROLES.includes(role)) {
       throw new Error(`Invalid row: "${line}" — DMs may only import OM or VA users.`);
     }
     return {
@@ -189,7 +191,7 @@ export async function toggleUserActive(formData: FormData) {
   }
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return;
-  if (session.role === "DM") {
+  if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
     if (user.departmentId !== session.departmentId) {
       throw new Error("You can only manage users in your own department.");
     }

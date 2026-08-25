@@ -20,20 +20,27 @@ export function NewConnectionModal({
   departments,
   services,
   vaUsers,
+  lockedDepartmentId,
 }: {
   departments: Department[];
   services: Service[];
   vaUsers: VaUser[];
+  /** DM/Ops Manager can only create within their own department — fixes the
+   * department instead of offering the full list a picker would imply. */
+  lockedDepartmentId?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [departmentId, setDepartmentId] = useState("");
+  const [departmentId, setDepartmentId] = useState(lockedDepartmentId ?? "");
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const lockedDepartment = lockedDepartmentId
+    ? departments.find((d) => d.id === lockedDepartmentId)
+    : undefined;
 
   const servicesForDept = services.filter((s) => s.departmentId === departmentId);
 
   function close() {
     setOpen(false);
-    setDepartmentId("");
+    setDepartmentId(lockedDepartmentId ?? "");
   }
 
   return (
@@ -74,22 +81,31 @@ export function NewConnectionModal({
               <label className="mb-1 block text-xs font-medium text-muted uppercase">
                 Department *
               </label>
-              <Select
-                name="departmentId"
-                required
-                value={departmentId}
-                onChange={(e) => setDepartmentId(e.target.value)}
-                className="w-full"
-              >
-                <option value="" disabled>
-                  — Select —
-                </option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
+              {lockedDepartmentId ? (
+                <>
+                  <input type="hidden" name="departmentId" value={lockedDepartmentId} />
+                  <p className="rounded-lg border border-surface-border bg-surface-hover/40 px-3 py-2.5 text-sm">
+                    {lockedDepartment?.name ?? "Your department"}
+                  </p>
+                </>
+              ) : (
+                <Select
+                  name="departmentId"
+                  required
+                  value={departmentId}
+                  onChange={(e) => setDepartmentId(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="" disabled>
+                    — Select —
                   </option>
-                ))}
-              </Select>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted uppercase">

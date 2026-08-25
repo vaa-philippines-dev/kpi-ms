@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { PanelLeft, PanelLeftOpen } from "lucide-react";
 import { matchNavItem, navItemLabel, visibleNavGroups } from "@/lib/nav";
 import { LogoBadge } from "@/components/logo-badge";
@@ -61,11 +61,27 @@ export function DashboardSidebar({
   appName: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [collapsed, setCollapsed] = useState(false);
   const groups = useMemo(() => visibleNavGroups(role), [role]);
   // Longest-prefix match, so a nested page (KPI Config) doesn't also light up
   // its parent (Connections).
   const activeHref = matchNavItem(pathname, role)?.item.href ?? null;
+
+  // Carries the global period/date state (owned by PeriodNav) across
+  // sidebar navigation — without this, every page-to-page click silently
+  // reset the navbar's Weekly/Monthly toggle and chosen date back to
+  // "current week". Only these two params are global; page-specific ones
+  // (q, departmentId, open, …) intentionally don't follow.
+  const period = searchParams.get("period");
+  const date = searchParams.get("date");
+  function hrefWithPeriod(href: string) {
+    if (!period && !date) return href;
+    const params = new URLSearchParams();
+    if (period) params.set("period", period);
+    if (date) params.set("date", date);
+    return `${href}?${params.toString()}`;
+  }
 
   const renderGroups = (collapsedNav: boolean) =>
     groups.map((group, index) => (
@@ -81,7 +97,7 @@ export function DashboardSidebar({
           {group.items.map((item) => (
             <NavLink
               key={item.href}
-              href={item.href}
+              href={hrefWithPeriod(item.href)}
               label={navItemLabel(item, role)}
               icon={item.icon}
               active={item.href === activeHref}

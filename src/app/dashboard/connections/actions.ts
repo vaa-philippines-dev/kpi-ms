@@ -15,6 +15,22 @@ async function requireAdmin() {
   return session;
 }
 
+// Creating a new connection (unlike every other connection mutation below)
+// is also open to DM and the DM-equivalent OPS_MANAGER, each locked to their
+// own department — mirrors the same "ignore the submitted value, lock to
+// session" pattern already used by users/actions.ts's createUser.
+async function requireConnectionCreator(): Promise<{
+  role: string;
+  departmentId: string | null;
+}> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER") {
+    throw new Error("Only admins, DMs, or Ops Managers can create connections.");
+  }
+  return { role, departmentId: session!.user.departmentId };
+}
+
 // Terminal states never transition back to anything else — mirrors the
 // legacy updateVAConnectionStatus() legal-transition guard.
 const TERMINAL_STATUSES: ConnectionStatus[] = [
@@ -23,11 +39,16 @@ const TERMINAL_STATUSES: ConnectionStatus[] = [
 ];
 
 export async function createConnection(formData: FormData) {
-  await requireAdmin();
+  const creator = await requireConnectionCreator();
   const vaUserId = String(formData.get("vaUserId") ?? "");
   const clientName = String(formData.get("clientName") ?? "").trim();
   const secondaryName = String(formData.get("secondaryName") ?? "").trim() || null;
-  const departmentId = String(formData.get("departmentId") ?? "");
+  // DM/Ops Manager can only create connections in their own department,
+  // regardless of what the form submitted.
+  const departmentId =
+    creator.role === "ADMIN"
+      ? String(formData.get("departmentId") ?? "")
+      : (creator.departmentId ?? "");
   const serviceId = String(formData.get("serviceId") ?? "") || null;
   const connectionTypeRaw = String(formData.get("connectionType") ?? "REGULAR");
   const connectionType = connectionTypeRaw === "PROJECT_BASED" ? "PROJECT_BASED" : "REGULAR";

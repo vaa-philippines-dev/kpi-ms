@@ -1,18 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Th, Td, Tr } from "@/components/ui/table";
-import { StatusBadge } from "@/components/status-badge";
 import { Select } from "@/components/ui/input";
+import { VaKpiSheetTable, type VaKpiSheetCell } from "@/components/va-kpi-sheet-table";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { rollupStatus } from "@/lib/performance";
-import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
-
-type KpiCell =
-  | { kind: "na" }
-  | { kind: "nodata"; target: number }
-  | { kind: "data"; actual: number | null; target: number; status: PerformanceStatus };
+import { KpiPeriod } from "@/generated/prisma/enums";
 
 // Spreadsheet-style matrix: one row per connection, one column per KPI
 // (grouped under cluster group-header cells), mirrors legacy
@@ -106,27 +100,27 @@ export default async function VaKpiSheetPage(
   const rows = connections.map((c) => {
     const summaryByKpi = new Map(c.performanceSummaries.map((s) => [s.kpiDefinitionId, s]));
     const configByKpi = new Map(c.kpiConfigs.map((cfg) => [cfg.kpiDefinitionId, cfg]));
-    const cells = new Map<string, KpiCell>();
+    const cells: Record<string, VaKpiSheetCell> = {};
     for (const kpi of kpiDefinitions) {
       // A KPI only applies to connections in its own department — with
       // Admin pinned to one department this is always true there, but
       // DM/OM/VA scopes can still mix in a connection from another
       // department (e.g. an OM's own client connection).
       if (kpi.departmentId !== c.departmentId) {
-        cells.set(kpi.id, { kind: "na" });
+        cells[kpi.id] = { kind: "na" };
         continue;
       }
       const cfg = configByKpi.get(kpi.id);
       if (cfg && !cfg.isApplicable) {
-        cells.set(kpi.id, { kind: "na" });
+        cells[kpi.id] = { kind: "na" };
         continue;
       }
       const s = summaryByKpi.get(kpi.id);
       if (!s) {
-        cells.set(kpi.id, { kind: "nodata", target: cfg?.targetValue ?? kpi.targetValue });
+        cells[kpi.id] = { kind: "nodata", target: cfg?.targetValue ?? kpi.targetValue };
         continue;
       }
-      cells.set(kpi.id, { kind: "data", actual: s.actualValue, target: s.targetValue, status: s.status });
+      cells[kpi.id] = { kind: "data", actual: s.actualValue, target: s.targetValue, status: s.status };
     }
     return {
       connectionId: c.id,
@@ -186,87 +180,7 @@ export default async function VaKpiSheetPage(
             {rows.length} connection{rows.length !== 1 ? "s" : ""} · {totalKpis} KPI
             {totalKpis !== 1 ? "s" : ""} across {clusters.length} cluster{clusters.length !== 1 ? "s" : ""}
           </p>
-          <div className="overflow-auto rounded-xl border border-surface-border bg-surface">
-            <table className="text-sm">
-              <thead className="text-left text-xs tracking-wide text-muted uppercase">
-                <tr>
-                  <Th rowSpan={2} className="sticky left-0 z-20 w-[200px] min-w-[200px] bg-surface">
-                    VA / Client
-                  </Th>
-                  <Th
-                    rowSpan={2}
-                    className="sticky left-[200px] z-20 w-[130px] min-w-[130px] bg-surface text-center"
-                  >
-                    Overall Status
-                  </Th>
-                  {clusters.map(({ cluster, kpis }) => (
-                    <Th
-                      key={cluster}
-                      colSpan={kpis.length}
-                      className="border-l border-surface-border text-center"
-                    >
-                      {cluster}
-                    </Th>
-                  ))}
-                </tr>
-                <tr>
-                  {clusters.map(({ kpis }) =>
-                    kpis.map((kpi, ki) => (
-                      <Th
-                        key={kpi.id}
-                        className={`whitespace-nowrap ${ki === 0 ? "border-l border-surface-border" : ""}`}
-                      >
-                        {kpi.name}
-                      </Th>
-                    )),
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <Tr key={r.connectionId}>
-                    <Td className="sticky left-0 z-10 w-[200px] min-w-[200px] bg-surface">
-                      {r.vaName}
-                      <div className="text-xs text-muted">{r.clientName}</div>
-                    </Td>
-                    <Td className="sticky left-[200px] z-10 w-[130px] min-w-[130px] bg-surface text-center">
-                      <StatusBadge status={r.overallStatus} />
-                    </Td>
-                    {clusters.map(({ kpis }) =>
-                      kpis.map((kpi, ki) => {
-                        const cell = r.cells.get(kpi.id);
-                        const startCls = ki === 0 ? "border-l border-surface-border" : "";
-                        if (!cell || cell.kind === "na") {
-                          return (
-                            <Td key={kpi.id} className={`text-center text-xs text-muted ${startCls}`}>
-                              N/A
-                            </Td>
-                          );
-                        }
-                        if (cell.kind === "nodata") {
-                          return (
-                            <Td key={kpi.id} className={startCls}>
-                              <div className="text-xs text-muted">Target: {cell.target}</div>
-                              <StatusBadge status={PerformanceStatus.NO_DATA} />
-                            </Td>
-                          );
-                        }
-                        return (
-                          <Td key={kpi.id} className={startCls}>
-                            <div className="text-xs font-semibold">
-                              {cell.actual ?? "—"}
-                              <span className="ml-1 font-normal text-muted">/ {cell.target}</span>
-                            </div>
-                            <StatusBadge status={cell.status} />
-                          </Td>
-                        );
-                      }),
-                    )}
-                  </Tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <VaKpiSheetTable rows={rows} clusters={clusters} />
         </>
       )}
     </>

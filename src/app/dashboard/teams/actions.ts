@@ -6,10 +6,18 @@ import { prisma } from "@/lib/prisma";
 
 async function requireAdminOrDm() {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN" && session?.user?.role !== "DM") {
-    throw new Error("Only admins or DMs can manage teams.");
+  if (
+    session?.user?.role !== "ADMIN" &&
+    session?.user?.role !== "DM" &&
+    session?.user?.role !== "OPS_MANAGER"
+  ) {
+    throw new Error("Only admins, DMs, or Ops Managers can manage teams.");
   }
   return session;
+}
+
+function isDeptScopedManager(role: string | undefined): boolean {
+  return role === "DM" || role === "OPS_MANAGER";
 }
 
 function optionalId(formData: FormData, key: string): string | null {
@@ -27,7 +35,7 @@ export async function createTeam(formData: FormData) {
     throw new Error("Name and department are required.");
   }
   if (
-    session?.user?.role === "DM" &&
+    isDeptScopedManager(session?.user?.role) &&
     session.user.departmentId !== departmentId
   ) {
     throw new Error("DMs can only create teams in their own department.");
@@ -60,7 +68,7 @@ export async function updateTeam(formData: FormData) {
   await prisma.$transaction(async (tx) => {
     const previous = await tx.team.findUnique({ where: { id } });
     if (
-      session?.user?.role === "DM" &&
+      isDeptScopedManager(session?.user?.role) &&
       previous &&
       session.user.departmentId !== previous.departmentId
     ) {
@@ -100,7 +108,7 @@ export async function addTeamMember(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
   if (!teamId || !userId) return;
 
-  if (session?.user?.role === "DM") {
+  if (isDeptScopedManager(session?.user?.role)) {
     const team = await prisma.team.findUnique({ where: { id: teamId } });
     if (!team || team.departmentId !== session.user.departmentId) {
       throw new Error("DMs can only manage teams in their own department.");
@@ -122,7 +130,7 @@ export async function removeTeamMember(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
   if (!userId) return;
 
-  if (session?.user?.role === "DM") {
+  if (isDeptScopedManager(session?.user?.role)) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { team: true },

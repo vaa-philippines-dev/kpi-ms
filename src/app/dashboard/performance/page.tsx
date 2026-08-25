@@ -71,7 +71,10 @@ export default async function PerformancePage(
   const selectedPeriodStart = currentPeriodStart(selectedPeriod, anchor, weekStartDay);
 
   const isManager =
-    session.role === "ADMIN" || session.role === "DM" || session.role === "OM";
+    session.role === "ADMIN" ||
+    session.role === "DM" ||
+    session.role === "OPS_MANAGER" ||
+    session.role === "OM";
 
   // Team/type narrow every widget the same way; department is split out
   // separately below because getDepartmentSubmissionSummary already breaks
@@ -337,9 +340,10 @@ export default async function PerformancePage(
             title={session.role === "ADMIN" ? "Department Summary" : "Team Summary"}
             rows={sideRows}
             // Team Report (now /dashboard/reports/team-submissions) is
-            // Admin/Manager-only, same as legacy's button — DM is this
-            // app's Manager equivalent (lib/connection-scope.ts).
-            showTeamReportLink={session.role === "DM"}
+            // Admin/Manager-only, same as legacy's button — DM and the
+            // DM-equivalent OPS_MANAGER are this app's Manager equivalent
+            // (lib/connection-scope.ts).
+            showTeamReportLink={session.role === "DM" || session.role === "OPS_MANAGER"}
           />
         </div>
       )}

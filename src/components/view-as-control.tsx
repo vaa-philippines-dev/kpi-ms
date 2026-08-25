@@ -16,6 +16,7 @@ export type ViewAsDepartment = { id: string; name: string };
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "DM", label: "Manager" },
+  { value: "OPS_MANAGER", label: "Ops Manager" },
   { value: "OM", label: "Team Leader" },
   { value: "SERVICE_MANAGER", label: "CS Specialist" },
   { value: "VA", label: "Virtual Assistant" },
@@ -24,6 +25,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Admin",
   DM: "Manager",
+  OPS_MANAGER: "Ops Manager",
   OM: "Team Leader",
   SERVICE_MANAGER: "CS Specialist",
   VA: "Virtual Assistant",

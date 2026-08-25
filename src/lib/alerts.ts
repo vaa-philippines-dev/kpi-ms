@@ -56,7 +56,7 @@ export async function getAlerts(
   scope: Prisma.ConnectionWhereInput,
   role: string,
 ): Promise<Alert[]> {
-  const isManager = ["ADMIN", "DM", "OM"].includes(role);
+  const isManager = ["ADMIN", "DM", "OPS_MANAGER", "OM"].includes(role);
   const isAdmin = role === "ADMIN";
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);

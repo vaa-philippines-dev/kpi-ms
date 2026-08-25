@@ -8,7 +8,7 @@ import { getInterventionTypes } from "@/lib/settings";
 export default async function InterventionsPage() {
   const session = await getEffectiveSession();
   const role = session?.role;
-  const isManager = role === "ADMIN" || role === "DM" || role === "OM";
+  const isManager = role === "ADMIN" || role === "DM" || role === "OPS_MANAGER" || role === "OM";
 
   if (!session) {
     return (

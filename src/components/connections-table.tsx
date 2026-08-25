@@ -112,6 +112,13 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
         </>
       ),
     },
+    {
+      key: "shortCode",
+      label: "Connection ID",
+      sortable: true,
+      filterable: true,
+      className: "font-mono text-xs text-muted",
+    },
     { key: "vaName", label: "VA Name", sortable: true, filterable: true, className: "text-muted" },
     {
       key: "departmentName",
@@ -348,7 +355,7 @@ export function ConnectionsTable({
         open={openConn !== null}
         onClose={() => setOpenId(null)}
         title={openConn?.clientName ?? ""}
-        size="lg"
+        size="xl"
       >
         {openConn && (
           <div className="space-y-5">

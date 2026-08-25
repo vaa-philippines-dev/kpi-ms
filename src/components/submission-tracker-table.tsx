@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
+import { SubmissionEditModal } from "@/components/submission-edit-modal";
 import { PerformanceStatus } from "@/generated/prisma/enums";
 
 export type SubmissionTrackerRow = {
@@ -10,10 +12,8 @@ export type SubmissionTrackerRow = {
   vaName: string;
   clientName: string;
   departmentName: string;
-  weeklyStatus: PerformanceStatus | null;
-  weeklyStatusLabel: string;
-  monthlyStatus: PerformanceStatus | null;
-  monthlyStatusLabel: string;
+  status: PerformanceStatus | null;
+  statusLabel: string;
 };
 
 function statusCell(status: PerformanceStatus | null) {
@@ -24,49 +24,92 @@ function statusCell(status: PerformanceStatus | null) {
   );
 }
 
-const columns: DataTableColumn<SubmissionTrackerRow>[] = [
-  { key: "vaName", label: "Virtual Assistant", sortable: true, filterable: true },
-  { key: "clientName", label: "Client", sortable: true, filterable: true },
-  {
-    key: "departmentName",
-    label: "Department",
-    sortable: true,
-    filterable: "select",
-    className: "text-muted",
-  },
-  {
-    key: "weeklyStatusLabel",
-    label: "Weekly",
-    sortable: true,
-    filterable: "select",
-    render: (_v, row) => statusCell(row.weeklyStatus),
-  },
-  {
-    key: "monthlyStatusLabel",
-    label: "Monthly",
-    sortable: true,
-    filterable: "select",
-    render: (_v, row) => statusCell(row.monthlyStatus),
-  },
-];
+function getColumns(
+  periodLabel: string,
+  canEdit: boolean,
+  onEdit: (row: SubmissionTrackerRow) => void,
+): DataTableColumn<SubmissionTrackerRow>[] {
+  return [
+    {
+      key: "vaName",
+      label: "Virtual Assistant",
+      sortable: true,
+      filterable: true,
+      render: (v, row) =>
+        canEdit ? (
+          <button
+            type="button"
+            onClick={() => onEdit(row)}
+            className="text-accent hover:underline"
+            title="View / correct this connection's submissions"
+          >
+            {v as string}
+          </button>
+        ) : (
+          (v as string)
+        ),
+    },
+    { key: "clientName", label: "Client", sortable: true, filterable: true },
+    {
+      key: "departmentName",
+      label: "Department",
+      sortable: true,
+      filterable: "select",
+      className: "text-muted",
+    },
+    {
+      key: "statusLabel",
+      label: periodLabel,
+      sortable: true,
+      filterable: "select",
+      render: (_v, row) => statusCell(row.status),
+    },
+  ];
+}
 
 /**
  * "VA Submission Detail" — the current-period submitted-vs-pending grid,
  * over the app's standard sortable/filterable DataTable. Mirrors legacy's
  * DataTable of the same name in AppSubmissions.html (`_subRenderTable`),
  * simplified from its 4 separate dept/service/team/status dropdowns down to
- * this component's built-in per-column filters (department + each status
- * column), since the underlying rows are already scoped server-side by
- * role.
+ * this component's built-in per-column filters (department + status),
+ * since the underlying rows are already scoped server-side by role. Shows
+ * one status column for whichever period the navbar toggle currently
+ * selects, rather than a fixed Weekly+Monthly pair.
+ *
+ * When `canEdit` (Admin/DM/Ops Manager/Team Leader), clicking a VA's name
+ * opens SubmissionEditModal so a wrongly-dated submission can be corrected
+ * or removed — VA/Service Manager viewers just see plain text instead.
  */
-export function SubmissionTrackerTable({ rows }: { rows: SubmissionTrackerRow[] }) {
+export function SubmissionTrackerTable({
+  rows,
+  periodLabel,
+  canEdit,
+}: {
+  rows: SubmissionTrackerRow[];
+  periodLabel: string;
+  canEdit: boolean;
+}) {
+  const [editing, setEditing] = useState<SubmissionTrackerRow | null>(null);
+
   return (
-    <DataTable
-      columns={columns}
-      data={rows}
-      getRowId={(r) => r.connectionId}
-      defaultLimit={25}
-      emptyMessage="No connections match the current filters."
-    />
+    <>
+      <DataTable
+        columns={getColumns(periodLabel, canEdit, setEditing)}
+        data={rows}
+        getRowId={(r) => r.connectionId}
+        defaultLimit={25}
+        emptyMessage="No connections match the current filters."
+      />
+      {canEdit && (
+        <SubmissionEditModal
+          open={editing !== null}
+          onClose={() => setEditing(null)}
+          connectionId={editing?.connectionId ?? ""}
+          vaName={editing?.vaName ?? ""}
+          clientName={editing?.clientName ?? ""}
+        />
+      )}
+    </>
   );
 }
