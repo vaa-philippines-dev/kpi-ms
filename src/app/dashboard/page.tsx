@@ -2,14 +2,14 @@ import Link from "next/link";
 import { CheckCircle2, AlertTriangle, XCircle, Link2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
-import { getWeekStartDay } from "@/lib/settings";
+import { getWeekStartDay, getInterventionTypes } from "@/lib/settings";
 import { getPerformanceTrend } from "@/lib/trend";
 import { getLongRunningConnections } from "@/lib/long-running";
 import { rollupStatus } from "@/lib/performance";
 import { UnassignedVasPanel } from "@/components/unassigned-vas-panel";
+import { DepartmentBreakdownTable, type DeptConnectionRow } from "./department-breakdown-table";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
 import { VaOverview } from "./va-overview";
@@ -124,6 +124,7 @@ export default async function DashboardOverviewPage(
     unassignedVAs,
     unassignedTotal,
     teams,
+    interventionTypes,
   ] = await Promise.all([
     prisma.connection.count({
       where: { ...scope, status: ConnectionStatus.ACTIVE },
@@ -134,7 +135,7 @@ export default async function DashboardOverviewPage(
         period: selectedPeriod,
         periodStart: selectedPeriodStart,
       },
-      include: { connection: { include: { department: true } } },
+      include: { connection: { include: { department: true, vaUser: true } } },
     }),
     getPerformanceTrend(scope, selectedPeriod, weekStartDay, 6, anchor),
     getLongRunningConnections(scope),
@@ -149,6 +150,7 @@ export default async function DashboardOverviewPage(
     }),
     prisma.user.count({ where: { role: "VA", isActive: true, teamId: null } }),
     prisma.team.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    getInterventionTypes(),
   ]);
 
   const emptyCounts = () => ({
@@ -169,24 +171,32 @@ export default async function DashboardOverviewPage(
   // them (e.g. 1,343 status-tile total against only 644 active connections).
   const byConnection = new Map<
     string,
-    { deptName: string; statuses: PerformanceStatus[] }
+    { connection: (typeof summaries)[number]["connection"]; statuses: PerformanceStatus[] }
   >();
   for (const s of summaries) {
     const existing = byConnection.get(s.connectionId);
     if (existing) existing.statuses.push(s.status);
-    else
-      byConnection.set(s.connectionId, {
-        deptName: s.connection.department.name,
-        statuses: [s.status],
-      });
+    else byConnection.set(s.connectionId, { connection: s.connection, statuses: [s.status] });
   }
-  for (const { deptName, statuses } of byConnection.values()) {
+  // Per-department VA list backing the Department Breakdown table's
+  // click-to-drill-down modal below.
+  const connectionsByDept = new Map<string, DeptConnectionRow[]>();
+  for (const [connectionId, { connection, statuses }] of byConnection) {
     const rolled = rollupStatus(statuses);
+    const deptName = connection.department.name;
     counts[rolled]++;
     if (!byDepartment.has(deptName)) {
       byDepartment.set(deptName, emptyCounts());
     }
     byDepartment.get(deptName)![rolled]++;
+
+    if (!connectionsByDept.has(deptName)) connectionsByDept.set(deptName, []);
+    connectionsByDept.get(deptName)!.push({
+      connectionId,
+      clientName: connection.clientName,
+      vaName: connection.vaUser.name ?? connection.vaUser.email,
+      status: rolled,
+    });
   }
 
   return (
@@ -287,32 +297,21 @@ export default async function DashboardOverviewPage(
           {summaries.length === 0 ? (
             <ComingSoon note="No performance data for the current period yet — it's computed automatically as submissions come in." />
           ) : (
-            <Table>
-              <TableHead>
-                <tr>
-                  <Th>Department</Th>
-                  <Th>On Target</Th>
-                  <Th>At Risk</Th>
-                  <Th>Critical</Th>
-                </tr>
-              </TableHead>
-              <tbody>
-                {[...byDepartment.entries()].map(([dept, c]) => (
-                  <Tr key={dept}>
-                    <Td>{dept}</Td>
-                    <Td className="text-success">
-                      {c[PerformanceStatus.ON_TARGET]}
-                    </Td>
-                    <Td className="text-warning">
-                      {c[PerformanceStatus.AT_RISK]}
-                    </Td>
-                    <Td className="text-danger">
-                      {c[PerformanceStatus.CRITICAL]}
-                    </Td>
-                  </Tr>
-                ))}
-              </tbody>
-            </Table>
+            <DepartmentBreakdownTable
+              rows={[...byDepartment.entries()].map(([name, c]) => ({
+                name,
+                onTarget: c[PerformanceStatus.ON_TARGET],
+                atRisk: c[PerformanceStatus.AT_RISK],
+                critical: c[PerformanceStatus.CRITICAL],
+              }))}
+              connectionsByDept={Object.fromEntries(connectionsByDept)}
+              periodStart={selectedPeriodStart.toISOString()}
+              period={selectedPeriod}
+              // This branch is only reached by ADMIN/DM/OPS_MANAGER — OM,
+              // SERVICE_MANAGER, and VA all return their own dashboard above.
+              isManager
+              interventionTypes={interventionTypes}
+            />
           )}
 
           {isAdmin && (
