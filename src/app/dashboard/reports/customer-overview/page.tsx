@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/status-badge";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import {
@@ -24,14 +24,37 @@ const PERF_RANK: Record<PerformanceStatus, number> = {
   [PerformanceStatus.NO_DATA]: 1,
 };
 
-type SortBy = "active" | "duration";
+// Fixed p0..p5 fields (oldest to newest) instead of an array, so each period
+// can be a normal DataTableColumn key — DataTable filters/sorts by directly
+// indexing `row[key]`, which an array index can't satisfy.
+const PERIOD_KEYS = ["p0", "p1", "p2", "p3", "p4", "p5"] as const;
 
 type Customer = {
   clientName: string;
   secondaryName: string | null;
+  departmentNames: Set<string>;
+  // First connection encountered for this client — used only to land the
+  // Client Detail drill-down link on *a* connection for this client; its
+  // own combobox lets the user switch to a different one if needed.
+  sampleConnectionId: string;
   activeConnCount: number;
   maxDays: number;
   periodStatuses: (PerformanceStatus | null)[];
+};
+
+type CustomerRow = {
+  clientName: string;
+  secondaryName: string | null;
+  departmentName: string;
+  sampleConnectionId: string;
+  activeConnCount: number;
+  maxDays: number;
+  p0: PerformanceStatus | null;
+  p1: PerformanceStatus | null;
+  p2: PerformanceStatus | null;
+  p3: PerformanceStatus | null;
+  p4: PerformanceStatus | null;
+  p5: PerformanceStatus | null;
 };
 
 // Per-client rollup across all connections and the last 6 weeks/months —
@@ -47,8 +70,6 @@ export default async function CustomerOverviewPage(
   const searchParams = await props.searchParams;
   const period: KpiPeriod =
     searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
-  const sortBy: SortBy = searchParams.sortBy === "duration" ? "duration" : "active";
-  const sortDir: "asc" | "desc" = searchParams.sortDir === "asc" ? "asc" : "desc";
   const anchor = parseAnchorDate(
     typeof searchParams.date === "string" ? searchParams.date : undefined,
   );
@@ -81,6 +102,7 @@ export default async function CustomerOverviewPage(
       secondaryName: true,
       startDate: true,
       createdAt: true,
+      department: { select: { name: true } },
       performanceSummaries: {
         where: { period, periodStart: { in: periods.map((p) => p.start) } },
         select: { periodStart: true, status: true },
@@ -95,11 +117,14 @@ export default async function CustomerOverviewPage(
     const cust: Customer = existing ?? {
       clientName: c.clientName,
       secondaryName: c.secondaryName,
+      departmentNames: new Set(),
+      sampleConnectionId: c.id,
       activeConnCount: 0,
       maxDays: 0,
       periodStatuses: periods.map(() => null),
     };
     if (tenureDays > cust.maxDays) cust.maxDays = tenureDays;
+    cust.departmentNames.add(c.department.name);
     customerMap.set(c.clientName, cust);
 
     // In scope for this window only if it had started by the last period —
@@ -135,32 +160,70 @@ export default async function CustomerOverviewPage(
   const onTargetCount = latest.filter((s) => s === PerformanceStatus.ON_TARGET).length;
   const atRiskCount = latest.filter((s) => s === PerformanceStatus.AT_RISK).length;
 
-  const sorted = [...customers].sort((a, b) => {
-    const diff =
-      sortBy === "duration" ? a.maxDays - b.maxDays : a.activeConnCount - b.activeConnCount;
-    return sortDir === "asc" ? diff : -diff;
-  });
+  const rows: CustomerRow[] = customers.map((c) => ({
+    clientName: c.clientName,
+    secondaryName: c.secondaryName,
+    departmentName: [...c.departmentNames].sort().join(", "),
+    sampleConnectionId: c.sampleConnectionId,
+    activeConnCount: c.activeConnCount,
+    maxDays: c.maxDays,
+    p0: c.periodStatuses[0],
+    p1: c.periodStatuses[1],
+    p2: c.periodStatuses[2],
+    p3: c.periodStatuses[3],
+    p4: c.periodStatuses[4],
+    p5: c.periodStatuses[5],
+  }));
 
-  function hrefFor(overrides: Record<string, string | undefined>) {
-    const query = new URLSearchParams();
-    const merged = {
-      date: searchParams.date as string | undefined,
-      period: period === KpiPeriod.MONTHLY ? "monthly" : undefined,
-      sortBy: sortBy !== "active" ? sortBy : undefined,
-      sortDir: sortDir !== "desc" ? sortDir : undefined,
-      ...overrides,
-    };
-    for (const [key, value] of Object.entries(merged)) {
-      if (value) query.set(key, value);
-    }
-    const qs = query.toString();
-    return qs ? `?${qs}` : "?";
+  function renderStatus(v: unknown) {
+    return v ? <StatusBadge status={v as PerformanceStatus} /> : <span className="text-muted">—</span>;
   }
 
-  function sortHref(field: SortBy) {
-    const nextDir = sortBy === field && sortDir === "desc" ? "asc" : "desc";
-    return hrefFor({ sortBy: field !== "active" ? field : undefined, sortDir: nextDir !== "desc" ? nextDir : undefined });
-  }
+  const columns: DataTableColumn<CustomerRow>[] = [
+    {
+      key: "clientName",
+      label: "Client",
+      sortable: true,
+      filterable: true,
+      render: (v, row) => (
+        <div>
+          <Link
+            href={`/dashboard/reports/client-detail?connectionId=${row.sampleConnectionId}`}
+            className="font-medium hover:text-accent hover:underline"
+          >
+            {v as string}
+          </Link>
+          {row.secondaryName && <div className="text-xs text-muted">{row.secondaryName}</div>}
+        </div>
+      ),
+    },
+    {
+      key: "departmentName",
+      label: "Department",
+      sortable: true,
+      filterable: "select",
+      className: "text-muted",
+    },
+    {
+      key: "activeConnCount",
+      label: "Active",
+      sortable: true,
+      className: "text-center text-muted",
+    },
+    {
+      key: "maxDays",
+      label: "Duration",
+      sortable: true,
+      className: "text-muted",
+      render: (v) => formatDuration(v as number),
+    },
+    ...PERIOD_KEYS.map((key, i) => ({
+      key,
+      label: periods[i].label,
+      className: "text-center",
+      render: renderStatus,
+    })),
+  ];
 
   return (
     <>
@@ -170,6 +233,12 @@ export default async function CustomerOverviewPage(
           description="Per-client status across the last 6 periods."
           className="mb-0"
         />
+        <a
+          href="/api/export/customer-overview"
+          className="text-xs text-accent hover:underline"
+        >
+          Export CSV →
+        </a>
       </div>
 
       {customers.length === 0 ? (
@@ -199,47 +268,13 @@ export default async function CustomerOverviewPage(
             </div>
           </div>
 
-          <Table>
-            <TableHead>
-              <tr>
-                <Th>Client</Th>
-                <Th>
-                  <Link href={sortHref("active")} className="hover:text-foreground">
-                    Active {sortBy === "active" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                  </Link>
-                </Th>
-                <Th>
-                  <Link href={sortHref("duration")} className="hover:text-foreground">
-                    Duration {sortBy === "duration" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                  </Link>
-                </Th>
-                {periods.map((p) => (
-                  <Th key={p.start.toISOString()} className="text-center">
-                    {p.label}
-                  </Th>
-                ))}
-              </tr>
-            </TableHead>
-            <tbody>
-              {sorted.map((c) => (
-                <Tr key={c.clientName}>
-                  <Td>
-                    <span className="font-medium">{c.clientName}</span>
-                    {c.secondaryName && (
-                      <div className="text-xs text-muted">{c.secondaryName}</div>
-                    )}
-                  </Td>
-                  <Td className="text-center text-muted">{c.activeConnCount}</Td>
-                  <Td className="text-muted">{formatDuration(c.maxDays)}</Td>
-                  {c.periodStatuses.map((status, i) => (
-                    <Td key={periods[i].start.toISOString()} className="text-center">
-                      {status ? <StatusBadge status={status} /> : <span className="text-muted">—</span>}
-                    </Td>
-                  ))}
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
+          <DataTable
+            columns={columns}
+            data={rows}
+            getRowId={(r) => r.clientName}
+            defaultLimit={25}
+            emptyMessage="No customers match the current filters."
+          />
         </div>
       )}
     </>
