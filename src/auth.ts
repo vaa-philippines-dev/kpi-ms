@@ -53,6 +53,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.departmentId = dbUser.departmentId;
         token.serviceId = dbUser.serviceId;
         token.teamId = dbUser.teamId;
+        token.loginCount = dbUser.loginCount;
       }
       return token;
     },
@@ -63,6 +64,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.departmentId = token.departmentId as string | null;
         session.user.serviceId = token.serviceId as string | null;
         session.user.teamId = token.teamId as string | null;
+        session.user.loginCount = token.loginCount as number;
       }
       return session;
     },
