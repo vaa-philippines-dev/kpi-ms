@@ -56,51 +56,78 @@ const DIRECTION_OPTIONS = Object.entries(DIRECTION_LABELS).map(([value, label]) 
 // The page filters to a single period from the global Weekly/Monthly topbar
 // toggle before these rows ever get here, so a per-row Period column would
 // always read the same value — dropped from both views for that reason.
-const COLUMNS: DataTableColumn<KpiRow>[] = [
-  { key: "name", label: "Name", sortable: true, filterable: true },
-  { key: "cluster", label: "Cluster", sortable: true, filterable: "select", className: "text-muted" },
-  {
-    key: "departmentName",
-    label: "Department",
-    sortable: true,
-    filterable: true,
-    className: "text-muted",
-  },
-  {
-    key: "serviceName",
-    label: "Service",
-    sortable: true,
-    filterable: "select",
-    filterPlaceholder: "All Services",
-    className: "text-muted",
-    render: (v) => (v as string | null) ?? "All Services",
-  },
-  {
-    key: "direction",
-    label: "Direction",
-    sortable: true,
-    filterable: "select",
-    filterOptions: DIRECTION_OPTIONS,
-    className: "text-muted",
-    searchText: (row) => DIRECTION_LABELS[row.direction],
-    render: (v) => DIRECTION_LABELS[v as KpiDirection],
-  },
-  { key: "targetValue", label: "Target", sortable: true, className: "text-muted" },
-  {
-    key: "deviationThresholdPct",
-    label: "At Risk %",
-    sortable: true,
-    className: "text-muted",
-    render: (v) => `${v}%`,
-  },
-  {
-    key: "criticalThresholdPct",
-    label: "Critical %",
-    sortable: true,
-    className: "text-muted",
-    render: (v) => `${v}%`,
-  },
-];
+function getColumns(onClusterClick: (cluster: string) => void): DataTableColumn<KpiRow>[] {
+  return [
+    { key: "name", label: "Name", sortable: true, filterable: true },
+    {
+      key: "cluster",
+      label: "Cluster",
+      sortable: true,
+      filterable: "select",
+      className: "text-muted",
+      render: (v) => {
+        // Blank cluster values group under the same "— No Cluster —" bucket
+        // the "By Cluster" view uses, so clicking here filters consistently
+        // with clicking that section's header.
+        const label = (v as string).trim() || UNCLUSTERED;
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClusterClick(label);
+            }}
+            className="hover:text-foreground hover:underline"
+            title={`Filter to "${label}"`}
+          >
+            {label}
+          </button>
+        );
+      },
+    },
+    {
+      key: "departmentName",
+      label: "Department",
+      sortable: true,
+      filterable: true,
+      className: "text-muted",
+    },
+    {
+      key: "serviceName",
+      label: "Service",
+      sortable: true,
+      filterable: "select",
+      filterPlaceholder: "All Services",
+      className: "text-muted",
+      render: (v) => (v as string | null) ?? "All Services",
+    },
+    {
+      key: "direction",
+      label: "Direction",
+      sortable: true,
+      filterable: "select",
+      filterOptions: DIRECTION_OPTIONS,
+      className: "text-muted",
+      searchText: (row) => DIRECTION_LABELS[row.direction],
+      render: (v) => DIRECTION_LABELS[v as KpiDirection],
+    },
+    { key: "targetValue", label: "Target", sortable: true, className: "text-muted" },
+    {
+      key: "deviationThresholdPct",
+      label: "At Risk %",
+      sortable: true,
+      className: "text-muted",
+      render: (v) => `${v}%`,
+    },
+    {
+      key: "criticalThresholdPct",
+      label: "Critical %",
+      sortable: true,
+      className: "text-muted",
+      render: (v) => `${v}%`,
+    },
+  ];
+}
 
 const UNCLUSTERED = "— No Cluster —";
 const NEW_CLUSTER_VALUE = "__new__";
@@ -118,12 +145,19 @@ function ClusterView({
   onRowClick,
   pendingClusters,
   onMove,
+  activeCluster,
+  onClusterClick,
 }: {
   kpis: KpiRow[];
   canManage: boolean;
   onRowClick: (k: KpiRow) => void;
   pendingClusters: string[];
   onMove: (id: string, cluster: string) => void;
+  /** Set when a cluster header was clicked to narrow the view to just it —
+   * `kpis` is already pre-filtered by the parent when this is set, so this
+   * only drives the header's highlighted/"active" styling. */
+  activeCluster: string | null;
+  onClusterClick: (cluster: string) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCluster, setDragOverCluster] = useState<string | null>(null);
@@ -189,7 +223,20 @@ function ClusterView({
             }`}
           >
             <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-              {cluster}
+              <button
+                type="button"
+                onClick={() => onClusterClick(cluster)}
+                title={
+                  activeCluster === cluster
+                    ? "Clear cluster filter"
+                    : `Filter to just "${cluster}"`
+                }
+                className={`rounded transition hover:underline ${
+                  activeCluster === cluster ? "text-accent" : ""
+                }`}
+              >
+                {cluster}
+              </button>
               <span className="font-normal text-muted">({rows.length})</span>
             </h3>
             {rows.length === 0 ? (
@@ -494,14 +541,26 @@ export function KpiLibraryTable({
   // a glance, and it's what drag-and-drop reassignment needs anyway.
   const [view, setView] = useState<"list" | "cluster">("cluster");
   const [departmentFilter, setDepartmentFilter] = useState("");
+  // Set by clicking a cluster name (List view's Cluster cell, or a "By
+  // Cluster" section header) — click again on the same one to clear it.
+  const [clusterFilter, setClusterFilter] = useState<string | null>(null);
   const [pendingClusters, setPendingClusters] = useState<string[]>([]);
   const [addingCluster, setAddingCluster] = useState(false);
   const [newClusterName, setNewClusterName] = useState("");
 
   const filteredKpis = useMemo(
-    () => (departmentFilter ? kpis.filter((k) => k.departmentId === departmentFilter) : kpis),
-    [kpis, departmentFilter],
+    () =>
+      kpis.filter(
+        (k) =>
+          (!departmentFilter || k.departmentId === departmentFilter) &&
+          (!clusterFilter || (k.cluster.trim() || UNCLUSTERED) === clusterFilter),
+      ),
+    [kpis, departmentFilter, clusterFilter],
   );
+
+  function handleClusterClick(cluster: string) {
+    setClusterFilter((current) => (current === cluster ? null : cluster));
+  }
 
   const allClusters = useMemo(
     () => Array.from(new Set([...clusters, ...pendingClusters])).sort((a, b) => a.localeCompare(b)),
@@ -583,6 +642,16 @@ export function KpiLibraryTable({
               {filteredKpis.length} KPI{filteredKpis.length === 1 ? "" : "s"} · {clusterCount} cluster
               {clusterCount === 1 ? "" : "s"}
             </span>
+            {clusterFilter && (
+              <button
+                type="button"
+                onClick={() => setClusterFilter(null)}
+                className="flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent transition hover:bg-accent/25"
+              >
+                Cluster: {clusterFilter}
+                <span aria-hidden>✕</span>
+              </button>
+            )}
           </div>
           {canManage && (
             <div className="flex items-center gap-2">
@@ -640,7 +709,7 @@ export function KpiLibraryTable({
 
       {view === "list" ? (
         <DataTable
-          columns={COLUMNS}
+          columns={getColumns(handleClusterClick)}
           data={filteredKpis}
           getRowId={(k) => k.id}
           defaultLimit={25}
@@ -652,8 +721,10 @@ export function KpiLibraryTable({
           kpis={filteredKpis}
           canManage={canManage}
           onRowClick={setEditing}
-          pendingClusters={pendingClusters}
+          pendingClusters={pendingClusters.filter((c) => !clusterFilter || c === clusterFilter)}
           onMove={handleMove}
+          activeCluster={clusterFilter}
+          onClusterClick={handleClusterClick}
         />
       )}
 

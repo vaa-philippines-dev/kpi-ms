@@ -200,19 +200,11 @@ const interventionsItem: NavItem = {
 const adminGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem],
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem],
   },
   {
     label: "Reports",
-    items: [
-      submissionsItem,
-      performanceItem,
-      vaKpiSheetItem,
-      lifetimeValueItem,
-      customerOverviewItem,
-      clientDetailItem,
-      weeklyInterventionsItem,
-    ],
+    items: [submissionsItem, performanceItem, vaKpiSheetItem, lifetimeValueItem, weeklyInterventionsItem],
   },
   {
     label: "Administration",
@@ -235,7 +227,7 @@ const adminGroups: NavGroup[] = [
 const managerGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem],
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem],
   },
   {
     label: "Management",
@@ -243,15 +235,7 @@ const managerGroups: NavGroup[] = [
   },
   {
     label: "Reports",
-    items: [
-      submissionsItem,
-      performanceItem,
-      vaKpiSheetItem,
-      lifetimeValueItem,
-      customerOverviewItem,
-      clientDetailItem,
-      weeklyInterventionsItem,
-    ],
+    items: [submissionsItem, performanceItem, vaKpiSheetItem, lifetimeValueItem, weeklyInterventionsItem],
   },
 ];
 
@@ -259,11 +243,11 @@ const managerGroups: NavGroup[] = [
 const teamLeaderGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem],
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem],
   },
   {
     label: "Reports",
-    items: [performanceItem, vaKpiSheetItem, customerOverviewItem],
+    items: [performanceItem, vaKpiSheetItem],
   },
   {
     label: "Tools",
@@ -275,11 +259,11 @@ const teamLeaderGroups: NavGroup[] = [
 const csGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem],
+    items: [dashboardItem, customerOverviewItem],
   },
   {
     label: "Reports",
-    items: [performanceItem, customerOverviewItem],
+    items: [performanceItem],
   },
 ];
 
