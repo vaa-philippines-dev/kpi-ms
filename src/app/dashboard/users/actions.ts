@@ -97,14 +97,25 @@ export async function updateUser(formData: FormData) {
   const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing user id.");
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
   const name = String(formData.get("name") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "") as UserRole;
   let departmentId = optionalId(formData, "departmentId");
   const serviceId = optionalId(formData, "serviceId");
   const teamId = optionalId(formData, "teamId");
 
+  if (!email) {
+    throw new Error("Email is required.");
+  }
   if (!Object.values(UserRole).includes(role)) {
     throw new Error("Invalid role.");
+  }
+
+  const emailOwner = await prisma.user.findUnique({ where: { email } });
+  if (emailOwner && emailOwner.id !== id) {
+    throw new Error("That email is already in use by another user.");
   }
 
   if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
@@ -129,7 +140,7 @@ export async function updateUser(formData: FormData) {
 
   await prisma.user.update({
     where: { id },
-    data: { name, role, departmentId, serviceId, teamId },
+    data: { email, name, role, departmentId, serviceId, teamId },
   });
   revalidatePath("/dashboard/users");
 }

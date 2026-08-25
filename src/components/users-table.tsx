@@ -112,9 +112,10 @@ function columns(canManage: boolean): DataTableColumn<UserRow>[] {
  * Users list, rendered through the shared DataTable (search, sort,
  * per-column filters, pagination) — mirrors legacy's Users screen, which
  * was itself built on `renderDataTable()` (AppUsers.html: `renderUserPanel`).
- * Admins and DMs (scoped to their own department — see actions.ts) can
- * click a row to edit it in a modal (name/role/department/service/team +
- * activate/deactivate) instead of the old inline edit-the-whole-row form.
+ * Admins and DMs/Ops Managers (scoped to their own department, and never a
+ * fellow DM/Ops Manager/Admin/Service Manager account — see actions.ts) can
+ * click a row to edit it in a modal (email/name/role/department/service/team
+ * + activate/deactivate) instead of the old inline edit-the-whole-row form.
  */
 export function UsersTable({
   users,
@@ -156,7 +157,14 @@ export function UsersTable({
               className="space-y-3"
             >
               <input type="hidden" name="id" value={editing.id} />
-              <p className="text-xs text-muted">{editing.email}</p>
+              <Input
+                name="email"
+                type="email"
+                defaultValue={editing.email}
+                placeholder="Email"
+                required
+                className="w-full"
+              />
               <Input
                 name="name"
                 defaultValue={editing.name ?? ""}
