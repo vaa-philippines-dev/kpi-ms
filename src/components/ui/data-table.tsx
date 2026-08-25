@@ -126,6 +126,14 @@ export function DataTable<T>({
     return rows;
   }, [data, columns, globalQuery, colFilters, sortKey, sortDir]);
 
+  const hasActiveFilters = Boolean(globalQuery) || Object.values(colFilters).some(Boolean);
+
+  function clearFilters() {
+    setGlobalQuery("");
+    setColFilters({});
+    setPage(1);
+  }
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / limit));
   const currentPage = Math.min(page, totalPages);
   const start = (currentPage - 1) * limit;
@@ -181,6 +189,15 @@ export function DataTable<T>({
             ))}
           </Select>
         ))}
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-xs text-accent hover:underline"
+          >
+            Clear filters
+          </button>
+        )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <label className="text-xs whitespace-nowrap text-muted">Rows:</label>
           <Select

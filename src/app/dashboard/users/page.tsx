@@ -4,11 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { getEffectiveSession } from "@/lib/view-as";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { UsersTable, type UserRow } from "@/components/users-table";
 import { UserRole } from "@/generated/prisma/enums";
 import { createUser, bulkCreateUsers } from "./actions";
 import { UserActions } from "./user-actions";
+import { UsersFilters } from "./users-filters";
 
 const UNASSIGNED = "Unassigned";
 
@@ -188,28 +189,11 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
         description="Dashboard users and roles (Admin, DM, Ops Manager, OM, Service Manager, VA)."
       />
 
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <form method="GET" className="flex flex-wrap gap-2">
-            {!isDM && (
-              <Select name="departmentId" defaultValue={departmentId} className="w-40">
-                <option value="">All departments</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-            <Input
-              name="q"
-              defaultValue={q}
-              placeholder="Search by email or name…"
-              className="w-full max-w-xs"
-            />
-            <Button type="submit">Filter</Button>
-          </form>
-          <div className="flex shrink-0 items-center gap-3">
+      <UsersFilters
+        isDM={isDM}
+        departments={departments}
+        actions={
+          <>
             {!isDM && (
               <Link href="/dashboard/users" className="text-xs text-muted hover:underline">
                 ← Back to departments
@@ -225,9 +209,9 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
                 bulkCreateUsers={bulkCreateUsers}
               />
             )}
-          </div>
-        </div>
-
+          </>
+        }
+      >
         <UsersTable
           users={rows}
           departments={scopedDepartments}
@@ -236,7 +220,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
           roles={manageableRoles}
           canManage={canManage}
         />
-      </div>
+      </UsersFilters>
     </>
   );
 }

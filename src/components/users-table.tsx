@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
 import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
@@ -36,7 +38,7 @@ const STATUS_FILTER_OPTIONS = [
   { value: "false", label: "Deactivated" },
 ];
 
-function columns(): DataTableColumn<UserRow>[] {
+function columns(canManage: boolean): DataTableColumn<UserRow>[] {
   return [
     { key: "email", label: "Email", sortable: true, filterable: true },
     {
@@ -60,6 +62,7 @@ function columns(): DataTableColumn<UserRow>[] {
       label: "Department",
       sortable: true,
       filterable: "select",
+      filterPlaceholder: "All Departments",
       className: "text-muted",
       render: (v) => (v as string | null) ?? "—",
     },
@@ -67,6 +70,8 @@ function columns(): DataTableColumn<UserRow>[] {
       key: "serviceName",
       label: "Service",
       sortable: true,
+      filterable: "select",
+      filterPlaceholder: "All Services",
       className: "text-muted",
       render: (v) => (v as string | null) ?? "—",
     },
@@ -74,6 +79,8 @@ function columns(): DataTableColumn<UserRow>[] {
       key: "teamName",
       label: "Team",
       sortable: true,
+      filterable: "select",
+      filterPlaceholder: "All Teams",
       className: "text-muted",
       render: (v) => (v as string | null) ?? "—",
     },
@@ -84,8 +91,20 @@ function columns(): DataTableColumn<UserRow>[] {
       filterable: "select",
       filterOptions: STATUS_FILTER_OPTIONS,
       searchText: (row) => (row.isActive ? "Active" : "Deactivated"),
-      render: (v) => (v ? "Active" : "Deactivated"),
+      render: (v) => (
+        <Badge tone={v ? "success" : "neutral"}>{v ? "Active" : "Deactivated"}</Badge>
+      ),
     },
+    ...(canManage
+      ? [
+          {
+            key: "id" as const,
+            label: "",
+            className: "w-6 text-right text-muted",
+            render: () => <ChevronRight className="ml-auto size-4" />,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -118,7 +137,7 @@ export function UsersTable({
   return (
     <>
       <DataTable
-        columns={columns()}
+        columns={columns(canManage)}
         data={users}
         getRowId={(u) => u.id}
         defaultLimit={25}
