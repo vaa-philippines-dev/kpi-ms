@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { connectionScopeWhere } from "@/lib/connection-scope";
+import { logActivity, diffFields } from "@/lib/activity-log";
 
 async function requireManager() {
   const session = await auth();
@@ -41,7 +42,7 @@ export async function createIntervention(formData: FormData) {
     throw new Error("Connection not found.");
   }
 
-  await prisma.intervention.create({
+  const intervention = await prisma.intervention.create({
     data: {
       connectionId,
       type,
@@ -50,6 +51,15 @@ export async function createIntervention(formData: FormData) {
       outcome,
       createdById: session!.user!.id,
     },
+  });
+  await logActivity(prisma, {
+    actor: { id: session!.user!.id, role: session!.user!.role },
+    action: "CREATE",
+    entityType: "Intervention",
+    entityId: intervention.id,
+    entityLabel: `${type} — ${connection.clientName}`,
+    summary: `Logged intervention "${type}" for "${connection.clientName}"`,
+    departmentId: connection.departmentId,
   });
   revalidatePath("/dashboard/interventions");
 }
@@ -76,6 +86,7 @@ export async function updateIntervention(formData: FormData) {
   });
   const existing = await prisma.intervention.findFirst({
     where: { id, connection: scope },
+    include: { connection: true },
   });
   if (!existing) {
     throw new Error("Intervention not found.");
@@ -85,6 +96,24 @@ export async function updateIntervention(formData: FormData) {
     where: { id },
     data: { type, description, actionTaken, outcome },
   });
+  const changes = diffFields(existing, { type, description, actionTaken, outcome }, [
+    "type",
+    "description",
+    "actionTaken",
+    "outcome",
+  ]);
+  if (changes.length > 0) {
+    await logActivity(prisma, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "UPDATE",
+      entityType: "Intervention",
+      entityId: id,
+      entityLabel: `${type} — ${existing.connection.clientName}`,
+      summary: `Edited intervention for "${existing.connection.clientName}" — ${changes.map((c) => c.field).join(", ")}`,
+      changes,
+      departmentId: existing.connection.departmentId,
+    });
+  }
   revalidatePath("/dashboard/interventions");
 }
 
@@ -101,11 +130,21 @@ export async function deleteIntervention(formData: FormData) {
   });
   const existing = await prisma.intervention.findFirst({
     where: { id, connection: scope },
+    include: { connection: true },
   });
   if (!existing) {
     throw new Error("Intervention not found.");
   }
 
   await prisma.intervention.delete({ where: { id } });
+  await logActivity(prisma, {
+    actor: { id: session!.user!.id, role: session!.user!.role },
+    action: "DELETE",
+    entityType: "Intervention",
+    entityId: id,
+    entityLabel: `${existing.type} — ${existing.connection.clientName}`,
+    summary: `Deleted intervention "${existing.type}" for "${existing.connection.clientName}"`,
+    departmentId: existing.connection.departmentId,
+  });
   revalidatePath("/dashboard/interventions");
 }

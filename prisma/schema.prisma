@@ -27,6 +27,12 @@ enum PerformanceStatus {
   NO_DATA
 }
 
+enum ActivityAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
 enum UserRole {
   ADMIN
   DM
@@ -262,6 +268,43 @@ model Intervention {
   @@index([connectionId])
 }
 
+// Unified audit trail — one row per meaningful mutation anywhere in the
+// system (KPI edits, submissions, deletions, connection/team/user changes,
+// etc.), independent of the narrower per-entity histories that already
+// exist (KpiConfigHistory, ConnectionStatusEvent). Written via
+// lib/activity-log.ts's logActivity(), never directly.
+model ActivityLog {
+  id          String         @id @default(cuid())
+  action      ActivityAction
+  // Model name the change applies to (e.g. "KpiDefinition", "Connection",
+  // "Submission") — plain string rather than an enum so new entity types
+  // don't need a migration.
+  entityType  String
+  entityId    String
+  // Human-readable name of the affected record, snapshotted at write time
+  // so the log still reads sensibly after the record itself changes name or
+  // is deleted (e.g. a connection's client name).
+  entityLabel String?
+  // One-line human-readable description shown in the activity table.
+  summary     String
+  // Per-field old/new values for UPDATE actions — [{field, oldValue, newValue}].
+  changes     Json?
+  actor       User?          @relation(fields: [actorId], references: [id])
+  actorId     String?
+  // Snapshot of the actor's role at the time of the action, so a later role
+  // change (e.g. DM promoted to Admin) doesn't rewrite history.
+  actorRole   UserRole?
+  // Snapshot of the department the change happened in, for DM/OM-scoped
+  // filtering — null when the entity has no department context.
+  departmentId String?
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([departmentId])
+  @@index([createdAt])
+}
+
 // Generic key/value store — currently only INTERVENTION_TYPES (comma-separated).
 model Setting {
   id          String   @id @default(cuid())
@@ -353,6 +396,7 @@ model User {
   kpiConfigHistory  KpiConfigHistory[]
   interventions     Intervention[]
   settingsUpdated   Setting[]
+  activityLogs      ActivityLog[]
   createdAt         DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
 

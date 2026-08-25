@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { logActivity, diffFields } from "@/lib/activity-log";
 import { UserRole } from "@/generated/prisma/enums";
 
 type ManagingSession = { id: string; role: UserRole; departmentId: string | null };
@@ -87,8 +88,17 @@ export async function createUser(formData: FormData) {
   // Pre-provisions the row so it's ready with the right role/department the
   // moment this person signs in with Google — the NextAuth jwt callback
   // upserts on email but never overwrites an existing row (update: {}).
-  await prisma.user.create({
+  const user = await prisma.user.create({
     data: { email, name, role, departmentId, serviceId, teamId },
+  });
+  await logActivity(prisma, {
+    actor: session,
+    action: "CREATE",
+    entityType: "User",
+    entityId: user.id,
+    entityLabel: user.name ?? user.email,
+    summary: `Created user ${user.email} as ${role}`,
+    departmentId,
   });
   revalidatePath("/dashboard/users");
 }
@@ -138,10 +148,25 @@ export async function updateUser(formData: FormData) {
 
   await assertTeamAndServiceInDepartment(teamId, serviceId, departmentId);
 
-  await prisma.user.update({
-    where: { id },
-    data: { email, name, role, departmentId, serviceId, teamId },
-  });
+  const before = await prisma.user.findUniqueOrThrow({ where: { id } });
+  const after = { email, name, role, departmentId, serviceId, teamId };
+  await prisma.user.update({ where: { id }, data: after });
+  const changes = diffFields(before, after, ["email", "name", "role", "departmentId", "serviceId", "teamId"]);
+  if (changes.length > 0) {
+    const roleChanged = changes.some((c) => c.field === "role");
+    await logActivity(prisma, {
+      actor: session,
+      action: "UPDATE",
+      entityType: "User",
+      entityId: id,
+      entityLabel: name ?? email,
+      summary: roleChanged
+        ? `Changed role of ${email} from ${before.role} to ${role}`
+        : `Edited user ${email} — ${changes.map((c) => c.field).join(", ")}`,
+      changes,
+      departmentId: departmentId ?? before.departmentId,
+    });
+  }
   revalidatePath("/dashboard/users");
 }
 
@@ -189,7 +214,17 @@ export async function bulkCreateUsers(formData: FormData) {
     throw new Error("No rows to import.");
   }
 
-  await prisma.user.createMany({ data: users, skipDuplicates: true });
+  const result = await prisma.user.createMany({ data: users, skipDuplicates: true });
+  if (result.count > 0) {
+    await logActivity(prisma, {
+      actor: session,
+      action: "CREATE",
+      entityType: "User",
+      entityId: "bulk",
+      summary: `Bulk-imported ${result.count} user${result.count === 1 ? "" : "s"}`,
+      departmentId,
+    });
+  }
   revalidatePath("/dashboard/users");
 }
 
@@ -222,6 +257,16 @@ export async function toggleUserActive(formData: FormData) {
       // shouldn't keep occupying a team roster slot.
       ...(activating ? {} : { teamId: null }),
     },
+  });
+  await logActivity(prisma, {
+    actor: session,
+    action: "UPDATE",
+    entityType: "User",
+    entityId: id,
+    entityLabel: user.name ?? user.email,
+    summary: `${activating ? "Activated" : "Deactivated"} user ${user.email}`,
+    changes: [{ field: "isActive", oldValue: String(user.isActive), newValue: String(activating) }],
+    departmentId: user.departmentId,
   });
   revalidatePath("/dashboard/users");
   revalidatePath("/dashboard/teams");

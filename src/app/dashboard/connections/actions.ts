@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { generateConnectionShortCode } from "@/lib/connection-short-code";
+import { logActivity, diffFields } from "@/lib/activity-log";
 
 async function requireAdmin() {
   const session = await auth();
@@ -20,6 +21,7 @@ async function requireAdmin() {
 // own department — mirrors the same "ignore the submitted value, lock to
 // session" pattern already used by users/actions.ts's createUser.
 async function requireConnectionCreator(): Promise<{
+  id: string;
   role: string;
   departmentId: string | null;
 }> {
@@ -28,7 +30,7 @@ async function requireConnectionCreator(): Promise<{
   if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER") {
     throw new Error("Only admins, DMs, or Ops Managers can create connections.");
   }
-  return { role, departmentId: session!.user.departmentId };
+  return { id: session!.user.id, role, departmentId: session!.user.departmentId };
 }
 
 // Terminal states never transition back to anything else — mirrors the
@@ -62,7 +64,7 @@ export async function createConnection(formData: FormData) {
   }
 
   const shortCode = await generateConnectionShortCode();
-  await prisma.connection.create({
+  const connection = await prisma.connection.create({
     data: {
       vaUserId,
       clientName,
@@ -76,6 +78,15 @@ export async function createConnection(formData: FormData) {
       // Pending, regardless of role or form defaults.
       status: "PENDING",
     },
+  });
+  await logActivity(prisma, {
+    actor: creator,
+    action: "CREATE",
+    entityType: "Connection",
+    entityId: connection.id,
+    entityLabel: connection.clientName,
+    summary: `Created connection "${connection.clientName}"`,
+    departmentId: connection.departmentId,
   });
   revalidatePath("/dashboard/connections");
 }
@@ -97,26 +108,50 @@ export async function updateConnectionStatus(formData: FormData) {
   }
   if (connection.status === status) return;
 
-  await prisma.$transaction([
-    prisma.connection.update({ where: { id }, data: { status } }),
-    prisma.connectionStatusEvent.create({
+  await prisma.$transaction(async (tx) => {
+    await tx.connection.update({ where: { id }, data: { status } });
+    await tx.connectionStatusEvent.create({
       data: { connectionId: id, status, changedById: session!.user!.id },
-    }),
-  ]);
+    });
+    await logActivity(tx, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "UPDATE",
+      entityType: "Connection",
+      entityId: id,
+      entityLabel: connection.clientName,
+      summary: `Changed status of "${connection.clientName}" from ${connection.status} to ${status}`,
+      changes: [{ field: "status", oldValue: connection.status, newValue: status }],
+      departmentId: connection.departmentId,
+    });
+  });
   revalidatePath("/dashboard/connections");
 }
 
 export async function updateConnectionType(formData: FormData) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const connectionType = String(formData.get("connectionType") ?? "");
   if (!id || !["REGULAR", "PROJECT_BASED"].includes(connectionType)) {
     throw new Error("Missing or invalid connection type.");
   }
+  const before = await prisma.connection.findUnique({ where: { id } });
+  if (!before) throw new Error("Connection not found.");
   await prisma.connection.update({
     where: { id },
     data: { connectionType: connectionType as "REGULAR" | "PROJECT_BASED" },
   });
+  if (before.connectionType !== connectionType) {
+    await logActivity(prisma, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "UPDATE",
+      entityType: "Connection",
+      entityId: id,
+      entityLabel: before.clientName,
+      summary: `Changed connection type of "${before.clientName}" to ${connectionType}`,
+      changes: [{ field: "connectionType", oldValue: before.connectionType, newValue: connectionType }],
+      departmentId: before.departmentId,
+    });
+  }
   revalidatePath("/dashboard/connections");
 }
 
@@ -144,7 +179,7 @@ export type ConnectionImportRowResult = {
 export async function bulkCreateConnectionsFromRows(
   rows: ConnectionImportRow[],
 ): Promise<{ imported: number; failed: number; results: ConnectionImportRowResult[] }> {
-  await requireAdmin();
+  const session = await requireAdmin();
   if (rows.length === 0) throw new Error("No rows to import.");
 
   const [departments, services, vaUsers] = await Promise.all([
@@ -237,18 +272,38 @@ export async function bulkCreateConnectionsFromRows(
 
   revalidatePath("/dashboard/connections");
   const imported = results.filter((r) => r.success).length;
+  if (imported > 0) {
+    await logActivity(prisma, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "CREATE",
+      entityType: "Connection",
+      entityId: "bulk",
+      summary: `Bulk-imported ${imported} connection${imported === 1 ? "" : "s"}${results.length - imported > 0 ? ` (${results.length - imported} row(s) failed)` : ""}`,
+    });
+  }
   return { imported, failed: results.length - imported, results };
 }
 
 export async function toggleConnectionFlag(formData: FormData) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const connection = await prisma.connection.findUnique({ where: { id } });
   if (!connection) return;
+  const isFlagged = !connection.isFlagged;
   await prisma.connection.update({
     where: { id },
-    data: { isFlagged: !connection.isFlagged },
+    data: { isFlagged },
+  });
+  await logActivity(prisma, {
+    actor: { id: session!.user!.id, role: session!.user!.role },
+    action: "UPDATE",
+    entityType: "Connection",
+    entityId: id,
+    entityLabel: connection.clientName,
+    summary: `${isFlagged ? "Flagged" : "Unflagged"} connection "${connection.clientName}"`,
+    changes: [{ field: "isFlagged", oldValue: String(connection.isFlagged), newValue: String(isFlagged) }],
+    departmentId: connection.departmentId,
   });
   revalidatePath("/dashboard/connections");
 }
@@ -257,7 +312,7 @@ export async function toggleConnectionFlag(formData: FormData) {
 // Start Date inline (connDetailItem() editable fields) — mirrored here as
 // one action covering both, since they're edited from the same panel.
 export async function updateConnectionInfo(formData: FormData) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const clientName = String(formData.get("clientName") ?? "").trim();
@@ -265,14 +320,30 @@ export async function updateConnectionInfo(formData: FormData) {
   const startDateRaw = String(formData.get("startDate") ?? "");
   if (!clientName) throw new Error("Account name is required.");
 
+  const before = await prisma.connection.findUnique({ where: { id } });
+  if (!before) throw new Error("Connection not found.");
+  const startDate = startDateRaw ? new Date(`${startDateRaw}T00:00:00.000Z`) : null;
   await prisma.connection.update({
     where: { id },
-    data: {
-      clientName,
-      secondaryName,
-      startDate: startDateRaw ? new Date(`${startDateRaw}T00:00:00.000Z`) : null,
-    },
+    data: { clientName, secondaryName, startDate },
   });
+  const changes = diffFields(
+    { clientName: before.clientName, secondaryName: before.secondaryName, startDate: before.startDate?.toISOString() ?? null },
+    { clientName, secondaryName, startDate: startDate?.toISOString() ?? null },
+    ["clientName", "secondaryName", "startDate"],
+  );
+  if (changes.length > 0) {
+    await logActivity(prisma, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "UPDATE",
+      entityType: "Connection",
+      entityId: id,
+      entityLabel: clientName,
+      summary: `Edited connection info for "${clientName}" — ${changes.map((c) => c.field).join(", ")}`,
+      changes,
+      departmentId: before.departmentId,
+    });
+  }
   revalidatePath("/dashboard/connections");
 }
 
@@ -331,18 +402,33 @@ export async function getConnectionPerformance(
 }
 
 export async function updateConnectionNotes(formData: FormData) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  const before = await prisma.connection.findUnique({ where: { id } });
+  if (!before) return;
   await prisma.connection.update({ where: { id }, data: { notes } });
+  if (before.notes !== notes) {
+    await logActivity(prisma, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "UPDATE",
+      entityType: "Connection",
+      entityId: id,
+      entityLabel: before.clientName,
+      summary: `Edited notes for "${before.clientName}"`,
+      changes: [{ field: "notes", oldValue: before.notes, newValue: notes }],
+      departmentId: before.departmentId,
+    });
+  }
   revalidatePath("/dashboard/connections");
 }
 
 export async function deleteConnection(formData: FormData) {
-  await requireAdmin();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
+  const connection = await prisma.connection.findUnique({ where: { id } });
   try {
     await prisma.connection.delete({ where: { id } });
   } catch {
@@ -350,5 +436,14 @@ export async function deleteConnection(formData: FormData) {
       "Can't delete a connection that already has submissions recorded against it.",
     );
   }
+  await logActivity(prisma, {
+    actor: { id: session!.user!.id, role: session!.user!.role },
+    action: "DELETE",
+    entityType: "Connection",
+    entityId: id,
+    entityLabel: connection?.clientName ?? id,
+    summary: `Deleted connection "${connection?.clientName ?? id}"`,
+    departmentId: connection?.departmentId ?? null,
+  });
   revalidatePath("/dashboard/connections");
 }

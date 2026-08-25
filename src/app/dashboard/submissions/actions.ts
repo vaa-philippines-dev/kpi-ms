@@ -6,6 +6,7 @@ import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib
 import { recomputePerformanceSummary } from "@/lib/performance";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
+import { logActivity } from "@/lib/activity-log";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 // "Change a VA's wrongly-submitted date" — Admin, DM, the DM-equivalent
@@ -25,11 +26,12 @@ async function assertConnectionInScope(connectionId: string, session: ScopingSes
   const scope = connectionScopeWhere(session);
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...scope },
-    select: { id: true },
+    select: { id: true, clientName: true, departmentId: true },
   });
   if (!connection) {
     throw new Error("Connection not found or not in your scope.");
   }
+  return connection;
 }
 
 function revalidateAffectedPages() {
@@ -100,7 +102,7 @@ export async function updateSubmissionPeriod(formData: FormData) {
   if (!submission) {
     throw new Error("Submission not found.");
   }
-  await assertConnectionInScope(submission.connectionId, session);
+  const connection = await assertConnectionInScope(submission.connectionId, session);
 
   const weekStartDay = await getWeekStartDay();
   const newPeriodStart = currentPeriodStart(period, parseAnchorDate(dateRaw), weekStartDay);
@@ -127,6 +129,19 @@ export async function updateSubmissionPeriod(formData: FormData) {
       periodStart: newPeriodStart,
       kpiDefinitionIds,
     });
+    await logActivity(tx, {
+      actor: session,
+      action: "UPDATE",
+      entityType: "Submission",
+      entityId: submissionId,
+      entityLabel: connection.clientName,
+      summary: `Moved a submission for "${connection.clientName}" from ${oldPeriodStart.toISOString().slice(0, 10)} (${oldPeriod}) to ${newPeriodStart.toISOString().slice(0, 10)} (${period})`,
+      changes: [
+        { field: "period", oldValue: oldPeriod, newValue: period },
+        { field: "periodStart", oldValue: oldPeriodStart.toISOString(), newValue: newPeriodStart.toISOString() },
+      ],
+      departmentId: connection.departmentId,
+    });
   });
 
   revalidateAffectedPages();
@@ -148,7 +163,7 @@ export async function deleteSubmission(formData: FormData) {
     include: { records: true },
   });
   if (!submission) return;
-  await assertConnectionInScope(submission.connectionId, session);
+  const connection = await assertConnectionInScope(submission.connectionId, session);
 
   const kpiDefinitionIds = submission.records.map((r) => r.kpiDefinitionId);
   const { connectionId, period, periodStart } = submission;
@@ -157,6 +172,15 @@ export async function deleteSubmission(formData: FormData) {
     await tx.submissionRecord.deleteMany({ where: { submissionId } });
     await tx.submission.delete({ where: { id: submissionId } });
     await recomputePerformanceSummary(tx, { connectionId, period, periodStart, kpiDefinitionIds });
+    await logActivity(tx, {
+      actor: session,
+      action: "DELETE",
+      entityType: "Submission",
+      entityId: submissionId,
+      entityLabel: connection.clientName,
+      summary: `Deleted a ${period.toLowerCase()} submission for "${connection.clientName}" (${periodStart.toISOString().slice(0, 10)})`,
+      departmentId: connection.departmentId,
+    });
   });
 
   revalidateAffectedPages();

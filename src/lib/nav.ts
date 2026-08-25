@@ -18,6 +18,7 @@ import {
   Grid3x3,
   Contact,
   Target,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -144,6 +145,13 @@ const loginActivityItem: NavItem = {
   roles: ["ADMIN", "DM", "OPS_MANAGER"],
   keywords: "sign in audit last login",
 };
+const activityLogItem: NavItem = {
+  href: "/dashboard/activity",
+  label: "Activity Log",
+  icon: Activity,
+  roles: ["ADMIN"],
+  keywords: "audit trail changes edits deletions kpi submissions dm om team leader",
+};
 const teamManagementItem: NavItem = {
   href: "/dashboard/teams",
   label: "Team Management",
@@ -211,6 +219,7 @@ const adminGroups: NavGroup[] = [
     items: [
       usersItem,
       loginActivityItem,
+      activityLogItem,
       teamManagementItem,
       departmentsItem,
       kpiLibraryItem,

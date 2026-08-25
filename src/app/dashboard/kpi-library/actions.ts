@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canAccessDepartment, type ScopingSession } from "@/lib/connection-scope";
+import { logActivity, diffFields } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
 async function requireManager(): Promise<ScopingSession> {
@@ -100,7 +101,16 @@ export async function createKpiDefinition(formData: FormData) {
   const session = await requireManager();
   const data = parseKpiForm(formData);
   await assertDepartmentAccess(session, data.departmentId);
-  await prisma.kpiDefinition.create({ data });
+  const kpi = await prisma.kpiDefinition.create({ data });
+  await logActivity(prisma, {
+    actor: session,
+    action: "CREATE",
+    entityType: "KpiDefinition",
+    entityId: kpi.id,
+    entityLabel: `${kpi.name} (${kpi.cluster}, ${kpi.period})`,
+    summary: `Created KPI "${kpi.name}" in ${kpi.cluster}`,
+    departmentId: kpi.departmentId,
+  });
   revalidatePath("/dashboard/kpi-library");
 }
 
@@ -113,7 +123,31 @@ export async function updateKpiDefinition(formData: FormData) {
   // to — a manager can't edit their way into or out of another department.
   await findAccessibleKpi(session, id);
   await assertDepartmentAccess(session, data.departmentId);
-  await prisma.kpiDefinition.update({ where: { id }, data });
+  const before = await prisma.kpiDefinition.findUniqueOrThrow({ where: { id } });
+  const kpi = await prisma.kpiDefinition.update({ where: { id }, data });
+  const changes = diffFields(before, data, [
+    "name",
+    "cluster",
+    "departmentId",
+    "serviceId",
+    "direction",
+    "period",
+    "targetValue",
+    "deviationThresholdPct",
+    "criticalThresholdPct",
+  ]);
+  if (changes.length > 0) {
+    await logActivity(prisma, {
+      actor: session,
+      action: "UPDATE",
+      entityType: "KpiDefinition",
+      entityId: kpi.id,
+      entityLabel: `${kpi.name} (${kpi.cluster}, ${kpi.period})`,
+      summary: `Edited KPI "${kpi.name}" — ${changes.map((c) => c.field).join(", ")}`,
+      changes,
+      departmentId: kpi.departmentId,
+    });
+  }
   revalidatePath("/dashboard/kpi-library");
 }
 
@@ -121,12 +155,22 @@ export async function deleteKpiDefinition(formData: FormData) {
   const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await findAccessibleKpi(session, id);
+  const existing = await findAccessibleKpi(session, id);
+  const kpi = await prisma.kpiDefinition.findUnique({ where: { id } });
   try {
     await prisma.kpiDefinition.delete({ where: { id } });
   } catch {
     throw new Error("Can't delete a KPI that already has submissions recorded against it.");
   }
+  await logActivity(prisma, {
+    actor: session,
+    action: "DELETE",
+    entityType: "KpiDefinition",
+    entityId: id,
+    entityLabel: kpi ? `${kpi.name} (${kpi.cluster}, ${kpi.period})` : id,
+    summary: `Deleted KPI "${kpi?.name ?? id}"`,
+    departmentId: existing.departmentId,
+  });
   revalidatePath("/dashboard/kpi-library");
 }
 
@@ -138,7 +182,20 @@ export async function moveKpiCluster(id: string, cluster: string) {
   if (!id || !trimmed) {
     throw new Error("Missing KPI id or cluster name.");
   }
-  await findAccessibleKpi(session, id);
-  await prisma.kpiDefinition.update({ where: { id }, data: { cluster: trimmed } });
+  const existing = await findAccessibleKpi(session, id);
+  const before = await prisma.kpiDefinition.findUnique({ where: { id } });
+  const kpi = await prisma.kpiDefinition.update({ where: { id }, data: { cluster: trimmed } });
+  if (before && before.cluster !== trimmed) {
+    await logActivity(prisma, {
+      actor: session,
+      action: "UPDATE",
+      entityType: "KpiDefinition",
+      entityId: kpi.id,
+      entityLabel: `${kpi.name} (${kpi.cluster}, ${kpi.period})`,
+      summary: `Moved KPI "${kpi.name}" to cluster "${trimmed}"`,
+      changes: [{ field: "cluster", oldValue: before.cluster, newValue: trimmed }],
+      departmentId: existing.departmentId,
+    });
+  }
   revalidatePath("/dashboard/kpi-library");
 }

@@ -9,6 +9,7 @@ import { recomputePerformanceSummary } from "@/lib/performance";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit";
+import { logActivity } from "@/lib/activity-log";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 export async function createSubmission(formData: FormData) {
@@ -140,7 +141,7 @@ export async function createSubmission(formData: FormData) {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.submission.create({
+    const created = await tx.submission.create({
       data: {
         connectionId,
         period,
@@ -167,6 +168,20 @@ export async function createSubmission(formData: FormData) {
       period,
       periodStart,
       kpiDefinitionIds: kpisWithConfig.map(({ kpi }) => kpi.id),
+    });
+
+    await logActivity(tx, {
+      actor: {
+        id: session.user.id,
+        role: session.user.role,
+        departmentId: session.user.departmentId,
+      },
+      action: "CREATE",
+      entityType: "Submission",
+      entityId: created.id,
+      entityLabel: connection.clientName,
+      summary: `Submitted ${period.toLowerCase()}${cluster ? ` (${cluster})` : ""} data for "${connection.clientName}"`,
+      departmentId: connection.departmentId,
     });
   });
 

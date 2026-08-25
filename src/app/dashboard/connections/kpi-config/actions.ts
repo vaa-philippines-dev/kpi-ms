@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
-import type { Prisma } from "@/generated/prisma/client";
 
 async function requireAdmin() {
   const session = await auth();
@@ -218,67 +218,114 @@ export async function updateKpiConfig(formData: FormData) {
   }
   if (periods.length === 0) throw new Error("Missing KPI definition id.");
 
-  const existingConfigs = await prisma.kpiConfig.findMany({
-    where: { connectionId, kpiDefinitionId: { in: periods.map((p) => p.kpiDefinitionId) } },
-  });
+  const [connection, existingConfigs, kpiDefs] = await Promise.all([
+    prisma.connection.findUnique({ where: { id: connectionId }, select: { clientName: true, departmentId: true } }),
+    prisma.kpiConfig.findMany({
+      where: { connectionId, kpiDefinitionId: { in: periods.map((p) => p.kpiDefinitionId) } },
+    }),
+    prisma.kpiDefinition.findMany({
+      where: { id: { in: periods.map((p) => p.kpiDefinitionId) } },
+      select: { id: true, name: true, period: true },
+    }),
+  ]);
   const existingByDefId = new Map(existingConfigs.map((c) => [c.kpiDefinitionId, c]));
+  const kpiDefById = new Map(kpiDefs.map((d) => [d.id, d]));
 
-  const operations: Prisma.PrismaPromise<unknown>[] = [];
+  type RowData = { targetValue: number | null; deviationThresholdPct: number | null; criticalThresholdPct: number | null; isApplicable: boolean; notes: string | null };
+  const rowsToProcess: {
+    p: (typeof periods)[number];
+    existing: (typeof existingConfigs)[number] | undefined;
+    entityLabel: string;
+    data: RowData;
+  }[] = [];
   for (const p of periods) {
     const existing = existingByDefId.get(p.kpiDefinitionId);
-    const data = {
+    const kpiDef = kpiDefById.get(p.kpiDefinitionId);
+    const entityLabel = kpiDef && connection ? `${kpiDef.name} (${kpiDef.period}) — ${connection.clientName}` : p.kpiDefinitionId;
+    const data: RowData = {
       targetValue: p.targetValue,
       deviationThresholdPct,
       criticalThresholdPct,
       isApplicable,
       notes,
     };
-
-    if (!existing) {
-      operations.push(
-        prisma.kpiConfig.create({
-          data: {
-            connectionId,
-            kpiDefinitionId: p.kpiDefinitionId,
-            updatedById: session!.user!.id,
-            ...data,
-          },
-        }),
-      );
-      continue;
-    }
-
-    const fields: [string, number | boolean | string | null, number | boolean | string | null][] = [
-      ["targetValue", existing.targetValue, data.targetValue],
-      ["deviationThresholdPct", existing.deviationThresholdPct, data.deviationThresholdPct],
-      ["criticalThresholdPct", existing.criticalThresholdPct, data.criticalThresholdPct],
-      ["isApplicable", existing.isApplicable, data.isApplicable],
-      ["notes", existing.notes, data.notes],
-    ];
-    const changed = fields.filter(([, oldV, newV]) => oldV !== newV);
-    if (changed.length === 0) continue;
-
-    operations.push(
-      prisma.kpiConfig.update({
-        where: { id: existing.id },
-        data: { ...data, version: { increment: 1 }, updatedById: session!.user!.id },
-      }),
-    );
-    operations.push(
-      prisma.kpiConfigHistory.createMany({
-        data: changed.map(([fieldChanged, oldValue, newValue]) => ({
-          kpiConfigId: existing.id,
-          fieldChanged,
-          oldValue: oldValue === null ? null : String(oldValue),
-          newValue: newValue === null ? null : String(newValue),
-          changedById: session!.user!.id,
-        })),
-      }),
-    );
+    rowsToProcess.push({ p, existing, entityLabel, data });
   }
 
-  if (operations.length > 0) {
-    await prisma.$transaction(operations);
+  const hasWork = rowsToProcess.some(({ existing, data }) => {
+    if (!existing) return true;
+    return (
+      existing.targetValue !== data.targetValue ||
+      existing.deviationThresholdPct !== data.deviationThresholdPct ||
+      existing.criticalThresholdPct !== data.criticalThresholdPct ||
+      existing.isApplicable !== data.isApplicable ||
+      existing.notes !== data.notes
+    );
+  });
+
+  if (hasWork) {
+    await prisma.$transaction(async (tx) => {
+      for (const { p, existing, entityLabel, data } of rowsToProcess) {
+        if (!existing) {
+          const created = await tx.kpiConfig.create({
+            data: {
+              connectionId,
+              kpiDefinitionId: p.kpiDefinitionId,
+              updatedById: session!.user!.id,
+              ...data,
+            },
+          });
+          await logActivity(tx, {
+            actor: { id: session!.user!.id, role: session!.user!.role },
+            action: "CREATE",
+            entityType: "KpiConfig",
+            entityId: created.id,
+            entityLabel,
+            summary: `Created KPI config override for ${entityLabel}`,
+            departmentId: connection?.departmentId ?? null,
+          });
+          continue;
+        }
+
+        const fields: [string, number | boolean | string | null, number | boolean | string | null][] = [
+          ["targetValue", existing.targetValue, data.targetValue],
+          ["deviationThresholdPct", existing.deviationThresholdPct, data.deviationThresholdPct],
+          ["criticalThresholdPct", existing.criticalThresholdPct, data.criticalThresholdPct],
+          ["isApplicable", existing.isApplicable, data.isApplicable],
+          ["notes", existing.notes, data.notes],
+        ];
+        const changed = fields.filter(([, oldV, newV]) => oldV !== newV);
+        if (changed.length === 0) continue;
+
+        await tx.kpiConfig.update({
+          where: { id: existing.id },
+          data: { ...data, version: { increment: 1 }, updatedById: session!.user!.id },
+        });
+        await tx.kpiConfigHistory.createMany({
+          data: changed.map(([fieldChanged, oldValue, newValue]) => ({
+            kpiConfigId: existing.id,
+            fieldChanged,
+            oldValue: oldValue === null ? null : String(oldValue),
+            newValue: newValue === null ? null : String(newValue),
+            changedById: session!.user!.id,
+          })),
+        });
+        await logActivity(tx, {
+          actor: { id: session!.user!.id, role: session!.user!.role },
+          action: "UPDATE",
+          entityType: "KpiConfig",
+          entityId: existing.id,
+          entityLabel,
+          summary: `Edited KPI config for ${entityLabel} — ${changed.map(([f]) => f).join(", ")}`,
+          changes: changed.map(([field, oldValue, newValue]) => ({
+            field,
+            oldValue: oldValue === null ? null : String(oldValue),
+            newValue: newValue === null ? null : String(newValue),
+          })),
+          departmentId: connection?.departmentId ?? null,
+        });
+      }
+    });
   }
   revalidatePath("/dashboard/connections/kpi-config");
 }
@@ -304,17 +351,26 @@ export async function resetKpiConfig(formData: FormData) {
     },
   });
 
-  await prisma.$transaction([
-    prisma.kpiConfigHistory.deleteMany({ where: { kpiConfig: { connectionId } } }),
-    prisma.kpiConfig.deleteMany({ where: { connectionId } }),
-    prisma.kpiConfig.createMany({
+  await prisma.$transaction(async (tx) => {
+    await tx.kpiConfigHistory.deleteMany({ where: { kpiConfig: { connectionId } } });
+    await tx.kpiConfig.deleteMany({ where: { connectionId } });
+    await tx.kpiConfig.createMany({
       data: applicable.map((k) => ({
         connectionId,
         kpiDefinitionId: k.id,
         updatedById: session!.user!.id,
       })),
-    }),
-  ]);
+    });
+    await logActivity(tx, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "DELETE",
+      entityType: "KpiConfig",
+      entityId: connectionId,
+      entityLabel: connection.clientName,
+      summary: `Reset all KPI config overrides to defaults for ${connection.clientName}`,
+      departmentId: connection.departmentId,
+    });
+  });
   revalidatePath("/dashboard/connections/kpi-config");
   revalidatePath("/dashboard");
 }

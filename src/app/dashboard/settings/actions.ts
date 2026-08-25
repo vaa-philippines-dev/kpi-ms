@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { logActivity } from "@/lib/activity-log";
 
 async function requireAdmin() {
   const session = await auth();
@@ -18,10 +19,22 @@ export async function updateSetting(formData: FormData) {
   const value = String(formData.get("value") ?? "").trim();
   if (!key) throw new Error("Missing setting key.");
 
+  const before = await prisma.setting.findUnique({ where: { key } });
   await prisma.setting.upsert({
     where: { key },
     create: { key, value, updatedById: session!.user!.id },
     update: { value, updatedById: session!.user!.id },
   });
+  if (before?.value !== value) {
+    await logActivity(prisma, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: before ? "UPDATE" : "CREATE",
+      entityType: "Setting",
+      entityId: key,
+      entityLabel: key,
+      summary: `Changed setting "${key}"`,
+      changes: [{ field: "value", oldValue: before?.value ?? null, newValue: value }],
+    });
+  }
   revalidatePath("/dashboard/settings");
 }
