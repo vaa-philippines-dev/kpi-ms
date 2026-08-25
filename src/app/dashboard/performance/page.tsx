@@ -296,7 +296,7 @@ export default async function PerformancePage(
 
               <div className="rounded-xl border border-surface-border bg-surface p-5">
                 <h2 className="text-sm font-semibold">Performance Trend</h2>
-                <p className="mb-4 text-xs text-muted">On Target / At Risk / Critical</p>
+                <p className="mb-4 text-xs text-muted">On Target / At Risk / Critical / No Data</p>
                 <PerformanceStatCards
                   totalConnections={totalConnections}
                   connectionRows={filteredConnectionRows}

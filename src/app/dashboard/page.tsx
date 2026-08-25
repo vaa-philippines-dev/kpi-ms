@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckCircle2, AlertTriangle, XCircle, Link2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, HelpCircle, Link2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
@@ -34,6 +34,12 @@ const STATUS_TILES = [
     label: "Critical",
     icon: XCircle,
     style: "border-danger/30 text-danger",
+  },
+  {
+    status: PerformanceStatus.NO_DATA,
+    label: "No Data",
+    icon: HelpCircle,
+    style: "border-surface-border text-muted",
   },
 ] as const;
 
@@ -210,7 +216,7 @@ export default async function DashboardOverviewPage(
         <ComingSoon note="No connections visible to your account yet." />
       ) : (
         <div className="space-y-8">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
             <div className="rounded-xl border border-surface-border bg-surface p-4">
               <Link2 className="size-5 text-muted" />
               <div className="mt-3 text-3xl font-semibold">{totalConnections}</div>

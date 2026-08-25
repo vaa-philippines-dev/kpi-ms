@@ -23,10 +23,10 @@ const STATUS_CARD_LABEL: Record<PerformanceStatus, string> = {
 };
 
 /**
- * Total / On Target / At Risk / Critical stat cards on the Performance
- * Analytics page. The three status cards double as buttons — clicking one
- * lists the connections currently in that status, so managers can see who
- * is critical without leaving the trend view.
+ * Total / On Target / At Risk / Critical / No Data stat cards on the
+ * Performance Analytics page. The four status cards double as buttons —
+ * clicking one lists the connections currently in that status, so managers
+ * can see who is critical without leaving the trend view.
  */
 export function PerformanceStatCards({
   totalConnections,
@@ -50,13 +50,14 @@ export function PerformanceStatCards({
     PerformanceStatus.ON_TARGET,
     PerformanceStatus.AT_RISK,
     PerformanceStatus.CRITICAL,
+    PerformanceStatus.NO_DATA,
   ];
   const rowsByStatus = (status: PerformanceStatus) =>
     connectionRows.filter((r) => r.status === status);
 
   return (
     <>
-      <div className="mb-4 grid grid-cols-4 gap-2">
+      <div className="mb-4 grid grid-cols-5 gap-2">
         <div className="rounded-lg border border-surface-border p-3">
           <div className="text-2xl font-semibold">{totalConnections}</div>
           <div className="mt-0.5 text-xs text-muted">Total</div>
