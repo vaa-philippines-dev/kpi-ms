@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
 import {
   getSubmissionsForConnection,
@@ -85,21 +86,6 @@ export function SubmissionEditModal({
     });
   }
 
-  function remove(submissionId: string) {
-    if (!confirm("Delete this submission? This can't be undone.")) return;
-    const formData = new FormData();
-    formData.set("submissionId", submissionId);
-    startTransition(async () => {
-      try {
-        await deleteSubmission(formData);
-        toast("Submission deleted.", "success");
-        load();
-      } catch (e) {
-        toast(e instanceof Error ? e.message : "Failed to delete submission.", "error");
-      }
-    });
-  }
-
   return (
     <Modal open={open} onClose={onClose} title={`${vaName} — ${clientName}`} size="lg">
       {rows === null ? (
@@ -172,14 +158,14 @@ export function SubmissionEditModal({
                     >
                       Edit date
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isPending}
-                      onClick={() => remove(row.id)}
-                    >
-                      Delete
-                    </Button>
+                    <ConfirmSubmitButton
+                      action={deleteSubmission}
+                      fields={{ submissionId: row.id }}
+                      label="Delete"
+                      confirmLabel="Delete this submission?"
+                      successMessage="Submission deleted."
+                      onSuccess={load}
+                    />
                   </div>
                 </div>
               )}

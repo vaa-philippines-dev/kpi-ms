@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { Sparkline } from "@/components/sparkline";
 import { DeptTeamSummaryPanel } from "@/components/dept-team-summary-panel";
 import {
   SubmissionTrackerTable,
   type SubmissionTrackerRow,
 } from "@/components/submission-tracker-table";
+import {
+  RecentSubmissionsTable,
+  type RecentSubmissionRow,
+} from "@/components/recent-submissions-table";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
@@ -121,6 +124,19 @@ export default async function SubmissionsPage(
   const trackedConnections = connections.filter((c) => c.status === "ACTIVE");
   const excludedCount = connections.length - trackedConnections.length;
 
+  const recentSubmissionRows: RecentSubmissionRow[] = recentSubmissions.map((sub) => ({
+    id: sub.id,
+    submittedAt: sub.submittedAt.toISOString(),
+    vaName: sub.connection.vaUser.name ?? sub.connection.vaUser.email,
+    clientName: sub.connection.clientName,
+    departmentName: sub.connection.department.name,
+    period: sub.period,
+    periodStart: sub.periodStart.toISOString(),
+    valuesLabel: sub.records
+      .map((r) => `${r.kpiDefinition.name}: ${r.noData ? "No data" : r.value}`)
+      .join(", "),
+  }));
+
   const trackerRows: SubmissionTrackerRow[] = trackedConnections.map((c) => {
     const submitted = trackerStatus(c.id) !== null;
     return {
@@ -206,38 +222,7 @@ export default async function SubmissionsPage(
               {recentSubmissions.length === 0 ? (
                 <ComingSoon note="No submissions yet — they'll show up here once VAs start using the form at /submit." />
               ) : (
-                <Table>
-                  <TableHead>
-                    <tr>
-                      <Th>Submitted</Th>
-                      <Th>VA</Th>
-                      <Th>Client</Th>
-                      <Th>Department</Th>
-                      <Th>Period</Th>
-                      <Th>Values</Th>
-                    </tr>
-                  </TableHead>
-                  <tbody>
-                    {recentSubmissions.map((sub) => (
-                      <Tr key={sub.id} className="align-top">
-                        <Td className="whitespace-nowrap text-muted">
-                          {sub.submittedAt.toLocaleString()}
-                        </Td>
-                        <Td>{sub.connection.vaUser.name ?? sub.connection.vaUser.email}</Td>
-                        <Td>{sub.connection.clientName}</Td>
-                        <Td className="text-muted">{sub.connection.department.name}</Td>
-                        <Td className="text-muted">
-                          {sub.period} · {sub.periodStart.toLocaleDateString()}
-                        </Td>
-                        <Td className="text-muted">
-                          {sub.records
-                            .map((r) => `${r.kpiDefinition.name}: ${r.value}`)
-                            .join(", ")}
-                        </Td>
-                      </Tr>
-                    ))}
-                  </tbody>
-                </Table>
+                <RecentSubmissionsTable rows={recentSubmissionRows} canEdit={canEditSubmissions} />
               )}
             </div>
 
