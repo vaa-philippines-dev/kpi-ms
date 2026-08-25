@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { getEffectiveSession } from "@/lib/view-as";
 import { connectionScopeWhere } from "@/lib/connection-scope";
-import { getConnectionTrend, type ConnectionTrendPoint } from "@/lib/connection-trend";
+import { getConnectionTrend } from "@/lib/connection-trend";
 import { getWeekStartDay } from "@/lib/settings";
+import { ConnectionStatusTrend } from "@/components/connection-status-trend";
+import { parseAnchorDate } from "@/lib/period";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 const DOT_CLASS: Record<PerformanceStatus, string> = {
@@ -14,66 +16,36 @@ const DOT_CLASS: Record<PerformanceStatus, string> = {
   [PerformanceStatus.NO_DATA]: "bg-surface-border",
 };
 
-const STATUS_TITLE: Record<PerformanceStatus, string> = {
-  [PerformanceStatus.ON_TARGET]: "On Target",
-  [PerformanceStatus.AT_RISK]: "At Risk",
-  [PerformanceStatus.CRITICAL]: "Critical",
-  [PerformanceStatus.NO_DATA]: "No Data",
-};
-
-function TrendRow({
-  label,
-  points,
-  isMonthly,
-}: {
-  label: string;
-  points: ConnectionTrendPoint[];
-  isMonthly: boolean;
-}) {
-  return (
-    <div>
-      <p className="mb-2 text-xs font-medium text-muted uppercase">{label}</p>
-      <div className="flex items-end gap-2.5">
-        {points.map((p) => {
-          const dateLabel = isMonthly
-            ? p.periodStart.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" })
-            : p.periodStart.toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                timeZone: "UTC",
-              });
-          return (
-            <div
-              key={p.periodStart.toISOString()}
-              className="flex flex-col items-center gap-1.5"
-              title={p.status ? STATUS_TITLE[p.status] : "Not submitted"}
-            >
-              <span
-                className={`size-3 rounded-full ${
-                  p.status ? DOT_CLASS[p.status] : "border border-dashed border-surface-border"
-                }`}
-              />
-              <span className="text-[10px] whitespace-nowrap text-muted">{dateLabel}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// Twice the old 6-point window — more history to actually spot a slide in,
+// now that the chart connects periods with a line instead of isolated dots.
+const PERIODS_SHOWN = 10;
 
 /**
  * "History" — new nav entry for VAs (not in legacy), the backward-looking
  * counterpart to /dashboard/kpi (which only shows the current period). A VA
  * previously had no way to tell whether a rough week was a one-off or part
- * of a slide — this surfaces the last 6 weekly and monthly periods per
- * connection as a compact dot trend, using lib/connection-trend.ts (the
- * per-connection sibling of lib/trend.ts's system-wide chart).
+ * of a slide — this surfaces the last several periods per connection as a
+ * connected trend line, using lib/connection-trend.ts (the per-connection
+ * sibling of lib/trend.ts's system-wide chart).
+ *
+ * Reads the same global Weekly/Monthly topbar toggle every other trend view
+ * in the app does (see components/period-nav.tsx) — this page used to
+ * ignore it entirely and always render both weekly and monthly side by
+ * side, which also meant the toggle's ◀/▶/date-jump controls did nothing
+ * here.
  */
-export default async function HistoryPage() {
+export default async function HistoryPage(props: PageProps<"/dashboard/history">) {
   const session = await getEffectiveSession();
   if (!session) redirect("/sign-in");
   if (session.role !== "VA") redirect("/dashboard");
+
+  const searchParams = await props.searchParams;
+  const selectedPeriod: KpiPeriod =
+    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
+  const isMonthly = selectedPeriod === KpiPeriod.MONTHLY;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
 
   const scope = connectionScopeWhere(session);
   const weekStartDay = await getWeekStartDay();
@@ -96,8 +68,7 @@ export default async function HistoryPage() {
   const cards = await Promise.all(
     connections.map(async (c) => ({
       connection: c,
-      weekly: await getConnectionTrend(c.id, KpiPeriod.WEEKLY, weekStartDay, 6),
-      monthly: await getConnectionTrend(c.id, KpiPeriod.MONTHLY, weekStartDay, 6),
+      points: await getConnectionTrend(c.id, selectedPeriod, weekStartDay, PERIODS_SHOWN, anchor),
     })),
   );
 
@@ -105,20 +76,17 @@ export default async function HistoryPage() {
     <>
       <PageHeader
         title="History"
-        description="Your status over the last 6 weeks and months, per connection."
+        description={`Your ${isMonthly ? "monthly" : "weekly"} status over the last ${PERIODS_SHOWN} periods, per connection. Switch periods with the Weekly / Monthly toggle above.`}
       />
       <div className="space-y-4">
-        {cards.map(({ connection, weekly, monthly }) => (
+        {cards.map(({ connection, points }) => (
           <div
             key={connection.id}
             className="rounded-xl border border-surface-border bg-surface p-5"
           >
             <h2 className="text-sm font-semibold">{connection.clientName}</h2>
             <p className="mb-4 text-xs text-muted">{connection.department.name}</p>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <TrendRow label="Weekly" points={weekly} isMonthly={false} />
-              <TrendRow label="Monthly" points={monthly} isMonthly />
-            </div>
+            <ConnectionStatusTrend points={points} isMonthly={isMonthly} />
           </div>
         ))}
       </div>

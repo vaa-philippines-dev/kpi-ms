@@ -4,7 +4,7 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import { Sparkline } from "@/components/sparkline";
-import { Select } from "@/components/ui/input";
+import { ConnectionCombobox } from "@/components/connection-combobox";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { CONNECTION_STATUS_LABELS } from "@/lib/connection-labels";
 
@@ -25,9 +25,23 @@ export default async function ClientDetailPage(
 
   const connections = await prisma.connection.findMany({
     where: scope,
-    include: { vaUser: true },
+    include: { vaUser: true, department: true },
     orderBy: { clientName: "asc" },
   });
+
+  const departments = Array.from(
+    new Map(connections.map((c) => [c.departmentId, c.department.name])).entries(),
+  )
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const connectionOptions = connections.map((c) => ({
+    id: c.id,
+    clientName: c.clientName,
+    vaLabel: c.vaUser.name ?? c.vaUser.email,
+    departmentId: c.departmentId,
+    departmentName: c.department.name,
+  }));
 
   const connection = connectionId
     ? await prisma.connection.findFirst({
@@ -71,24 +85,11 @@ export default async function ClientDetailPage(
       />
 
       <div className="max-w-4xl space-y-8">
-        <form method="GET" className="flex gap-2">
-          <Select name="connectionId" defaultValue={connectionId ?? ""} className="w-full">
-            <option value="" disabled>
-              Choose a connection
-            </option>
-            {connections.map((c) => (
-              <option key={c.id} value={c.id}>
-                {(c.vaUser.name ?? c.vaUser.email)} · {c.clientName}
-              </option>
-            ))}
-          </Select>
-          <button
-            type="submit"
-            className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:opacity-90"
-          >
-            View
-          </button>
-        </form>
+        <ConnectionCombobox
+          options={connectionOptions}
+          departments={departments}
+          selectedId={connectionId}
+        />
 
         {!connection ? (
           <ComingSoon note="Choose a connection above to see its detail." />

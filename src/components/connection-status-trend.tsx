@@ -18,13 +18,6 @@ const STATUS_DOT_CLASS: Record<PerformanceStatus, string> = {
   [PerformanceStatus.NO_DATA]: "fill-surface-border",
 };
 
-const STATUS_STROKE_CLASS: Record<PerformanceStatus, string> = {
-  [PerformanceStatus.ON_TARGET]: "stroke-success",
-  [PerformanceStatus.AT_RISK]: "stroke-warning",
-  [PerformanceStatus.CRITICAL]: "stroke-danger",
-  [PerformanceStatus.NO_DATA]: "stroke-surface-border",
-};
-
 // Only these three carry a real "how are we doing" ordering — NO_DATA (a
 // submission that explicitly had nothing to report) and null (nothing
 // submitted at all) both live in a separate lane below the scale instead of
