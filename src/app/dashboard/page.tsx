@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { CheckCircle2, AlertTriangle, XCircle, HelpCircle, Link2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
@@ -10,38 +9,12 @@ import { getLongRunningConnections } from "@/lib/long-running";
 import { rollupStatus } from "@/lib/performance";
 import { UnassignedVasPanel } from "@/components/unassigned-vas-panel";
 import { DepartmentBreakdownTable, type DeptConnectionRow } from "./department-breakdown-table";
+import { DashboardStatCards } from "./dashboard-stat-cards";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
 import { VaOverview } from "./va-overview";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-
-const STATUS_TILES = [
-  {
-    status: PerformanceStatus.ON_TARGET,
-    label: "On Target",
-    icon: CheckCircle2,
-    style: "border-success/30 text-success",
-  },
-  {
-    status: PerformanceStatus.AT_RISK,
-    label: "At Risk",
-    icon: AlertTriangle,
-    style: "border-warning/30 text-warning",
-  },
-  {
-    status: PerformanceStatus.CRITICAL,
-    label: "Critical",
-    icon: XCircle,
-    style: "border-danger/30 text-danger",
-  },
-  {
-    status: PerformanceStatus.NO_DATA,
-    label: "No Data",
-    icon: HelpCircle,
-    style: "border-surface-border text-muted",
-  },
-] as const;
 
 /** "7Y 11M" — compact form for the Long-Running Connections duration pill. */
 function formatDurationCompact(days: number): string {
@@ -204,6 +177,10 @@ export default async function DashboardOverviewPage(
       status: rolled,
     });
   }
+  // Flat, cross-department list backing the top stat tiles' drill-down —
+  // clicking "Critical" should show every critical connection, not just one
+  // department's, unlike the per-department table below.
+  const allConnectionRows = [...connectionsByDept.values()].flat();
 
   return (
     <>
@@ -216,28 +193,14 @@ export default async function DashboardOverviewPage(
         <ComingSoon note="No connections visible to your account yet." />
       ) : (
         <div className="space-y-8">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            <div className="rounded-xl border border-surface-border bg-surface p-4">
-              <Link2 className="size-5 text-muted" />
-              <div className="mt-3 text-3xl font-semibold">{totalConnections}</div>
-              <div className="mt-1 text-sm text-muted">Active Connections</div>
-            </div>
-            {STATUS_TILES.map((tile) => {
-              const Icon = tile.icon;
-              return (
-                <div
-                  key={tile.status}
-                  className={`rounded-xl border bg-surface p-4 ${tile.style}`}
-                >
-                  <Icon className="size-5" />
-                  <div className="mt-3 text-3xl font-semibold">
-                    {counts[tile.status]}
-                  </div>
-                  <div className="mt-1 text-sm">{tile.label}</div>
-                </div>
-              );
-            })}
-          </div>
+          <DashboardStatCards
+            totalConnections={totalConnections}
+            counts={counts}
+            connectionRows={allConnectionRows}
+            periodStart={selectedPeriodStart.toISOString()}
+            period={selectedPeriod}
+            interventionTypes={interventionTypes}
+          />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-surface-border bg-surface p-5">
