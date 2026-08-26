@@ -1,5 +1,6 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
+import { SubmissionNotificationListener } from "@/components/submission-notification-listener";
 import { ToastProvider } from "@/components/ui/toast";
 import { WelcomeNoticeModal } from "@/components/welcome-notice-modal";
 import { auth } from "@/auth";
@@ -7,21 +8,33 @@ import { prisma } from "@/lib/prisma";
 import { startOfToday } from "@/lib/period";
 import { getAppName } from "@/lib/settings";
 import { getEffectiveSession } from "@/lib/view-as";
+import { connectionScopeWhere, SUBMISSION_WATCHER_ROLES } from "@/lib/connection-scope";
 
 export default async function DashboardLayout({
   children,
 }: LayoutProps<"/dashboard">) {
-  const [session, authSession, submissionsToday, appName] = await Promise.all([
+  const [session, authSession] = await Promise.all([
     getEffectiveSession(),
     // The real signed-in session (never the "view as" target) — the
     // welcome notice's login marker must track the actual person's sign-in,
     // not whoever an admin happens to be previewing.
     auth(),
+  ]);
+
+  // Same visibility rules as everywhere else (connectionScopeWhere) — a DM
+  // or OM must only see today's count for connections in their own
+  // scope, not every department's submissions.
+  const scope = session ? connectionScopeWhere(session) : { id: "__none__" };
+  const [submissionsToday, appName] = await Promise.all([
     prisma.submission.count({
-      where: { submittedAt: { gte: startOfToday() } },
+      where: { submittedAt: { gte: startOfToday() }, connection: scope },
     }),
     getAppName(),
   ]);
+
+  const isSubmissionWatcher = session
+    ? SUBMISSION_WATCHER_ROLES.includes(session.role as (typeof SUBMISSION_WATCHER_ROLES)[number])
+    : false;
 
   return (
     <ToastProvider>
@@ -41,6 +54,7 @@ export default async function DashboardLayout({
       {authSession?.user && (
         <WelcomeNoticeModal loginCount={authSession.user.loginCount} />
       )}
+      {isSubmissionWatcher && <SubmissionNotificationListener />}
     </ToastProvider>
   );
 }

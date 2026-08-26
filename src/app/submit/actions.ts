@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { recomputePerformanceSummary } from "@/lib/performance";
-import { connectionScopeWhere } from "@/lib/connection-scope";
+import { connectionScopeWhere, getSubmissionWatcherIds } from "@/lib/connection-scope";
+import { emitSubmissionNotification } from "@/lib/realtime";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity-log";
@@ -75,6 +76,7 @@ export async function createSubmission(
           },
         },
       },
+      vaUser: { select: { teamId: true } },
     },
   });
   if (!connection) {
@@ -195,6 +197,26 @@ export async function createSubmission(
       departmentId: connection.departmentId,
     });
   });
+
+  // Fire-and-forget, outside the transaction — a missed notification must
+  // never roll back a real submission. Recipients are resolved fresh here
+  // (not carried from `scope`) since the submitting VA's own visibility has
+  // nothing to do with who manages their department/team.
+  const watcherIds = await getSubmissionWatcherIds(
+    connection.departmentId,
+    connection.vaUser.teamId,
+  );
+  if (watcherIds.length > 0) {
+    emitSubmissionNotification({
+      connectionId,
+      clientName: connection.clientName,
+      departmentName: connection.department.name,
+      period,
+      cluster,
+      submittedAt: new Date().toISOString(),
+      recipientIds: watcherIds,
+    });
+  }
 
   // Whitelisted, not user-controlled input, despite coming from form data —
   // guards against an open redirect if the hidden field were ever tampered
