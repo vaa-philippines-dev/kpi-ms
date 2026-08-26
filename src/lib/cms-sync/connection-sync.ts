@@ -30,12 +30,12 @@ const KNOWN_DEPARTMENTS = new Set([
  * Confirmed with the user:
  *  - "Cancelled" / "Declined" / "Accepted" (and blank) are VA-request-
  *    workflow outcomes, not established connections — excluded (null).
- *  - "Terminated" collapses to the generic INACTIVE bucket rather than
- *    guessing END_OF_CONTRACT vs END_OF_PROJECT, since TerminationReason
- *    is blank on ~99% of rows.
- *  - "Started" normally means currently active, but a handful of rows
- *    carry both "Started" and a TerminationDate (a CMS data-entry lag,
- *    not a real Active connection) — TerminationDate wins when present.
+ *  - Ended/historical connections are excluded entirely, not imported as
+ *    INACTIVE — the user only wants live connections (Active, plus Pending
+ *    and Paused, which aren't "history," just not-yet-started or
+ *    temporarily halted) out of this sync, not the CMS's full historical
+ *    archive. This covers "Terminated", and "Started" rows that also carry
+ *    a TerminationDate (a CMS data-entry lag, not a real active connection).
  */
 function mapCmsStatus(row: Record<string, string>): ConnectionStatus | null {
   const raw = (row.ConnectionStatus ?? "").trim();
@@ -44,6 +44,7 @@ function mapCmsStatus(row: Record<string, string>): ConnectionStatus | null {
     case "Cancelled":
     case "Declined":
     case "Accepted":
+    case "Terminated":
     case "":
       return null;
     case "Paused":
@@ -52,10 +53,8 @@ function mapCmsStatus(row: Record<string, string>): ConnectionStatus | null {
       return ConnectionStatus.PENDING;
     case "Active":
       return ConnectionStatus.ACTIVE;
-    case "Terminated":
-      return ConnectionStatus.INACTIVE;
     case "Started":
-      return hasTerminationDate ? ConnectionStatus.INACTIVE : ConnectionStatus.ACTIVE;
+      return hasTerminationDate ? null : ConnectionStatus.ACTIVE;
     default:
       return null;
   }

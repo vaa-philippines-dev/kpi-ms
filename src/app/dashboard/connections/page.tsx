@@ -9,6 +9,16 @@ import { NewConnectionModal } from "@/components/new-connection-modal";
 import { ImportConnectionsModal } from "@/components/import-connections-modal";
 import { SyncButton } from "@/components/sync-button";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { CONNECTION_STATUS_LABELS } from "@/lib/connection-labels";
+import { ConnectionStatus } from "@/generated/prisma/enums";
+
+// Every status except PENDING (that one's excluded from this page entirely,
+// not just deprioritized — see the `where` clause below) and ACTIVE, which
+// is the default and gets its own "Active" / "All statuses" framing instead
+// of being just another option in the list.
+const NON_DEFAULT_STATUS_OPTIONS = Object.values(ConnectionStatus).filter(
+  (s) => s !== ConnectionStatus.PENDING && s !== ConnectionStatus.ACTIVE,
+);
 
 export default async function ConnectionsPage(
   props: PageProps<"/dashboard/connections">,
@@ -18,6 +28,16 @@ export default async function ConnectionsPage(
   const departmentId =
     typeof searchParams.departmentId === "string" ? searchParams.departmentId : "";
   const openId = typeof searchParams.open === "string" ? searchParams.open : null;
+  // Defaults to Active — "all statuses" is an explicit choice (?status=ALL),
+  // not the initial view, per the user's request. Pending is never a valid
+  // value here (see the `where` clause below) even if typed into the URL.
+  const rawStatus = typeof searchParams.status === "string" ? searchParams.status : "ACTIVE";
+  const statusParam: "ALL" | ConnectionStatus =
+    rawStatus === "ALL" ||
+    (Object.values(ConnectionStatus).includes(rawStatus as ConnectionStatus) &&
+      rawStatus !== ConnectionStatus.PENDING)
+      ? (rawStatus as "ALL" | ConnectionStatus)
+      : "ACTIVE";
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
@@ -73,6 +93,11 @@ export default async function ConnectionsPage(
     ...scope,
     ...searchFilter,
     ...(departmentId ? { departmentId } : {}),
+    // Pending connections are a CMS-side state (a VA assignment that
+    // hasn't started yet) — shown there, not here, since this page's
+    // status shouldn't be managed independently of the CMS. Applies
+    // regardless of the status filter below, including "All".
+    status: statusParam === "ALL" ? { not: ConnectionStatus.PENDING } : statusParam,
   };
 
   // No server-side cap or grouping here anymore — DataTable does its own
@@ -81,7 +106,12 @@ export default async function ConnectionsPage(
   // worth re-querying the server for.
   const connections = await prisma.connection.findMany({
     where,
-    orderBy: [{ department: { name: "asc" } }, { clientName: "asc" }],
+    // Newest-started first, per the user's request — 36 connections have
+    // no startDate at all (mostly older legacy-sourced rows predating that
+    // field), pushed to the end via `nulls: "last"` rather than sorting
+    // first under Postgres's default DESC null ordering, and ordered
+    // amongst themselves by createdAt as the next-best "recency" proxy.
+    orderBy: [{ startDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     include: {
       department: true,
       service: true,
@@ -154,6 +184,15 @@ export default async function ConnectionsPage(
                   ))}
                 </Select>
               )}
+              <Select name="status" defaultValue={statusParam} className="w-40">
+                <option value="ACTIVE">Active</option>
+                {NON_DEFAULT_STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {CONNECTION_STATUS_LABELS[s]}
+                  </option>
+                ))}
+                <option value="ALL">All statuses</option>
+              </Select>
               <Input
                 name="q"
                 defaultValue={q}
