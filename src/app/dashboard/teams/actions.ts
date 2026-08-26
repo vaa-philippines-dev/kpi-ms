@@ -160,7 +160,7 @@ export async function addTeamMember(formData: FormData) {
     }
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { additionalDepartments: true },
+      include: { additionalDepartments: true, team: true },
     });
     // A VA can belong to more than one department — eligible for this
     // team if the DM's department is either their primary or additional.
@@ -170,6 +170,16 @@ export async function addTeamMember(formData: FormData) {
         user.additionalDepartments.some((d) => d.departmentId === session.user.departmentId));
     if (!userInDept) {
       throw new Error("DMs can only add members from their own department.");
+    }
+    // A hybrid VA (tagged into this department only via
+    // additionalDepartments) may already sit on a team in their actual
+    // primary department — teamId is a single field, so silently adding
+    // them here would rip them off that other team out from under its
+    // owning DM. Only that DM (or an Admin) can move them.
+    if (user.team && user.team.departmentId !== session.user.departmentId) {
+      throw new Error(
+        "This user is already on a team in another department — only that department's manager can move them.",
+      );
     }
   }
 

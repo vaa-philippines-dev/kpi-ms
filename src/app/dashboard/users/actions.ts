@@ -137,8 +137,8 @@ export async function updateUser(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "") as UserRole;
   let departmentId = optionalId(formData, "departmentId");
-  let serviceId = optionalId(formData, "serviceId");
-  let teamId = optionalId(formData, "teamId");
+  const serviceId = optionalId(formData, "serviceId");
+  const teamId = optionalId(formData, "teamId");
 
   if (!email) {
     throw new Error("Email is required.");
@@ -170,8 +170,13 @@ export async function updateUser(formData: FormData) {
   if (session.role === "ADMIN" && role === UserRole.VA) {
     const submitted = formData.getAll("departmentIds").map(String).filter(Boolean);
     if (submitted.length > 0) {
-      departmentId = submitted[0];
-      extraDepartmentIds = submitted.slice(1);
+      // Checkboxes render in alphabetical department-name order, not
+      // "primary first" — so `submitted[0]` is NOT reliably the existing
+      // primary. Keep the existing primary if it's still checked, instead
+      // of letting a routine re-save (that never touched the checkboxes)
+      // silently reassign it to whichever department sorts first.
+      departmentId = submitted.includes(target.departmentId ?? "") ? target.departmentId : submitted[0];
+      extraDepartmentIds = submitted.filter((depId) => depId !== departmentId);
     }
   }
 
@@ -192,16 +197,18 @@ export async function updateUser(formData: FormData) {
       throw new Error("DMs may only assign OM or VA roles.");
     }
     if (target.departmentId && target.departmentId !== session.departmentId) {
-      // This VA's primary department belongs to a different DM (this DM
-      // only co-manages them via an additional-department membership) — the
-      // DM's own department/service/team dropdowns only ever list their own
-      // department's options, so applying them here would wrongly move the
-      // VA's primary department out from under the other DM. Leave
-      // department/service/team exactly as they were; only email/name/role
-      // are editable from this DM's side for a shared VA.
-      departmentId = target.departmentId;
-      serviceId = target.serviceId;
-      teamId = target.teamId;
+      // This VA's primary department belongs to a different DM — this DM
+      // only co-manages them via an additional-department membership (e.g.
+      // a hybrid Amazon/Walmart VA, seen from the Walmart side when their
+      // primary is Amazon). That's enough to see and pick them in dropdowns,
+      // but not enough to touch their account: identity (email/role) and
+      // their primary department/service/team stay under the owning DM's
+      // control. Without this, a co-managing DM could silently reassign a
+      // VA that isn't really theirs — a cross-department escalation, not
+      // just a data-integrity nicety.
+      throw new Error(
+        "This user's primary department is managed by another DM — you can only edit users whose primary department is your own.",
+      );
     } else {
       // Common case: this VA's primary department is this DM's own —
       // locked to it, same as on create, regardless of what the form sent.
@@ -314,19 +321,16 @@ export async function toggleUserActive(formData: FormData) {
   if (id === session.id) {
     throw new Error("You can't deactivate your own account.");
   }
-  const user = await prisma.user.findUnique({
-    where: { id },
-    include: { additionalDepartments: true },
-  });
+  const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return;
   if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
-    const userDepartmentIds = new Set(
-      [user.departmentId, ...user.additionalDepartments.map((d) => d.departmentId)].filter(
-        (v): v is string => Boolean(v),
-      ),
-    );
-    if (!userDepartmentIds.has(session.departmentId ?? "")) {
-      throw new Error("You can only manage users in your own department.");
+    // Deactivating locks the account out everywhere, not just this
+    // department — so unlike editing (which a co-managing DM can request
+    // for their own department's slice), this is reserved for the VA's
+    // *primary* department. Otherwise a Walmart DM could lock out a VA
+    // whose real home is Amazon just because they're also tagged Walmart.
+    if (user.departmentId !== session.departmentId) {
+      throw new Error("You can only activate/deactivate users whose primary department is your own.");
     }
     // Without this, a DM could deactivate an ADMIN or SERVICE_MANAGER
     // account that happens to share their department, since departmentId

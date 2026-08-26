@@ -126,6 +126,7 @@ export function UsersTable({
   roles = Object.values(UserRole),
   canManage,
   isAdmin = false,
+  viewerDepartmentId = null,
 }: {
   users: UserRow[];
   departments: Option[];
@@ -136,9 +137,20 @@ export function UsersTable({
   canManage: boolean;
   /** Admin only: lets a VA's department field become a multi-select. */
   isAdmin?: boolean;
+  /**
+   * A DM/Ops Manager's own department — when set (non-admin managers only),
+   * rows whose primary department isn't this one are shown but not
+   * editable, even if this DM co-manages the row via an additional-
+   * department tag. Mirrors updateUser()'s server-side rejection of that
+   * edit, so a row that would fail to save doesn't open an editor at all.
+   */
+  viewerDepartmentId?: string | null;
 }) {
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [editRole, setEditRole] = useState<UserRole | null>(null);
+
+  const canEditRow = (u: UserRow) =>
+    roles.includes(u.role) && (isAdmin || !viewerDepartmentId || u.departmentId === viewerDepartmentId);
 
   return (
     <>
@@ -150,7 +162,7 @@ export function UsersTable({
         onRowClick={
           canManage
             ? (u) => {
-                if (!roles.includes(u.role)) return;
+                if (!canEditRow(u)) return;
                 setEditing(u);
                 setEditRole(u.role);
               }

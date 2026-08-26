@@ -231,6 +231,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
           roles={manageableRoles}
           canManage={canManage}
           isAdmin={isAdmin}
+          viewerDepartmentId={isDM ? session.departmentId : null}
         />
       </UsersFilters>
     </>
