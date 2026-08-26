@@ -23,6 +23,20 @@ export default async function TeamsPage() {
     isDeptScopedManager && session?.departmentId
       ? { departmentId: session.departmentId }
       : {};
+  // Users get a wider filter than Teams — a VA can belong to more than one
+  // department (User.additionalDepartments), so they're eligible here if
+  // the DM's department is either their primary or an additional one. A
+  // Team itself is always single-department, so `departmentFilter` above
+  // stays scalar-only for that query.
+  const userDepartmentFilter =
+    isDeptScopedManager && session?.departmentId
+      ? {
+          OR: [
+            { departmentId: session.departmentId },
+            { additionalDepartments: { some: { departmentId: session.departmentId } } },
+          ],
+        }
+      : {};
 
   const [teams, departments, users] = await Promise.all([
     prisma.team.findMany({
@@ -40,7 +54,7 @@ export default async function TeamsPage() {
       where: isDeptScopedManager && session?.departmentId ? { id: session.departmentId } : {},
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({ where: departmentFilter, orderBy: { email: "asc" } }),
+    prisma.user.findMany({ where: userDepartmentFilter, orderBy: { email: "asc" } }),
   ]);
 
   return (

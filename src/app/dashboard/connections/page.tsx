@@ -45,7 +45,11 @@ export default async function ConnectionsPage(
   const [departments, services, vaUsers] = await Promise.all([
     prisma.department.findMany({ orderBy: { name: "asc" } }),
     prisma.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-    prisma.user.findMany({ where: { role: "VA" }, orderBy: { name: "asc" } }),
+    prisma.user.findMany({
+      where: { role: "VA" },
+      orderBy: { name: "asc" },
+      include: { additionalDepartments: true },
+    }),
   ]);
   const isAdmin = session.role === "ADMIN";
   const isDeptScopedManager = session.role === "DM" || session.role === "OPS_MANAGER";
@@ -64,8 +68,16 @@ export default async function ConnectionsPage(
   const newConnectionServices = isDeptScopedManager
     ? services.filter((s) => s.departmentId === session.departmentId)
     : services;
+  // A VA can belong to more than one department (User.additionalDepartments)
+  // — a DM/Ops Manager should see them in this dropdown if their own
+  // department is EITHER the VA's primary or one of their additional ones,
+  // not just the primary.
   const newConnectionVaUsers = isDeptScopedManager
-    ? vaUsers.filter((u) => u.departmentId === session.departmentId)
+    ? vaUsers.filter(
+        (u) =>
+          u.departmentId === session.departmentId ||
+          u.additionalDepartments.some((d) => d.departmentId === session.departmentId),
+      )
     : vaUsers;
 
   if (departments.length === 0) {

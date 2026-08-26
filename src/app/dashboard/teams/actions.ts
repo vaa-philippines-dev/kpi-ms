@@ -158,8 +158,17 @@ export async function addTeamMember(formData: FormData) {
     if (!team || team.departmentId !== session.user.departmentId) {
       throw new Error("DMs can only manage teams in their own department.");
     }
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.departmentId !== session.user.departmentId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { additionalDepartments: true },
+    });
+    // A VA can belong to more than one department — eligible for this
+    // team if the DM's department is either their primary or additional.
+    const userInDept =
+      user &&
+      (user.departmentId === session.user.departmentId ||
+        user.additionalDepartments.some((d) => d.departmentId === session.user.departmentId));
+    if (!userInDept) {
       throw new Error("DMs can only add members from their own department.");
     }
   }
@@ -186,12 +195,15 @@ export async function removeTeamMember(formData: FormData) {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { team: true },
+    include: { team: true, additionalDepartments: true },
   });
   if (isDeptScopedManager(session?.user?.role)) {
+    const userInDept =
+      user &&
+      (user.departmentId === session.user.departmentId ||
+        user.additionalDepartments.some((d) => d.departmentId === session.user.departmentId));
     if (
-      !user ||
-      user.departmentId !== session.user.departmentId ||
+      !userInDept ||
       (user.team && user.team.departmentId !== session.user.departmentId)
     ) {
       throw new Error("DMs can only manage teams in their own department.");

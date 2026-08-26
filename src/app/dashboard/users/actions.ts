@@ -74,6 +74,20 @@ export async function createUser(formData: FormData) {
     throw new Error("Email and role are required.");
   }
 
+  // Admin only — a VA can be tagged with more than one department (e.g. one
+  // VA doing both Amazon and Executive Assistant work); every department is
+  // treated equally, with departmentId as just the first of the set.
+  // DMs/Ops Managers stay strictly single-department (see below), so this
+  // never applies to their create flow.
+  let extraDepartmentIds: string[] = [];
+  if (session.role === "ADMIN" && role === UserRole.VA) {
+    const submitted = formData.getAll("departmentIds").map(String).filter(Boolean);
+    if (submitted.length > 0) {
+      departmentId = submitted[0];
+      extraDepartmentIds = submitted.slice(1);
+    }
+  }
+
   if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
     if (!DM_MANAGEABLE_ROLES.includes(role)) {
       throw new Error("DMs may only create OM or VA users.");
@@ -89,7 +103,17 @@ export async function createUser(formData: FormData) {
   // moment this person signs in with Google — the NextAuth jwt callback
   // upserts on email but never overwrites an existing row (update: {}).
   const user = await prisma.user.create({
-    data: { email, name, role, departmentId, serviceId, teamId },
+    data: {
+      email,
+      name,
+      role,
+      departmentId,
+      serviceId,
+      teamId,
+      ...(extraDepartmentIds.length > 0
+        ? { additionalDepartments: { create: extraDepartmentIds.map((id) => ({ departmentId: id })) } }
+        : {}),
+    },
   });
   await logActivity(prisma, {
     actor: session,
@@ -113,8 +137,8 @@ export async function updateUser(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim() || null;
   const role = String(formData.get("role") ?? "") as UserRole;
   let departmentId = optionalId(formData, "departmentId");
-  const serviceId = optionalId(formData, "serviceId");
-  const teamId = optionalId(formData, "teamId");
+  let serviceId = optionalId(formData, "serviceId");
+  let teamId = optionalId(formData, "teamId");
 
   if (!email) {
     throw new Error("Email is required.");
@@ -128,9 +152,34 @@ export async function updateUser(formData: FormData) {
     throw new Error("That email is already in use by another user.");
   }
 
+  const target = await prisma.user.findUnique({
+    where: { id },
+    include: { additionalDepartments: true },
+  });
+  if (!target) throw new Error("User not found.");
+  const targetDepartmentIds = new Set(
+    [target.departmentId, ...target.additionalDepartments.map((d) => d.departmentId)].filter(
+      (v): v is string => Boolean(v),
+    ),
+  );
+
+  // Admin only — see createUser for why. Replaces the VA's full department
+  // set (primary + additional) with whatever was submitted; a non-VA role
+  // change below drops any additional departments, since only VAs carry them.
+  let extraDepartmentIds: string[] | null = null;
+  if (session.role === "ADMIN" && role === UserRole.VA) {
+    const submitted = formData.getAll("departmentIds").map(String).filter(Boolean);
+    if (submitted.length > 0) {
+      departmentId = submitted[0];
+      extraDepartmentIds = submitted.slice(1);
+    }
+  }
+
   if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
-    const target = await prisma.user.findUnique({ where: { id } });
-    if (!target || target.departmentId !== session.departmentId) {
+    // A DM can manage a VA who's in their department at all — primary OR
+    // (in the multi-department case) just an additional membership, e.g. a
+    // VA whose primary is Amazon but who also does Executive Assistant work.
+    if (!targetDepartmentIds.has(session.departmentId ?? "")) {
       throw new Error("You can only edit users in your own department.");
     }
     // A DM can only touch OM/VA accounts — without this, a DM could edit an
@@ -142,15 +191,45 @@ export async function updateUser(formData: FormData) {
     if (!DM_MANAGEABLE_ROLES.includes(role)) {
       throw new Error("DMs may only assign OM or VA roles.");
     }
-    // Locked to the DM's own department, same as on create.
-    departmentId = session.departmentId;
+    if (target.departmentId && target.departmentId !== session.departmentId) {
+      // This VA's primary department belongs to a different DM (this DM
+      // only co-manages them via an additional-department membership) — the
+      // DM's own department/service/team dropdowns only ever list their own
+      // department's options, so applying them here would wrongly move the
+      // VA's primary department out from under the other DM. Leave
+      // department/service/team exactly as they were; only email/name/role
+      // are editable from this DM's side for a shared VA.
+      departmentId = target.departmentId;
+      serviceId = target.serviceId;
+      teamId = target.teamId;
+    } else {
+      // Common case: this VA's primary department is this DM's own —
+      // locked to it, same as on create, regardless of what the form sent.
+      departmentId = session.departmentId;
+    }
   }
 
   await assertTeamAndServiceInDepartment(teamId, serviceId, departmentId);
 
-  const before = await prisma.user.findUniqueOrThrow({ where: { id } });
+  const before = target;
   const after = { email, name, role, departmentId, serviceId, teamId };
-  await prisma.user.update({ where: { id }, data: after });
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id }, data: after });
+    if (extraDepartmentIds !== null) {
+      await tx.userDepartment.deleteMany({ where: { userId: id } });
+      if (extraDepartmentIds.length > 0) {
+        await tx.userDepartment.createMany({
+          data: extraDepartmentIds.map((depId) => ({ userId: id, departmentId: depId })),
+          skipDuplicates: true,
+        });
+      }
+    } else if (role !== UserRole.VA && before.additionalDepartments.length > 0) {
+      // Demoted out of VA (e.g. promoted to OM) — additional departments
+      // are a VA-only concept, so drop them rather than leave orphaned rows
+      // a non-VA role never reads.
+      await tx.userDepartment.deleteMany({ where: { userId: id } });
+    }
+  });
   const changes = diffFields(before, after, ["email", "name", "role", "departmentId", "serviceId", "teamId"]);
   if (changes.length > 0) {
     const roleChanged = changes.some((c) => c.field === "role");
@@ -235,10 +314,18 @@ export async function toggleUserActive(formData: FormData) {
   if (id === session.id) {
     throw new Error("You can't deactivate your own account.");
   }
-  const user = await prisma.user.findUnique({ where: { id } });
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { additionalDepartments: true },
+  });
   if (!user) return;
   if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
-    if (user.departmentId !== session.departmentId) {
+    const userDepartmentIds = new Set(
+      [user.departmentId, ...user.additionalDepartments.map((d) => d.departmentId)].filter(
+        (v): v is string => Boolean(v),
+      ),
+    );
+    if (!userDepartmentIds.has(session.departmentId ?? "")) {
       throw new Error("You can only manage users in your own department.");
     }
     // Without this, a DM could deactivate an ADMIN or SERVICE_MANAGER

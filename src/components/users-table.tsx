@@ -26,6 +26,7 @@ export type UserRow = {
   departmentId: string | null;
   serviceId: string | null;
   teamId: string | null;
+  additionalDepartmentIds: string[];
 };
 
 const ROLE_FILTER_OPTIONS = Object.values(UserRole).map((r) => ({
@@ -124,6 +125,7 @@ export function UsersTable({
   teams,
   roles = Object.values(UserRole),
   canManage,
+  isAdmin = false,
 }: {
   users: UserRow[];
   departments: Option[];
@@ -132,8 +134,11 @@ export function UsersTable({
   /** Role choices offered in the edit modal — a DM only offers OM/VA (mirrors createUser's restriction). */
   roles?: UserRole[];
   canManage: boolean;
+  /** Admin only: lets a VA's department field become a multi-select. */
+  isAdmin?: boolean;
 }) {
   const [editing, setEditing] = useState<UserRow | null>(null);
+  const [editRole, setEditRole] = useState<UserRole | null>(null);
 
   return (
     <>
@@ -143,7 +148,13 @@ export function UsersTable({
         getRowId={(u) => u.id}
         defaultLimit={25}
         onRowClick={
-          canManage ? (u) => (roles.includes(u.role) ? setEditing(u) : undefined) : undefined
+          canManage
+            ? (u) => {
+                if (!roles.includes(u.role)) return;
+                setEditing(u);
+                setEditRole(u.role);
+              }
+            : undefined
         }
         emptyMessage="No users found."
       />
@@ -172,21 +183,47 @@ export function UsersTable({
                 className="w-full"
               />
               <div className="grid grid-cols-2 gap-3">
-                <Select name="role" defaultValue={editing.role}>
+                <Select
+                  name="role"
+                  defaultValue={editing.role}
+                  onChange={(e) => setEditRole(e.target.value as UserRole)}
+                >
                   {(roles.includes(editing.role) ? roles : [editing.role, ...roles]).map((r) => (
                     <option key={r} value={r}>
                       {roleLabel(r)}
                     </option>
                   ))}
                 </Select>
-                <Select name="departmentId" defaultValue={editing.departmentId ?? ""}>
-                  <option value="">Department —</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </Select>
+                {isAdmin && editRole === UserRole.VA ? (
+                  <div className="col-span-2">
+                    <p className="mb-1 text-xs text-muted">Departments (a VA can belong to more than one)</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-md border border-surface-border p-2">
+                      {departments.map((d) => (
+                        <label key={d.id} className="flex items-center gap-1.5 text-xs">
+                          <input
+                            type="checkbox"
+                            name="departmentIds"
+                            value={d.id}
+                            defaultChecked={
+                              d.id === editing.departmentId ||
+                              editing.additionalDepartmentIds.includes(d.id)
+                            }
+                          />
+                          {d.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <Select name="departmentId" defaultValue={editing.departmentId ?? ""}>
+                    <option value="">Department —</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
                 <Select name="serviceId" defaultValue={editing.serviceId ?? ""}>
                   <option value="">Service —</option>
                   {services.map((s) => (

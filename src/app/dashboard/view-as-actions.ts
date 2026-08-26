@@ -39,8 +39,17 @@ export async function setViewAsRole(formData: FormData) {
     throw new Error("Invalid role.");
   }
 
+  // A VA can belong to more than one department (User.additionalDepartments)
+  // — "preview as a VA in department X" should also find a VA whose primary
+  // department is elsewhere but who also does work in X.
   const target = await prisma.user.findFirst({
-    where: { role: role as UserRole, isActive: true, ...(departmentId ? { departmentId } : {}) },
+    where: {
+      role: role as UserRole,
+      isActive: true,
+      ...(departmentId
+        ? { OR: [{ departmentId }, { additionalDepartments: { some: { departmentId } } }] }
+        : {}),
+    },
     orderBy: { name: "asc" },
   });
   if (!target) {

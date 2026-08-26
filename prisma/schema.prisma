@@ -72,6 +72,7 @@ model Department {
   kpiDefinitions KpiDefinition[]
   connections    Connection[]
   users          User[]
+  vaMemberships  UserDepartment[]
   // Optional daily submission window ("HH:mm", Asia/Manila) to spread VA
   // submission traffic across the day. Null on either side = unrestricted.
   submissionWindowStart String?
@@ -405,10 +406,33 @@ model User {
   interventions     Intervention[]
   settingsUpdated   Setting[]
   activityLogs      ActivityLog[]
+  // Extra departments a VA also belongs to, on top of `department` above
+  // (kept as-is, e.g. a VA who does both Amazon and Executive Assistant
+  // work). Managers (DM/OPS_MANAGER/OM) never get rows here — they stay
+  // single-department, since their own department drives their own
+  // authorization scope, not just a display label like it is for a VA.
+  additionalDepartments UserDepartment[]
   createdAt         DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
   @@index([serviceId])
   @@index([teamId])
+}
+
+// A VA's departments beyond their primary `User.department` — every place
+// that scopes VA visibility by department (the Connections "pick a VA"
+// dropdown, Users list filtering, Team membership, "View as") treats a VA
+// as belonging to `department` UNION whatever's here, with no department
+// among them treated as more "real" than another.
+model UserDepartment {
+  id           String     @id @default(cuid())
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  departmentId String
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, departmentId])
+  @@index([departmentId])
 }

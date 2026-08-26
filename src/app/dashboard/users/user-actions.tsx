@@ -14,6 +14,7 @@ export function UserActions({
   services,
   teams,
   roles = Object.values(UserRole),
+  isAdmin = false,
   createUser,
   bulkCreateUsers,
 }: {
@@ -22,10 +23,15 @@ export function UserActions({
   teams: Option[];
   /** Role choices offered in the Add-user form — a DM only offers OM/VA (mirrors legacy's Manager create form). */
   roles?: UserRole[];
+  /** Admin only: lets a new VA be tagged with more than one department at once. */
+  isAdmin?: boolean;
   createUser: (formData: FormData) => void | Promise<void>;
   bulkCreateUsers: (formData: FormData) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState<"add" | "bulk" | null>(null);
+  const [addRole, setAddRole] = useState<UserRole>(
+    roles.includes(UserRole.VA) ? UserRole.VA : roles[0],
+  );
 
   return (
     <>
@@ -61,21 +67,40 @@ export function UserActions({
             className="sm:col-span-2"
           />
           <Input name="name" placeholder="Name (optional)" />
-          <Select name="role" defaultValue={roles.includes(UserRole.VA) ? UserRole.VA : roles[0]} required>
+          <Select
+            name="role"
+            defaultValue={addRole}
+            onChange={(e) => setAddRole(e.target.value as UserRole)}
+            required
+          >
             {roles.map((r) => (
               <option key={r} value={r}>
                 {roleLabel(r)}
               </option>
             ))}
           </Select>
-          <Select name="departmentId" defaultValue="">
-            <option value="">Department (optional)</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
+          {isAdmin && addRole === UserRole.VA ? (
+            <div className="col-span-2 sm:col-span-2">
+              <p className="mb-1 text-xs text-muted">Departments (a VA can belong to more than one)</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-md border border-surface-border p-2">
+                {departments.map((d) => (
+                  <label key={d.id} className="flex items-center gap-1.5 text-xs">
+                    <input type="checkbox" name="departmentIds" value={d.id} />
+                    {d.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <Select name="departmentId" defaultValue="">
+              <option value="">Department (optional)</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+          )}
           <Select name="serviceId" defaultValue="">
             <option value="">Service (optional)</option>
             {services.map((s) => (

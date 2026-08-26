@@ -101,6 +101,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
                 services={services}
                 teams={teams}
                 roles={manageableRoles}
+                isAdmin={isAdmin}
                 createUser={createUser}
                 bulkCreateUsers={bulkCreateUsers}
               />
@@ -153,7 +154,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
     ...(departmentId === "none"
       ? { departmentId: null }
       : departmentId
-        ? { departmentId }
+        ? { OR: [{ departmentId }, { additionalDepartments: { some: { departmentId } } }] }
         : {}),
   };
 
@@ -165,22 +166,31 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
   const users = await prisma.user.findMany({
     where,
     orderBy: [{ name: "asc" }, { email: "asc" }],
-    include: { department: true, service: true, team: true },
+    include: {
+      department: true,
+      service: true,
+      team: true,
+      additionalDepartments: { include: { department: true } },
+    },
   });
 
-  const rows: UserRow[] = users.map((u) => ({
-    id: u.id,
-    email: u.email,
-    name: u.name,
-    role: u.role,
-    isActive: u.isActive,
-    departmentName: u.department?.name ?? UNASSIGNED,
-    serviceName: u.service?.name ?? null,
-    teamName: u.team?.name ?? null,
-    departmentId: u.departmentId,
-    serviceId: u.serviceId,
-    teamId: u.teamId,
-  }));
+  const rows: UserRow[] = users.map((u) => {
+    const extraNames = u.additionalDepartments.map((d) => d.department.name);
+    return {
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      isActive: u.isActive,
+      departmentName: [u.department?.name, ...extraNames].filter(Boolean).join(", ") || UNASSIGNED,
+      serviceName: u.service?.name ?? null,
+      teamName: u.team?.name ?? null,
+      departmentId: u.departmentId,
+      serviceId: u.serviceId,
+      teamId: u.teamId,
+      additionalDepartmentIds: u.additionalDepartments.map((d) => d.departmentId),
+    };
+  });
 
   return (
     <>
@@ -205,6 +215,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
                 services={services}
                 teams={teams}
                 roles={manageableRoles}
+                isAdmin={isAdmin}
                 createUser={createUser}
                 bulkCreateUsers={bulkCreateUsers}
               />
@@ -219,6 +230,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
           teams={teams}
           roles={manageableRoles}
           canManage={canManage}
+          isAdmin={isAdmin}
         />
       </UsersFilters>
     </>
