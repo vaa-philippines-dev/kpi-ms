@@ -14,12 +14,11 @@ import {
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
-import { rollupStatus } from "@/lib/performance";
 import {
   getDepartmentSubmissionSummary,
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
-import { KpiPeriod, PerformanceStatus, UserRole } from "@/generated/prisma/enums";
+import { KpiPeriod, UserRole } from "@/generated/prisma/enums";
 
 const TREND_WEEKS = 8;
 
@@ -53,19 +52,20 @@ export default async function SubmissionsPage(
     weeklyStart.getTime() - (TREND_WEEKS - 1) * 7 * 24 * 60 * 60 * 1000,
   );
 
-  const [connections, currentSummaries, recentSubmissions, trendSubmissions, sideRows] =
+  const [connections, currentPeriodSubmissions, recentSubmissions, trendSubmissions, sideRows] =
     await Promise.all([
       prisma.connection.findMany({
         where: scope,
         include: { vaUser: true, department: true },
         orderBy: { clientName: "asc" },
       }),
-      prisma.performanceSummary.findMany({
+      prisma.submission.findMany({
         where: {
           connection: scope,
           period: selectedPeriod,
           periodStart: selectedPeriodStart,
         },
+        select: { connectionId: true },
       }),
       prisma.submission.findMany({
         where: { connection: scope },
@@ -104,19 +104,16 @@ export default async function SubmissionsPage(
     (w) => countsByWeek.get(w.toISOString()) ?? 0,
   );
 
-  // Submitted-vs-pending tracker: worst-case status per connection for the
-  // selected period, or "not submitted" (distinct from NO_DATA, which means
-  // a submission explicitly marked a KPI as having no data) when no summary
-  // row exists yet — mirrors the legacy AppSubmissions grid.
-  const statusesByConnection = new Map<string, PerformanceStatus[]>();
-  for (const s of currentSummaries) {
-    if (!statusesByConnection.has(s.connectionId)) statusesByConnection.set(s.connectionId, []);
-    statusesByConnection.get(s.connectionId)!.push(s.status);
-  }
+  // Submitted-vs-pending tracker: has this connection got an actual
+  // Submission row for the selected period? Deliberately NOT derived from
+  // PerformanceSummary — that table's rows are never deleted
+  // (recomputePerformanceSummary falls back to NO_DATA instead), so a
+  // deleted/moved submission would leave a stale row that still reads as
+  // "submitted" even though no Submission exists anymore — mirrors the
+  // legacy AppSubmissions grid.
+  const submittedConnectionIds = new Set(currentPeriodSubmissions.map((s) => s.connectionId));
   function trackerStatus(connectionId: string) {
-    const statuses = statusesByConnection.get(connectionId);
-    if (!statuses || statuses.length === 0) return null;
-    return rollupStatus(statuses);
+    return submittedConnectionIds.has(connectionId);
   }
 
   // Paused/ended connections aren't expected to submit — mirrors legacy's
@@ -138,7 +135,7 @@ export default async function SubmissionsPage(
   }));
 
   const trackerRows: SubmissionTrackerRow[] = trackedConnections.map((c) => {
-    const submitted = trackerStatus(c.id) !== null;
+    const submitted = trackerStatus(c.id);
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
