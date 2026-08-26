@@ -14,6 +14,8 @@ export type DataTableColumn<T> = {
   /** Explicit {value,label} pairs for the select filter — omit to auto-derive from the data. */
   filterOptions?: { value: string; label: string }[];
   filterPlaceholder?: string;
+  /** Initial value for a `"select"` filter (e.g. "ACTIVE") — omit to start unfiltered. */
+  defaultValue?: string;
   render?: (value: T[keyof T], row: T) => React.ReactNode;
   /**
    * What the global search box matches against for this column, when the
@@ -61,7 +63,13 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
 }) {
   const [globalQuery, setGlobalQuery] = useState("");
-  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const [colFilters, setColFilters] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      columns
+        .filter((c) => c.filterable === "select" && c.defaultValue)
+        .map((c) => [c.key, c.defaultValue as string]),
+    ),
+  );
   const [sortKey, setSortKey] = useState<string | null>(defaultSort?.key ?? null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">(defaultSort?.dir ?? "asc");
   const [limit, setLimit] = useState(defaultLimit);

@@ -149,6 +149,14 @@ function getColumns(canEditConnection: boolean): DataTableColumn<ConnectionRow>[
       sortable: true,
       filterable: "select",
       filterOptions: STATUS_FILTER_OPTIONS,
+      filterPlaceholder: "All statuses",
+      // Starts on Active, not unfiltered — page.tsx now fetches every
+      // status in one shot (no more server round-trip per status change),
+      // so this is the only thing keeping Paused/Pending/etc. out of the
+      // default view. Change it here, right next to "Search all columns…",
+      // and the table updates instantly — no separate filter bar, no
+      // submit button.
+      defaultValue: ConnectionStatus.ACTIVE,
       searchText: (row) => CONNECTION_STATUS_LABELS[row.status],
       render: (v, row) => {
         const status = v as ConnectionStatus;
