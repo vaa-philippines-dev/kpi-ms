@@ -94,7 +94,7 @@ function currentStatusSince(row: ConnectionRow): string | null {
 // Column set mirrors legacy's connFilter() DataTable exactly (AppVAConnections.html:229-249):
 // Account, VA Name, Dept / Service, Start Date, Status — no Flag or Type
 // columns in the table itself; both are still editable from the detail modal.
-function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
+function getColumns(canEditConnection: boolean): DataTableColumn<ConnectionRow>[] {
   return [
     {
       key: "clientName",
@@ -153,9 +153,9 @@ function getColumns(isAdmin: boolean): DataTableColumn<ConnectionRow>[] {
       render: (v, row) => {
         const status = v as ConnectionStatus;
         const label = CONNECTION_STATUS_LABELS[status];
-        // Per-row quick "Set Active" action for admins on non-active,
+        // Per-row quick "Set Active" action for admins/DM/OM on non-active,
         // non-terminal rows — mirrors legacy's inline quick-action button.
-        if (isAdmin && status !== ConnectionStatus.ACTIVE && !TERMINAL_CONNECTION_STATUSES.has(status)) {
+        if (canEditConnection && status !== ConnectionStatus.ACTIVE && !TERMINAL_CONNECTION_STATUSES.has(status)) {
           return (
             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
               <Badge tone={CONNECTION_STATUS_TONE[status]}>{label}</Badge>
@@ -313,13 +313,14 @@ function ConnectionDetailTabs({
  * detail behavior (`connOpenDetail()`/`openConnectionDetail()`,
  * AppVAConnections.html:848-989), ported here as a detail/edit modal with:
  * an info grid, inline-editable Account Name/SecondaryName/Start Date
- * (admin-only), the status-change and type-change forms, status history,
+ * (ADMIN/DM/OM), the status-change and type-change forms, status history,
  * and three tabs (Performance / KPI Configuration / Interventions).
  */
 export function ConnectionsTable({
   connections,
   isAdmin,
   canEditKpi,
+  canEditConnection,
   initialOpenId = null,
 }: {
   connections: ConnectionRow[];
@@ -327,13 +328,17 @@ export function ConnectionsTable({
   // Separate from isAdmin — DM and OM can also edit KPI config, but not
   // the other admin-only connection-management actions this table gates.
   canEditKpi: boolean;
+  // Separate from isAdmin too — DM and OM can edit status/type/account
+  // info/notes (mirrors canEditKpi's role list), but flagging and deleting
+  // a connection stay admin-only.
+  canEditConnection: boolean;
   // Deep-links straight into a connection's detail modal — e.g. the
   // Performance Summary table's "View Connection" link (`?open=<id>`).
   initialOpenId?: string | null;
 }) {
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const openConn = connections.find((c) => c.id === openId) ?? null;
-  const columns = getColumns(isAdmin);
+  const columns = getColumns(canEditConnection);
 
   function closeAnd(action: (formData: FormData) => void | Promise<void>) {
     return async (formData: FormData) => {
@@ -389,7 +394,7 @@ export function ConnectionsTable({
               )}
             </div>
 
-            {isAdmin && (
+            {canEditConnection && (
               <form
                 action={updateConnectionInfo}
                 className="grid grid-cols-1 gap-2 rounded-lg border border-dashed border-surface-border p-3 sm:grid-cols-3"
@@ -453,7 +458,7 @@ export function ConnectionsTable({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="mb-1.5 text-xs font-medium text-muted uppercase">Status</p>
-                {isAdmin && !TERMINAL_CONNECTION_STATUSES.has(openConn.status) ? (
+                {canEditConnection && !TERMINAL_CONNECTION_STATUSES.has(openConn.status) ? (
                   <form action={closeAnd(updateConnectionStatus)} className="flex gap-1.5">
                     <input type="hidden" name="id" value={openConn.id} />
                     <Select name="status" defaultValue={openConn.status} className="py-1.5">
@@ -476,7 +481,7 @@ export function ConnectionsTable({
 
               <div>
                 <p className="mb-1.5 text-xs font-medium text-muted uppercase">Type</p>
-                {isAdmin ? (
+                {canEditConnection ? (
                   <form action={closeAnd(updateConnectionType)} className="flex gap-1.5">
                     <input type="hidden" name="id" value={openConn.id} />
                     <Select
@@ -526,7 +531,7 @@ export function ConnectionsTable({
 
             <div>
               <p className="mb-1.5 text-xs font-medium text-muted uppercase">Notes</p>
-              {isAdmin ? (
+              {canEditConnection ? (
                 <form action={updateConnectionNotes} className="space-y-1.5">
                   <input type="hidden" name="id" value={openConn.id} />
                   <Textarea

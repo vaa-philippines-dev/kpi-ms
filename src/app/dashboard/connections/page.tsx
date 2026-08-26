@@ -3,7 +3,6 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { ConnectionsTable, type ConnectionRow } from "@/components/connections-table";
-import { TeamRoster } from "@/components/team-roster";
 import { ConnectionCardGrid } from "@/components/connection-card-grid";
 import { NewConnectionModal } from "@/components/new-connection-modal";
 import { ImportConnectionsModal } from "@/components/import-connections-modal";
@@ -58,6 +57,11 @@ export default async function ConnectionsPage(
   // `isAdmin` above, which still gates connection-management actions that
   // remain admin-only.
   const canEditKpiConfig = isAdmin || session.role === "DM" || session.role === "OM";
+  // Mirrors requireConnectionEditor() in ./actions.ts — ADMIN, DM, and OM
+  // can edit a connection's status, type, account info, and notes, each
+  // locked to the connections connectionScopeWhere already lets them see;
+  // flagging and deleting a connection stay admin-only (isAdmin above).
+  const canEditConnection = isAdmin || session.role === "DM" || session.role === "OM";
   // DM/Ops Manager can add connections too, but only within their own
   // department — the modal gets a department-locked, pre-filtered slice
   // instead of the full org-wide lists Admin sees.
@@ -238,15 +242,14 @@ export default async function ConnectionsPage(
           <SyncButton label="Sync Connection IDs (from CMS)" endpoint="/api/cms-sync/connections" />
         )}
 
-        {session.role === "OM" ? (
-          <TeamRoster connections={rows} />
-        ) : session.role === "VA" ? (
+        {session.role === "VA" ? (
           <ConnectionCardGrid connections={rows} />
         ) : (
           <ConnectionsTable
             connections={rows}
             isAdmin={isAdmin}
             canEditKpi={canEditKpiConfig}
+            canEditConnection={canEditConnection}
             initialOpenId={openId}
           />
         )}

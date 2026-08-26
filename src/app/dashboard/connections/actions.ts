@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
-import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
 import { generateConnectionShortCode } from "@/lib/connection-short-code";
 import { logActivity, diffFields } from "@/lib/activity-log";
 
@@ -14,6 +14,26 @@ async function requireAdmin() {
     throw new Error("Only admins can manage connections.");
   }
   return session;
+}
+
+// Editing a connection's status, type, account info, and notes is open to
+// ADMIN, DM (Manager), and OM (Team Leader) — each locked to the
+// connections they can already see via connectionScopeWhere (DM: own
+// department, OM: own team's connections). Same pattern as
+// requireKpiConfigEditor() in kpi-config/actions.ts; flagging and deleting
+// a connection stay admin-only, so those two mutations keep requireAdmin().
+async function requireConnectionEditor(): Promise<ScopingSession> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (role !== "ADMIN" && role !== "DM" && role !== "OM") {
+    throw new Error("You don't have permission to edit connections.");
+  }
+  return {
+    id: session!.user.id,
+    role,
+    departmentId: session!.user.departmentId,
+    teamId: session!.user.teamId,
+  };
 }
 
 // Creating a new connection (unlike every other connection mutation below)
@@ -92,14 +112,16 @@ export async function createConnection(formData: FormData) {
 }
 
 export async function updateConnectionStatus(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireConnectionEditor();
   const id = String(formData.get("id") ?? "");
   const status = String(formData.get("status") ?? "") as ConnectionStatus;
   if (!id || !Object.values(ConnectionStatus).includes(status)) {
     throw new Error("Missing or invalid status.");
   }
 
-  const connection = await prisma.connection.findUnique({ where: { id } });
+  const connection = await prisma.connection.findFirst({
+    where: { id, ...connectionScopeWhere(session) },
+  });
   if (!connection) throw new Error("Connection not found.");
   if (TERMINAL_STATUSES.includes(connection.status)) {
     throw new Error(
@@ -111,10 +133,10 @@ export async function updateConnectionStatus(formData: FormData) {
   await prisma.$transaction(async (tx) => {
     await tx.connection.update({ where: { id }, data: { status } });
     await tx.connectionStatusEvent.create({
-      data: { connectionId: id, status, changedById: session!.user!.id },
+      data: { connectionId: id, status, changedById: session.id },
     });
     await logActivity(tx, {
-      actor: { id: session!.user!.id, role: session!.user!.role },
+      actor: { id: session.id, role: session.role },
       action: "UPDATE",
       entityType: "Connection",
       entityId: id,
@@ -128,13 +150,15 @@ export async function updateConnectionStatus(formData: FormData) {
 }
 
 export async function updateConnectionType(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireConnectionEditor();
   const id = String(formData.get("id") ?? "");
   const connectionType = String(formData.get("connectionType") ?? "");
   if (!id || !["REGULAR", "PROJECT_BASED"].includes(connectionType)) {
     throw new Error("Missing or invalid connection type.");
   }
-  const before = await prisma.connection.findUnique({ where: { id } });
+  const before = await prisma.connection.findFirst({
+    where: { id, ...connectionScopeWhere(session) },
+  });
   if (!before) throw new Error("Connection not found.");
   await prisma.connection.update({
     where: { id },
@@ -142,7 +166,7 @@ export async function updateConnectionType(formData: FormData) {
   });
   if (before.connectionType !== connectionType) {
     await logActivity(prisma, {
-      actor: { id: session!.user!.id, role: session!.user!.role },
+      actor: { id: session.id, role: session.role },
       action: "UPDATE",
       entityType: "Connection",
       entityId: id,
@@ -312,7 +336,7 @@ export async function toggleConnectionFlag(formData: FormData) {
 // Start Date inline (connDetailItem() editable fields) — mirrored here as
 // one action covering both, since they're edited from the same panel.
 export async function updateConnectionInfo(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireConnectionEditor();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const clientName = String(formData.get("clientName") ?? "").trim();
@@ -320,7 +344,9 @@ export async function updateConnectionInfo(formData: FormData) {
   const startDateRaw = String(formData.get("startDate") ?? "");
   if (!clientName) throw new Error("Account name is required.");
 
-  const before = await prisma.connection.findUnique({ where: { id } });
+  const before = await prisma.connection.findFirst({
+    where: { id, ...connectionScopeWhere(session) },
+  });
   if (!before) throw new Error("Connection not found.");
   const startDate = startDateRaw ? new Date(`${startDateRaw}T00:00:00.000Z`) : null;
   await prisma.connection.update({
@@ -334,7 +360,7 @@ export async function updateConnectionInfo(formData: FormData) {
   );
   if (changes.length > 0) {
     await logActivity(prisma, {
-      actor: { id: session!.user!.id, role: session!.user!.role },
+      actor: { id: session.id, role: session.role },
       action: "UPDATE",
       entityType: "Connection",
       entityId: id,
@@ -402,16 +428,18 @@ export async function getConnectionPerformance(
 }
 
 export async function updateConnectionNotes(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireConnectionEditor();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const notes = String(formData.get("notes") ?? "").trim() || null;
-  const before = await prisma.connection.findUnique({ where: { id } });
+  const before = await prisma.connection.findFirst({
+    where: { id, ...connectionScopeWhere(session) },
+  });
   if (!before) return;
   await prisma.connection.update({ where: { id }, data: { notes } });
   if (before.notes !== notes) {
     await logActivity(prisma, {
-      actor: { id: session!.user!.id, role: session!.user!.role },
+      actor: { id: session.id, role: session.role },
       action: "UPDATE",
       entityType: "Connection",
       entityId: id,
