@@ -72,7 +72,7 @@ export function KpiValueField({
         required={!noData}
         disabled={noData}
         placeholder="0"
-        className="w-24 shrink-0 text-right disabled:opacity-40"
+        className="w-24 shrink-0 text-right user-invalid:border-danger disabled:opacity-40"
       />
     </div>
   );

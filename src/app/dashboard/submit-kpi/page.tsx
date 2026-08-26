@@ -15,9 +15,9 @@ import { getWeekStartDay } from "@/lib/settings";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { rollupStatus } from "@/lib/performance";
 import { getKpiClusters, groupByCluster } from "@/lib/kpi-cluster";
-import { createSubmission } from "@/app/submit/actions";
 import { PeriodForm } from "@/app/submit/period-form";
 import { ClusterForm } from "@/app/submit/cluster-form";
+import { SubmitForm } from "@/app/submit/submit-form";
 
 /**
  * The logged-in counterpart to /submit: reached from a "Submit KPI" button
@@ -302,36 +302,37 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
             No KPIs are configured for {selectedCluster.cluster} yet.
           </p>
         ) : (
-          <form action={createSubmission}>
-            <input type="hidden" name="connectionId" value={connection.id} />
-            <input type="hidden" name="period" value={period} />
-            <input type="hidden" name="cluster" value={selectedCluster.cluster} />
-            <input type="hidden" name="returnTo" value="/dashboard/submit-kpi" />
-            {dateParam && <input type="hidden" name="date" value={dateParam} />}
-            <div className="space-y-3">
-              <div className="rounded-lg border border-surface-border bg-background/40 px-3 py-2 text-xs text-muted">
-                Submitting as{" "}
-                <span className="text-foreground">{session.name ?? session.email}</span> for
-                period starting {periodStart.toLocaleDateString()}.
-              </div>
-              {kpis.map(({ kpi, config }, i) => (
-                <KpiValueField
-                  key={kpi.id}
-                  name={`kpi_${kpi.id}`}
-                  label={kpi.name}
-                  hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
-                    kpi.direction === KpiDirection.HIGHER_IS_BETTER ? "higher is better" : "lower is better"
-                  }`}
-                  cluster={selectedCluster.cluster}
-                  index={i}
-                />
-              ))}
-              <Button type="submit" className="flex w-full items-center justify-center gap-2">
-                Submit
-                <ArrowRight className="size-4" />
-              </Button>
+          <SubmitForm
+            hidden={{
+              connectionId: connection.id,
+              period,
+              cluster: selectedCluster.cluster,
+              returnTo: "/dashboard/submit-kpi",
+              ...(dateParam ? { date: dateParam } : {}),
+            }}
+          >
+            <div className="rounded-lg border border-surface-border bg-background/40 px-3 py-2 text-xs text-muted">
+              Submitting as{" "}
+              <span className="text-foreground">{session.name ?? session.email}</span> for
+              period starting {periodStart.toLocaleDateString()}.
             </div>
-          </form>
+            {kpis.map(({ kpi, config }, i) => (
+              <KpiValueField
+                key={kpi.id}
+                name={`kpi_${kpi.id}`}
+                label={kpi.name}
+                hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
+                  kpi.direction === KpiDirection.HIGHER_IS_BETTER ? "higher is better" : "lower is better"
+                }`}
+                cluster={selectedCluster.cluster}
+                index={i}
+              />
+            ))}
+            <Button type="submit" className="flex w-full items-center justify-center gap-2">
+              Submit
+              <ArrowRight className="size-4" />
+            </Button>
+          </SubmitForm>
         )}
         <Link href={clusterStepHref} className="mt-6 block text-center text-xs text-muted hover:underline">
           Back to areas

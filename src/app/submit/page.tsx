@@ -16,11 +16,10 @@ import { rollupStatus } from "@/lib/performance";
 import { normalizeShortCode } from "@/lib/connection-short-code";
 import { checkRateLimit, formatRetryAfter } from "@/lib/rate-limit";
 import { getKpiClusters, groupByCluster } from "@/lib/kpi-cluster";
-import { createSubmission } from "./actions";
 import { PeriodForm } from "./period-form";
 import { CodeForm } from "./code-form";
 import { ClusterForm } from "./cluster-form";
-import { SubmitFade } from "./submit-fade";
+import { SubmitForm } from "./submit-form";
 import { SubmitShell } from "./submit-shell";
 
 const TOTAL_STEPS = 4;
@@ -408,42 +407,44 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
           No KPIs are configured for {selectedCluster.cluster} yet.
         </p>
       ) : (
-        <form action={createSubmission} className="mt-8">
-          <input type="hidden" name="connectionId" value={connection.id} />
-          <input type="hidden" name="period" value={period} />
-          <input type="hidden" name="cluster" value={selectedCluster.cluster} />
-          {dateParam && <input type="hidden" name="date" value={dateParam} />}
-          <SubmitFade>
-            {/* A preview of what's about to be recorded — the VA sees this
-                before it's saved, since it's the first point in the flow
-                where any connection detail is shown at all. */}
-            <div className="rounded-lg border border-surface-border bg-background/40 px-3 py-2 text-xs text-muted">
-              Submitting as{" "}
-              <span className="text-foreground">
-                {session.user.name ?? session.user.email}
-              </span>{" "}
-              for period starting {periodStart.toLocaleDateString()}.
-            </div>
-            {kpis.map(({ kpi, config }, i) => (
-              <KpiValueField
-                key={kpi.id}
-                name={`kpi_${kpi.id}`}
-                label={kpi.name}
-                hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
-                  kpi.direction === KpiDirection.HIGHER_IS_BETTER
-                    ? "higher is better"
-                    : "lower is better"
-                }`}
-                cluster={selectedCluster.cluster}
-                index={i}
-              />
-            ))}
-            <Button type="submit" className="flex w-full items-center justify-center gap-2">
-              Submit
-              <ArrowRight className="size-4" />
-            </Button>
-          </SubmitFade>
-        </form>
+        <SubmitForm
+          className="mt-8"
+          hidden={{
+            connectionId: connection.id,
+            period,
+            cluster: selectedCluster.cluster,
+            ...(dateParam ? { date: dateParam } : {}),
+          }}
+        >
+          {/* A preview of what's about to be recorded — the VA sees this
+              before it's saved, since it's the first point in the flow
+              where any connection detail is shown at all. */}
+          <div className="rounded-lg border border-surface-border bg-background/40 px-3 py-2 text-xs text-muted">
+            Submitting as{" "}
+            <span className="text-foreground">
+              {session.user.name ?? session.user.email}
+            </span>{" "}
+            for period starting {periodStart.toLocaleDateString()}.
+          </div>
+          {kpis.map(({ kpi, config }, i) => (
+            <KpiValueField
+              key={kpi.id}
+              name={`kpi_${kpi.id}`}
+              label={kpi.name}
+              hint={`target ${config?.targetValue ?? kpi.targetValue}, ${
+                kpi.direction === KpiDirection.HIGHER_IS_BETTER
+                  ? "higher is better"
+                  : "lower is better"
+              }`}
+              cluster={selectedCluster.cluster}
+              index={i}
+            />
+          ))}
+          <Button type="submit" className="flex w-full items-center justify-center gap-2">
+            Submit
+            <ArrowRight className="size-4" />
+          </Button>
+        </SubmitForm>
       )}
 
       <Link

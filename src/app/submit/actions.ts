@@ -12,10 +12,21 @@ import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit"
 import { logActivity } from "@/lib/activity-log";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
-export async function createSubmission(formData: FormData) {
+/**
+ * Expected, user-actionable failures (missing value, already submitted,
+ * outside the submission window, rate-limited) are modeled as a return
+ * value rather than a thrown Error — per Next.js's Server Function
+ * guidance, since a throw here would surface as a generic crash screen
+ * with the VA's already-entered values gone, instead of an inline message
+ * they can act on. See SubmitForm, which drives this via useActionState.
+ */
+export async function createSubmission(
+  prevState: { error?: string },
+  formData: FormData,
+): Promise<{ error?: string }> {
   const session = await auth();
   if (!session?.user) {
-    throw new Error("Sign in required.");
+    return { error: "Sign in required." };
   }
 
   const connectionId = String(formData.get("connectionId") ?? "");
@@ -27,7 +38,7 @@ export async function createSubmission(formData: FormData) {
   const cluster = typeof clusterRaw === "string" && clusterRaw.length > 0 ? clusterRaw : undefined;
 
   if (!connectionId || !Object.values(KpiPeriod).includes(period)) {
-    throw new Error("Missing connection or period.");
+    return { error: "Missing connection or period." };
   }
 
   // Two independent limits: per-connection (catches repeated spam against
@@ -39,9 +50,9 @@ export async function createSubmission(formData: FormData) {
   ]);
   const limit = !connectionLimit.allowed ? connectionLimit : ipLimit;
   if (!limit.allowed) {
-    throw new Error(
-      `Too many submissions — please wait ${formatRetryAfter(limit.retryAfterMs)} and try again.`,
-    );
+    return {
+      error: `Too many submissions — please wait ${formatRetryAfter(limit.retryAfterMs)} and try again.`,
+    };
   }
 
   const scope = connectionScopeWhere({
@@ -67,7 +78,7 @@ export async function createSubmission(formData: FormData) {
     },
   });
   if (!connection) {
-    throw new Error("Connection not found.");
+    return { error: "Connection not found." };
   }
 
   // VAs are subject to their department's submission window (spreads
@@ -80,12 +91,12 @@ export async function createSubmission(formData: FormData) {
       new Date(),
     )
   ) {
-    throw new Error(
-      `Submissions for ${connection.department.name} are only accepted between ${formatManilaWindow(
+    return {
+      error: `Submissions for ${connection.department.name} are only accepted between ${formatManilaWindow(
         connection.department.submissionWindowStart!,
         connection.department.submissionWindowEnd!,
       )}. Please come back during that window.`,
-    );
+    };
   }
 
   const kpisWithConfig = connection.department.kpiDefinitions
@@ -105,14 +116,14 @@ export async function createSubmission(formData: FormData) {
     const raw = formData.get(`kpi_${kpi.id}`);
     const value = Number(raw);
     if (raw === null || raw === "" || Number.isNaN(value)) {
-      throw new Error(`Missing value for ${kpi.name}.`);
+      return { error: `Missing value for ${kpi.name}.` };
     }
     values.push({ kpiDefinitionId: kpi.id, value, noData: false });
     rawPayload[kpi.name] = value;
   }
 
   if (values.length === 0) {
-    throw new Error("No KPIs to submit for this period.");
+    return { error: "No KPIs to submit for this period." };
   }
 
   const weekStartDay = await getWeekStartDay();
@@ -132,11 +143,11 @@ export async function createSubmission(formData: FormData) {
       },
     });
     if (alreadySubmitted) {
-      throw new Error(
-        cluster
+      return {
+        error: cluster
           ? `${cluster} has already been submitted for this period. Contact your Team Leader or Manager if it needs to be corrected.`
           : "This period has already been submitted. Contact your Team Leader or Manager to correct it.",
-      );
+      };
     }
   }
 
