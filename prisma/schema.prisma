@@ -152,11 +152,19 @@ model KpiDefinition {
   @@index([serviceId])
 }
 
-// Stand-in for the real Workforce Management (WFM) system until Phase 5
-// wires up the live integration (see lib/wfm/).
+// Originally a stand-in for a live Workforce Management integration —
+// Connections are now also populated from the real Customer Management
+// System (CMS) via src/lib/cms-sync (see externalCmsId below), alongside
+// the older legacy-KPI-sheet sync (externalWfmId).
 model Connection {
   id                   String                  @id @default(cuid())
   externalWfmId        String?                 @unique
+  // CMS's own ConnectionID (format CONN_xxxxxxxxxxxx) — a separate ID
+  // space from externalWfmId (legacy KPI sheet's CON_xxxxxx scheme). Set
+  // by src/lib/cms-sync/connection-sync.ts, which only ever creates rows
+  // (never updates an existing Connection), so this is purely a dedup key
+  // for "have we already imported this CMS row" across re-runs.
+  externalCmsId        String?                 @unique
   // VA-facing lookup code for the self-serve /submit flow (format
   // CON_XXXXXX, matching the legacy Apps Script short-ID scheme) — lets a VA
   // paste in a code instead of browsing a dropdown of every connection in

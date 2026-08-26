@@ -7,6 +7,7 @@ import { TeamRoster } from "@/components/team-roster";
 import { ConnectionCardGrid } from "@/components/connection-card-grid";
 import { NewConnectionModal } from "@/components/new-connection-modal";
 import { ImportConnectionsModal } from "@/components/import-connections-modal";
+import { SyncButton } from "@/components/sync-button";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 
 export default async function ConnectionsPage(
@@ -181,6 +182,10 @@ export default async function ConnectionsPage(
             </div>
           )}
         </div>
+
+        {canCreateConnection && (
+          <SyncButton label="Sync Connection IDs (from CMS)" endpoint="/api/cms-sync/connections" />
+        )}
 
         {session.role === "OM" ? (
           <TeamRoster connections={rows} />

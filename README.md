@@ -105,7 +105,7 @@ client-asserted role parameter instead, which this closes.
 | Forms-based submission (Pipeline A) | **not ported** — superseded by the synchronous in-app `/submit` flow (Pipeline B) |
 | `BackFill.js`, 35-day retention | **not ported** — Sheets-row-limit workarounds, meaningless in Postgres |
 | Sheets schema-drift diagnostics | **not ported** — no equivalent problem in Postgres |
-| Live WFM/CMS integration | **deferred**, by explicit decision — Connections stay admin-managed CRUD |
+| Live WFM/CMS integration | **partially done** (2026-08-26) — see `src/lib/cms-sync` below; still on-demand, not real-time |
 
 ## Known gaps / needs verification
 

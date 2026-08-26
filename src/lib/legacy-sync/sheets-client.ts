@@ -2,6 +2,10 @@ import { google } from "googleapis";
 
 const LEGACY_SHEET_ID = "1uAr7WKpgtbmLz02ZOtC3uM487l8QvERQqE7-OSQEeQ0";
 
+// The real Customer Management System's sheet — separate spreadsheet, same
+// service account (shared with Viewer access), used by src/lib/cms-sync.
+const CMS_SHEET_ID = "1Kar3bK16OdVYcIjpXRC_ty85P9b55m97SU9YkxW4lSo";
+
 let sheetsClient: ReturnType<typeof google.sheets> | null = null;
 
 function loadServiceAccountCredentials() {
@@ -33,10 +37,10 @@ async function getSheetsClient() {
  * width — so trailing extra cells past the headers are never misaligned
  * into a real field.
  */
-export async function readLegacySheet(tabName: string): Promise<Record<string, string>[]> {
+async function readSheet(spreadsheetId: string, tabName: string): Promise<Record<string, string>[]> {
   const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: LEGACY_SHEET_ID,
+    spreadsheetId,
     range: tabName,
   });
   const rows = res.data.values ?? [];
@@ -49,4 +53,12 @@ export async function readLegacySheet(tabName: string): Promise<Record<string, s
     });
     return obj;
   });
+}
+
+export async function readLegacySheet(tabName: string): Promise<Record<string, string>[]> {
+  return readSheet(LEGACY_SHEET_ID, tabName);
+}
+
+export async function readCmsSheet(tabName: string): Promise<Record<string, string>[]> {
+  return readSheet(CMS_SHEET_ID, tabName);
 }

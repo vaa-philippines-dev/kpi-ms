@@ -53,8 +53,15 @@
 - Submissions page's "current period status" tracker now excludes paused/ended connections (only `ACTIVE` connections are expected to submit), with a count of how many were excluded.
 - Still outstanding: provisioning `system-admin@vaaphilippines.com` (or whichever email/role is confirmed) as a User so System Admin VAA can log in and test the flow — waiting on the actual email/role to use.
 
+**9. CMS Connection ID sync (2026-08-26)**
+- Real CMS integration, distinct from the older legacy-KPI-sheet sync: `src/lib/cms-sync/connection-sync.ts` pulls new VA↔client connections from the actual Customer Management System's Google Sheet (`VAConnections` + `VirtualAssistants` tabs), via the same service account already used for the legacy sync.
+- "Sync Connection IDs" button (System Settings, and the VA Connections page) — runnable by Admin, DM, and Operations Manager. Create-only by explicit decision: never updates an existing Connection, and skips rows that would duplicate an existing VA+client pair (CMS's `ConnectionID` and the older `externalWfmId` are unrelated ID spaces, so a naive create-if-missing would have produced near-duplicates for every connection already synced from the legacy sheet).
+- New `Connection.externalCmsId` field (nullable, unique) as the dedup key, alongside the pre-existing `externalWfmId`.
+- Status mapping and scope, confirmed with the user against real sheet data: CMS's "Cancelled"/"Declined"/"Accepted" rows are VA-request-workflow outcomes, not established connections, and are excluded; "Terminated" collapses to the generic `INACTIVE` status rather than guessing End of Contract vs. End of Project (CMS's own `TerminationReason` field is ~99% blank); department comes from the VA's own CMS record, not `VAConnections.Department` (99.96% blank/broken in the source data).
+- First real run (2026-08-26): 1,382 new connections created, 76 new VA users provisioned, 0 errors. A handful of CMS "VA" rows share an email with an existing non-VA staff account (e.g. department DM/OM mailboxes) — those are safely skipped, never linked as a connection's VA.
+
 ## Explicitly not done (by decision, not oversight)
 
-- Live WFM/CMS integration — Connections stay admin-managed/synced, not a real-time integration.
+- Real-time WFM/CMS sync — the CMS connection sync above is on-demand (button-triggered), not a live webhook/API integration.
 - Sheets-era workarounds (retention window, dual Connection-ID matching, JSON-blob summaries, Forms-polling pipeline, schema-drift diagnostics) — solved a Sheets-specific problem that doesn't exist in Postgres.
 - Automated tests, code review, security audit, production deployment.

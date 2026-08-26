@@ -3,6 +3,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { getInterventionTypes, getAppName, getWeekStartDay } from "@/lib/settings";
 import { LegacySyncPanel } from "@/components/legacy-sync-panel";
+import { SyncButton } from "@/components/sync-button";
 import { getEffectiveSession } from "@/lib/view-as";
 import { updateSetting } from "./actions";
 
@@ -97,6 +98,21 @@ export default async function SettingsPage() {
           />
           <Button type="submit">Save</Button>
         </form>
+
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+            Sync Connection IDs
+          </h2>
+          <p className="mb-3 text-xs text-muted">
+            Pulls new VA↔client connections from the real CMS on demand.
+            Create-only: existing connections here are never modified, and
+            rows that already match an existing connection (by CMS ID or by
+            VA + client name) are skipped, not duplicated. Also available
+            from the VA Connections page for Admin, DM, and Operations
+            Manager.
+          </p>
+          <SyncButton label="Sync Connection IDs" endpoint="/api/cms-sync/connections" />
+        </div>
 
         <div>
           <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
