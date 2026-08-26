@@ -54,6 +54,7 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     serviceName: k.service?.name ?? null,
     direction: k.direction,
     period: k.period,
+    unit: k.unit,
     targetValue: k.targetValue,
     deviationThresholdPct: k.deviationThresholdPct,
     criticalThresholdPct: k.criticalThresholdPct,

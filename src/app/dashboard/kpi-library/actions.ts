@@ -59,6 +59,9 @@ function parseKpiForm(formData: FormData) {
   const serviceId = optionalId(formData, "serviceId");
   const direction = String(formData.get("direction") ?? "") as KpiDirection;
   const period = String(formData.get("period") ?? "") as KpiPeriod;
+  // Display format for targetValue/actualValue — "Number" (2 decimals),
+  // "%", a custom string, or null for none. See lib/kpi-format.ts.
+  const unit = String(formData.get("unit") ?? "").trim() || null;
   const targetValue = Number(formData.get("targetValue"));
   const deviationThresholdPct = numberOrDefault(
     formData,
@@ -91,6 +94,7 @@ function parseKpiForm(formData: FormData) {
     serviceId,
     direction,
     period,
+    unit,
     targetValue,
     deviationThresholdPct,
     criticalThresholdPct,
@@ -132,6 +136,7 @@ export async function updateKpiDefinition(formData: FormData) {
     "serviceId",
     "direction",
     "period",
+    "unit",
     "targetValue",
     "deviationThresholdPct",
     "criticalThresholdPct",

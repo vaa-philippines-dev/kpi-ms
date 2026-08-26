@@ -9,6 +9,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
+import { formatKpiValue } from "@/lib/kpi-format";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 import {
   createKpiDefinition,
@@ -33,6 +34,11 @@ export type KpiRow = {
   serviceName: string | null;
   direction: KpiDirection;
   period: KpiPeriod;
+  // Display format for targetValue/actualValue — "Number" (2 decimal
+  // places), "%" (percent sign), a custom string ("hrs", "$", …), or null
+  // for no formatting at all. Free text historically (populated only by
+  // the legacy sync), now editable as a structured choice here.
+  unit: string | null;
   targetValue: number;
   deviationThresholdPct: number;
   criticalThresholdPct: number;
@@ -111,7 +117,22 @@ function getColumns(onClusterClick: (cluster: string) => void): DataTableColumn<
       searchText: (row) => DIRECTION_LABELS[row.direction],
       render: (v) => DIRECTION_LABELS[v as KpiDirection],
     },
-    { key: "targetValue", label: "Target", sortable: true, className: "text-muted" },
+    {
+      key: "unit",
+      label: "Unit",
+      sortable: true,
+      filterable: "select",
+      filterPlaceholder: "All Units",
+      className: "text-muted",
+      render: (v) => (v as string | null) ?? "—",
+    },
+    {
+      key: "targetValue",
+      label: "Target",
+      sortable: true,
+      className: "text-muted",
+      render: (v, row) => formatKpiValue(v as number, row.unit),
+    },
     {
       key: "deviationThresholdPct",
       label: "At Risk %",
@@ -252,6 +273,7 @@ function ClusterView({
                     <Th>Department</Th>
                     <Th>Service</Th>
                     <Th>Direction</Th>
+                    <Th>Unit</Th>
                     <Th>Target</Th>
                     <Th>At Risk %</Th>
                     <Th>Critical %</Th>
@@ -291,7 +313,8 @@ function ClusterView({
                       <Td className="text-muted">{k.departmentName}</Td>
                       <Td className="text-muted">{k.serviceName ?? "All Services"}</Td>
                       <Td className="text-muted">{DIRECTION_LABELS[k.direction]}</Td>
-                      <Td className="text-muted">{k.targetValue}</Td>
+                      <Td className="text-muted">{k.unit ?? "—"}</Td>
+                      <Td className="text-muted">{formatKpiValue(k.targetValue, k.unit)}</Td>
                       <Td className="text-muted">{k.deviationThresholdPct}%</Td>
                       <Td className="text-muted">{k.criticalThresholdPct}%</Td>
                     </Tr>
@@ -375,6 +398,76 @@ function ClusterField({
         </option>
       ))}
       <option value={NEW_CLUSTER_VALUE}>+ Add new cluster…</option>
+    </Select>
+  );
+}
+
+const UNIT_OPTIONS = ["Number", "%"] as const;
+const UNIT_LABELS: Record<(typeof UNIT_OPTIONS)[number], string> = {
+  Number: "Number (2 decimals)",
+  "%": "Percentage (%)",
+};
+const CUSTOM_UNIT_VALUE = "__custom__";
+
+/**
+ * Number-vs-Percentage picker for a KPI's value format — the actual fix for
+ * "ROAS is set to Percentage, it should be Number with 2 decimal places":
+ * before this, `unit` was a free-text column only the legacy sync ever
+ * wrote, with no way to change it in-app. Same select-or-custom pattern as
+ * ClusterField, so a legacy unit like "hrs" still round-trips through the
+ * custom field instead of being silently dropped.
+ */
+function UnitField({ initialUnit }: { initialUnit?: string | null }) {
+  const normalizedInitial = initialUnit?.trim() ?? "";
+  const isKnown = (UNIT_OPTIONS as readonly string[]).includes(normalizedInitial);
+  const startsAsCustom = !!normalizedInitial && !isKnown;
+  const [mode, setMode] = useState<"select" | "custom">(startsAsCustom ? "custom" : "select");
+  const [customValue, setCustomValue] = useState(startsAsCustom ? normalizedInitial : "");
+  const [selectValue, setSelectValue] = useState(isKnown ? normalizedInitial : "");
+
+  if (mode === "custom") {
+    return (
+      <div className="flex gap-2">
+        <Input
+          name="unit"
+          placeholder="Custom unit (e.g. hrs)"
+          value={customValue}
+          onChange={(e) => setCustomValue(e.target.value)}
+          autoFocus
+          className="flex-1"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0 px-3 py-2 text-xs"
+          onClick={() => setMode("select")}
+        >
+          Standard
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Select
+      name="unit"
+      value={selectValue}
+      onChange={(e) => {
+        if (e.target.value === CUSTOM_UNIT_VALUE) {
+          setMode("custom");
+          setCustomValue("");
+        } else {
+          setSelectValue(e.target.value);
+        }
+      }}
+    >
+      <option value="">No unit</option>
+      {UNIT_OPTIONS.map((u) => (
+        <option key={u} value={u}>
+          {UNIT_LABELS[u]}
+        </option>
+      ))}
+      <option value={CUSTOM_UNIT_VALUE}>+ Custom unit…</option>
     </Select>
   );
 }
@@ -471,6 +564,7 @@ function KpiForm({
               </option>
             ))}
           </Select>
+          <UnitField initialUnit={kpi?.unit} />
           <Input
             name="targetValue"
             type="number"
@@ -478,7 +572,6 @@ function KpiForm({
             placeholder="Target value"
             defaultValue={kpi?.targetValue}
             required
-            className="col-span-2"
           />
         </div>
       </div>
