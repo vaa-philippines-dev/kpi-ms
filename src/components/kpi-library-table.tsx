@@ -15,6 +15,7 @@ import {
   createKpiDefinition,
   updateKpiDefinition,
   deleteKpiDefinition,
+  forceDeleteKpiDefinition,
   moveKpiCluster,
 } from "@/app/dashboard/kpi-library/actions";
 
@@ -850,17 +851,55 @@ export function KpiLibraryTable({
               onDone={() => setEditing(null)}
             />
             <div className="border-t border-surface-border pt-4">
-              <ConfirmSubmitButton
-                action={deleteKpiDefinition}
-                fields={{ id: editing.id }}
-                label="Delete this KPI"
-                successMessage="KPI deleted."
-                onSuccess={() => setEditing(null)}
-              />
+              <DeleteKpiControl kpiId={editing.id} onDeleted={() => setEditing(null)} />
             </div>
           </div>
         )}
       </Modal>
     </>
+  );
+}
+
+/**
+ * Progressive-disclosure delete: tries the safe delete first (blocked
+ * server-side if the KPI has submissions/performance data/config overrides
+ * — see deleteKpiDefinition), and only reveals the irreversible "force
+ * delete" option, with its own scarier confirm text, once that's actually
+ * been rejected. Keeps the common case (no history yet) a single click
+ * while still requiring a second explicit action to destroy real data.
+ */
+function DeleteKpiControl({ kpiId, onDeleted }: { kpiId: string; onDeleted: () => void }) {
+  const [blocked, setBlocked] = useState(false);
+
+  if (blocked) {
+    return (
+      <ConfirmSubmitButton
+        action={forceDeleteKpiDefinition}
+        fields={{ id: kpiId }}
+        label="Force delete anyway"
+        confirmLabel="This permanently deletes every submission, performance record, and config override for this KPI — it cannot be undone. Sure?"
+        successMessage="KPI and its history deleted."
+        onSuccess={onDeleted}
+      />
+    );
+  }
+
+  return (
+    <ConfirmSubmitButton
+      action={async (formData) => {
+        try {
+          await deleteKpiDefinition(formData);
+        } catch (e) {
+          if (e instanceof Error && e.message.includes("submissions recorded")) {
+            setBlocked(true);
+          }
+          throw e;
+        }
+      }}
+      fields={{ id: kpiId }}
+      label="Delete this KPI"
+      successMessage="KPI deleted."
+      onSuccess={onDeleted}
+    />
   );
 }
