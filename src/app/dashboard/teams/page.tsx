@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Input, Select } from "@/components/ui/input";
 import { TeamRosterTable, type TeamMemberRow } from "@/components/team-roster-table";
+import { roleLabel } from "@/lib/roles";
 import {
   createTeam,
   updateTeam,
@@ -159,7 +160,7 @@ export default async function TeamsPage() {
                     (m): TeamMemberRow => ({
                       id: m.id,
                       name: m.name ?? m.email,
-                      role: m.role,
+                      role: roleLabel(m.role),
                     }),
                   )}
                   isManager={isManager}
