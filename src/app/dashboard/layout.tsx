@@ -1,6 +1,7 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
 import { SubmissionNotificationListener } from "@/components/submission-notification-listener";
+import { TicketNotificationListener } from "@/components/ticket-notification-listener";
 import { ToastProvider } from "@/components/ui/toast";
 import { WelcomeNoticeModal } from "@/components/welcome-notice-modal";
 import { auth } from "@/auth";
@@ -55,6 +56,7 @@ export default async function DashboardLayout({
         <WelcomeNoticeModal loginCount={authSession.user.loginCount} />
       )}
       {isSubmissionWatcher && <SubmissionNotificationListener />}
+      {session && <TicketNotificationListener />}
     </ToastProvider>
   );
 }

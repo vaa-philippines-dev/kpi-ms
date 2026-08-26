@@ -19,6 +19,8 @@ import {
   Contact,
   Target,
   Activity,
+  LifeBuoy,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -184,6 +186,18 @@ const systemSettingsItem: NavItem = {
   roles: ["ADMIN"],
   keywords: "app name week start sync",
 };
+const devInboxItem: NavItem = {
+  href: "/dashboard/dev/inbox",
+  label: "Inbox",
+  icon: LifeBuoy,
+  keywords: "tickets support triage concerns questions",
+};
+const devTicketsItem: NavItem = {
+  href: "/dashboard/dev/tickets",
+  label: "Tickets",
+  icon: MessageCircle,
+  keywords: "support concerns questions chat dev help",
+};
 const interventionsItem: NavItem = {
   href: "/dashboard/interventions",
   label: "Interventions",
@@ -228,6 +242,10 @@ const adminGroups: NavGroup[] = [
       interventionsItem,
     ],
   },
+  {
+    label: "Dev",
+    items: [devInboxItem],
+  },
 ];
 
 // DM — legacy Manager: Overview, then a "Management" group instead of
@@ -236,7 +254,7 @@ const adminGroups: NavGroup[] = [
 const managerGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem],
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem, devTicketsItem],
   },
   {
     label: "Management",
@@ -252,7 +270,7 @@ const managerGroups: NavGroup[] = [
 const teamLeaderGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem],
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, devTicketsItem],
   },
   {
     label: "Reports",
@@ -268,7 +286,7 @@ const teamLeaderGroups: NavGroup[] = [
 const csGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, customerOverviewItem],
+    items: [dashboardItem, customerOverviewItem, devTicketsItem],
   },
   {
     label: "Reports",
@@ -286,7 +304,7 @@ const vaGroups: NavGroup[] = [
     // No standalone "Submit KPI Report" entry — a VA submits via the Submit
     // KPI button on a connection card (Dashboard or My Connections), which
     // already knows which connection it's for.
-    items: [dashboardItem, vaConnectionsItem, myKpiItem, historyItem, interventionsItem],
+    items: [dashboardItem, vaConnectionsItem, myKpiItem, historyItem, interventionsItem, devTicketsItem],
   },
 ];
 

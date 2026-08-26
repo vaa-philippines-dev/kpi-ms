@@ -64,6 +64,26 @@ enum ConnectionType {
   PROJECT_BASED
 }
 
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  URGENT
+}
+
+enum TicketCategory {
+  BUG
+  QUESTION
+  FEATURE_REQUEST
+  DATA_ISSUE
+  OTHER
+}
+
 model Department {
   id             String          @id @default(cuid())
   name           String          @unique
@@ -406,6 +426,9 @@ model User {
   interventions     Intervention[]
   settingsUpdated   Setting[]
   activityLogs      ActivityLog[]
+  ticketsCreated    Ticket[]                @relation("TicketCreator")
+  ticketsClosed     Ticket[]                @relation("TicketCloser")
+  ticketMessages    TicketMessage[]         @relation("TicketMessageSender")
   // Extra departments a VA also belongs to, on top of `department` above
   // (kept as-is, e.g. a VA who does both Amazon and Executive Assistant
   // work). Managers (DM/OPS_MANAGER/OM) never get rows here — they stay
@@ -418,6 +441,40 @@ model User {
   @@index([departmentId])
   @@index([serviceId])
   @@index([teamId])
+}
+
+model Ticket {
+  id           String          @id @default(cuid())
+  subject      String
+  category     TicketCategory  @default(OTHER)
+  priority     TicketPriority  @default(NORMAL)
+  status       TicketStatus    @default(OPEN)
+  createdBy    User            @relation("TicketCreator", fields: [createdById], references: [id])
+  createdById  String
+  closedBy     User?           @relation("TicketCloser", fields: [closedById], references: [id])
+  closedById   String?
+  closedAt     DateTime?       @db.Timestamptz(3)
+  messages     TicketMessage[]
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+
+  @@index([createdById])
+  @@index([status])
+}
+
+model TicketMessage {
+  id            String   @id @default(cuid())
+  ticket        Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId      String
+  sender        User     @relation("TicketMessageSender", fields: [senderId], references: [id])
+  senderId      String
+  body          String
+  // Plain URL, not a file upload — no upload infra exists anywhere in this
+  // app; "attach via link" is the user's own spec for this.
+  attachmentUrl String?
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([ticketId, createdAt])
 }
 
 // A VA's departments beyond their primary `User.department` — every place
