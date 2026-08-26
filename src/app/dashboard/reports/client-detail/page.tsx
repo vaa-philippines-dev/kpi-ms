@@ -84,7 +84,7 @@ export default async function ClientDetailPage(
         description="Performance history, status history, and interventions for one connection."
       />
 
-      <div className="max-w-4xl space-y-8">
+      <div className="max-w-6xl space-y-8">
         <ConnectionCombobox
           options={connectionOptions}
           departments={departments}
