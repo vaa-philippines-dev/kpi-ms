@@ -4,6 +4,7 @@ import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { PerformanceTrendChart } from "@/components/performance-trend-chart";
 import { TeamConnectionsPanel, type TeamCard } from "@/components/team-connections-panel";
+import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { getPerformanceTrend } from "@/lib/trend";
 import { formatWeekRange } from "@/lib/period";
 import { rollupStatus } from "@/lib/performance";
@@ -19,11 +20,13 @@ import type { Prisma } from "@/generated/prisma/client";
  * query here is automatically team-scoped.
  */
 export async function TeamLeaderOverview({
+  userId,
   scope,
   weeklyStart,
   weekStartDay,
   anchor,
 }: {
+  userId: string;
   scope: Prisma.ConnectionWhereInput;
   weeklyStart: Date;
   weekStartDay: number;
@@ -126,6 +129,8 @@ export async function TeamLeaderOverview({
           <div className="mt-1 text-sm">Critical</div>
         </div>
       </div>
+
+      <MyConnectionsSubmitPanel userId={userId} weeklyStart={weeklyStart} />
 
       <TeamConnectionsPanel cards={cards} weekLabel={weekLabel} />
 

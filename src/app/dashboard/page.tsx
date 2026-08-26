@@ -13,6 +13,7 @@ import { DashboardStatCards } from "./dashboard-stat-cards";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
 import { VaOverview } from "./va-overview";
+import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 
@@ -53,6 +54,7 @@ export default async function DashboardOverviewPage(
       <>
         <PageHeader title="Dashboard" description="Your team's KPI performance." />
         <TeamLeaderOverview
+          userId={session.id}
           scope={scope}
           weeklyStart={weeklyStart}
           weekStartDay={weekStartDay}
@@ -70,7 +72,7 @@ export default async function DashboardOverviewPage(
     return (
       <>
         <PageHeader title="Dashboard" description="System-wide KPI performance." />
-        <CsOverview scope={scope} weeklyStart={weeklyStart} />
+        <CsOverview userId={session.id} scope={scope} weeklyStart={weeklyStart} />
       </>
     );
   }
@@ -201,6 +203,8 @@ export default async function DashboardOverviewPage(
             period={selectedPeriod}
             interventionTypes={interventionTypes}
           />
+
+          <MyConnectionsSubmitPanel userId={session.id} weeklyStart={weeklyStart} />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-surface-border bg-surface p-5">

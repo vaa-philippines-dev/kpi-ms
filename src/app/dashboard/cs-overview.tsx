@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ComingSoon } from "@/components/page-header";
 import { CsStatusTable, type CsStatusRow } from "@/components/cs-status-table";
+import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { formatWeekRange } from "@/lib/period";
 import { rollupStatus } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -20,9 +21,11 @@ const STATUS_TILES = [
  * "System-Wide Performance" table title.
  */
 export async function CsOverview({
+  userId,
   scope,
   weeklyStart,
 }: {
+  userId: string;
   scope: Prisma.ConnectionWhereInput;
   weeklyStart: Date;
 }) {
@@ -80,6 +83,8 @@ export async function CsOverview({
           </div>
         ))}
       </div>
+
+      <MyConnectionsSubmitPanel userId={userId} weeklyStart={weeklyStart} />
 
       <div>
         <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
