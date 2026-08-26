@@ -7,7 +7,7 @@ import { TeamConnectionsPanel, type TeamCard } from "@/components/team-connectio
 import { getPerformanceTrend } from "@/lib/trend";
 import { formatWeekRange } from "@/lib/period";
 import { rollupStatus } from "@/lib/performance";
-import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
@@ -31,7 +31,10 @@ export async function TeamLeaderOverview({
 }) {
   const [connections, submittedRows, kpiDefs, trend] = await Promise.all([
     prisma.connection.findMany({
-      where: scope,
+      // ACTIVE only — matches the Performance page's connection count, so a
+      // TL's team of e.g. 32 active accounts plus 11 END_OF_CONTRACT ones
+      // doesn't read as "Total Accounts: 43" here.
+      where: { ...scope, status: ConnectionStatus.ACTIVE },
       include: {
         vaUser: true,
         department: true,
