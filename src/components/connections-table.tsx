@@ -217,10 +217,10 @@ type DetailTab = "performance" | "kpi-config" | "interventions";
 
 function ConnectionDetailTabs({
   connection,
-  isAdmin,
+  canEditKpi,
 }: {
   connection: ConnectionRow;
-  isAdmin: boolean;
+  canEditKpi: boolean;
 }) {
   const [tab, setTab] = useState<DetailTab>("performance");
 
@@ -251,7 +251,7 @@ function ConnectionDetailTabs({
 
       {tab === "performance" && <ConnectionPerformancePanel connectionId={connection.id} />}
       {tab === "kpi-config" && (
-        <KpiConfigPanel connectionId={connection.id} isAdmin={isAdmin} />
+        <KpiConfigPanel connectionId={connection.id} canEdit={canEditKpi} />
       )}
       {tab === "interventions" && (
         <div className="space-y-3">
@@ -319,10 +319,14 @@ function ConnectionDetailTabs({
 export function ConnectionsTable({
   connections,
   isAdmin,
+  canEditKpi,
   initialOpenId = null,
 }: {
   connections: ConnectionRow[];
   isAdmin: boolean;
+  // Separate from isAdmin — DM and OM can also edit KPI config, but not
+  // the other admin-only connection-management actions this table gates.
+  canEditKpi: boolean;
   // Deep-links straight into a connection's detail modal — e.g. the
   // Performance Summary table's "View Connection" link (`?open=<id>`).
   initialOpenId?: string | null;
@@ -517,7 +521,7 @@ export function ConnectionsTable({
             )}
 
             <div className="border-t border-surface-border pt-4">
-              <ConnectionDetailTabs connection={openConn} isAdmin={isAdmin} />
+              <ConnectionDetailTabs connection={openConn} canEditKpi={canEditKpi} />
             </div>
 
             <div>

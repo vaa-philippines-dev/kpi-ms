@@ -13,7 +13,10 @@ export default async function KpiConfigPage(
     typeof searchParams.connectionId === "string" ? searchParams.connectionId : undefined;
 
   const session = await requireSession();
-  const isAdmin = session.role === "ADMIN";
+  // Mirrors requireKpiConfigEditor() in actions.ts — ADMIN, DM (Manager),
+  // and OM (Team Leader) can edit; everyone else gets the read-only view.
+  const canEditKpiConfig =
+    session.role === "ADMIN" || session.role === "DM" || session.role === "OM";
   const scope = connectionScopeWhere(session);
 
   const connections = await prisma.connection.findMany({
@@ -56,7 +59,7 @@ export default async function KpiConfigPage(
       />
       <KpiConfigTable
         connections={rows}
-        isAdmin={isAdmin}
+        canEdit={canEditKpiConfig}
         initialConnectionId={initialConnectionId}
       />
     </>

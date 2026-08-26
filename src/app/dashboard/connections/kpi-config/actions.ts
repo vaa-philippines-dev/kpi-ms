@@ -3,16 +3,30 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
-async function requireAdmin() {
+// Editing KPI config is open to ADMIN, DM (Manager), and OM (Team Leader) —
+// each locked to the connections they can already see via
+// connectionScopeWhere (DM: own department, OM: own team's connections),
+// same "lock to session, ignore what the client claims" pattern as
+// connections/actions.ts's requireConnectionCreator. Uses the real
+// signed-in session (auth()), not requireSession()'s view-as-aware one, so
+// an admin previewing another role can't accidentally perform a write as
+// that role.
+async function requireKpiConfigEditor(): Promise<ScopingSession> {
   const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
-    throw new Error("Only admins can manage KPI config.");
+  const role = session?.user?.role;
+  if (role !== "ADMIN" && role !== "DM" && role !== "OM") {
+    throw new Error("You don't have permission to manage KPI config.");
   }
-  return session;
+  return {
+    id: session!.user.id,
+    role,
+    departmentId: session!.user.departmentId,
+    teamId: session!.user.teamId,
+  };
 }
 
 export type KpiConfigPeriodInfo = {
@@ -148,12 +162,12 @@ function numberOrNull(formData: FormData, key: string): number | null {
 // copying the master defaults — mirrors legacy generateKPIConfig()/
 // initKPIConfig(). Skips KPIs that already have a config row.
 export async function initKpiConfig(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireKpiConfigEditor();
   const connectionId = String(formData.get("connectionId") ?? "");
   if (!connectionId) throw new Error("Missing connection id.");
 
-  const connection = await prisma.connection.findUnique({
-    where: { id: connectionId },
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...connectionScopeWhere(session) },
   });
   if (!connection) throw new Error("Connection not found.");
 
@@ -176,7 +190,7 @@ export async function initKpiConfig(formData: FormData) {
       data: toCreate.map((k) => ({
         connectionId,
         kpiDefinitionId: k.id,
-        updatedById: session!.user!.id,
+        updatedById: session.id,
       })),
     });
   }
@@ -191,7 +205,7 @@ export async function initKpiConfig(formData: FormData) {
 // own KpiConfig row underneath. Logs one KpiConfigHistory entry per changed
 // field per row — mirrors legacy updateKPIConfig(), merged across periods.
 export async function updateKpiConfig(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireKpiConfigEditor();
   const connectionId = String(formData.get("connectionId") ?? "");
   if (!connectionId) throw new Error("Missing connection id.");
 
@@ -219,7 +233,10 @@ export async function updateKpiConfig(formData: FormData) {
   if (periods.length === 0) throw new Error("Missing KPI definition id.");
 
   const [connection, existingConfigs, kpiDefs] = await Promise.all([
-    prisma.connection.findUnique({ where: { id: connectionId }, select: { clientName: true, departmentId: true } }),
+    prisma.connection.findFirst({
+      where: { id: connectionId, ...connectionScopeWhere(session) },
+      select: { clientName: true, departmentId: true },
+    }),
     prisma.kpiConfig.findMany({
       where: { connectionId, kpiDefinitionId: { in: periods.map((p) => p.kpiDefinitionId) } },
     }),
@@ -228,6 +245,7 @@ export async function updateKpiConfig(formData: FormData) {
       select: { id: true, name: true, period: true },
     }),
   ]);
+  if (!connection) throw new Error("Connection not found.");
   const existingByDefId = new Map(existingConfigs.map((c) => [c.kpiDefinitionId, c]));
   const kpiDefById = new Map(kpiDefs.map((d) => [d.id, d]));
 
@@ -271,12 +289,12 @@ export async function updateKpiConfig(formData: FormData) {
             data: {
               connectionId,
               kpiDefinitionId: p.kpiDefinitionId,
-              updatedById: session!.user!.id,
+              updatedById: session.id,
               ...data,
             },
           });
           await logActivity(tx, {
-            actor: { id: session!.user!.id, role: session!.user!.role },
+            actor: { id: session.id, role: session.role },
             action: "CREATE",
             entityType: "KpiConfig",
             entityId: created.id,
@@ -299,7 +317,7 @@ export async function updateKpiConfig(formData: FormData) {
 
         await tx.kpiConfig.update({
           where: { id: existing.id },
-          data: { ...data, version: { increment: 1 }, updatedById: session!.user!.id },
+          data: { ...data, version: { increment: 1 }, updatedById: session.id },
         });
         await tx.kpiConfigHistory.createMany({
           data: changed.map(([fieldChanged, oldValue, newValue]) => ({
@@ -307,11 +325,11 @@ export async function updateKpiConfig(formData: FormData) {
             fieldChanged,
             oldValue: oldValue === null ? null : String(oldValue),
             newValue: newValue === null ? null : String(newValue),
-            changedById: session!.user!.id,
+            changedById: session.id,
           })),
         });
         await logActivity(tx, {
-          actor: { id: session!.user!.id, role: session!.user!.role },
+          actor: { id: session.id, role: session.role },
           action: "UPDATE",
           entityType: "KpiConfig",
           entityId: existing.id,
@@ -335,12 +353,12 @@ export async function updateKpiConfig(formData: FormData) {
 // (deleteKPIConfig + initKPIConfig back-to-back). Unlike initKpiConfig,
 // this replaces every row rather than only filling in missing ones.
 export async function resetKpiConfig(formData: FormData) {
-  const session = await requireAdmin();
+  const session = await requireKpiConfigEditor();
   const connectionId = String(formData.get("connectionId") ?? "");
   if (!connectionId) throw new Error("Missing connection id.");
 
-  const connection = await prisma.connection.findUnique({
-    where: { id: connectionId },
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...connectionScopeWhere(session) },
   });
   if (!connection) throw new Error("Connection not found.");
 
@@ -358,11 +376,11 @@ export async function resetKpiConfig(formData: FormData) {
       data: applicable.map((k) => ({
         connectionId,
         kpiDefinitionId: k.id,
-        updatedById: session!.user!.id,
+        updatedById: session.id,
       })),
     });
     await logActivity(tx, {
-      actor: { id: session!.user!.id, role: session!.user!.role },
+      actor: { id: session.id, role: session.role },
       action: "DELETE",
       entityType: "KpiConfig",
       entityId: connectionId,

@@ -28,6 +28,11 @@ export default async function ConnectionsPage(
   ]);
   const isAdmin = session.role === "ADMIN";
   const isDeptScopedManager = session.role === "DM" || session.role === "OPS_MANAGER";
+  // Mirrors requireKpiConfigEditor() in kpi-config/actions.ts — ADMIN, DM,
+  // and OM can edit KPI config from the embedded tab too; distinct from
+  // `isAdmin` above, which still gates connection-management actions that
+  // remain admin-only.
+  const canEditKpiConfig = isAdmin || session.role === "DM" || session.role === "OM";
   // DM/Ops Manager can add connections too, but only within their own
   // department — the modal gets a department-locked, pre-filtered slice
   // instead of the full org-wide lists Admin sees.
@@ -182,7 +187,12 @@ export default async function ConnectionsPage(
         ) : session.role === "VA" ? (
           <ConnectionCardGrid connections={rows} />
         ) : (
-          <ConnectionsTable connections={rows} isAdmin={isAdmin} initialOpenId={openId} />
+          <ConnectionsTable
+            connections={rows}
+            isAdmin={isAdmin}
+            canEditKpi={canEditKpiConfig}
+            initialOpenId={openId}
+          />
         )}
       </div>
     </>

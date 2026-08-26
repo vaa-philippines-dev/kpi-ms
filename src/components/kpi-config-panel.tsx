@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useState, useTransition } from "react";
-import { Pencil } from "lucide-react";
+import { Eye, Pencil } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
@@ -36,10 +36,10 @@ const DIRECTION_LABELS: Record<KpiDirection, string> = {
  */
 export function KpiConfigPanel({
   connectionId,
-  isAdmin,
+  canEdit,
 }: {
   connectionId: string;
-  isAdmin: boolean;
+  canEdit: boolean;
 }) {
   const [detail, setDetail] = useState<{
     missingCount: number;
@@ -86,7 +86,7 @@ export function KpiConfigPanel({
             <Badge tone="warning">Using Defaults</Badge>
           )}
         </div>
-        {isAdmin && hasOverride && (
+        {canEdit && hasOverride && (
           <ConfirmSubmitButton
             action={resetKpiConfig}
             fields={{ connectionId }}
@@ -105,7 +105,7 @@ export function KpiConfigPanel({
             {detail.missingCount} KPI{detail.missingCount === 1 ? "" : "s"} not yet
             configured for this connection.
           </p>
-          {isAdmin && (
+          {canEdit && (
             <form
               action={async (formData) => {
                 try {
@@ -165,10 +165,10 @@ export function KpiConfigPanel({
                   <button
                     type="button"
                     onClick={() => setEditing(r)}
-                    aria-label={`${isAdmin ? "Edit" : "View"} ${r.name}`}
+                    aria-label={`${canEdit ? "Edit" : "View"} ${r.name}`}
                     className="text-muted transition hover:text-foreground"
                   >
-                    <Pencil className="size-4" />
+                    {canEdit ? <Pencil className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </Td>
               </Tr>
@@ -180,14 +180,14 @@ export function KpiConfigPanel({
       <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}
-        title={editing ? `${isAdmin ? "Edit" : "View"} KPI — ${editing.name}` : ""}
+        title={editing ? `${canEdit ? "Edit" : "View"} KPI — ${editing.name}` : ""}
         size="lg"
       >
         {editing && (
           <KpiEditForm
             connectionId={connectionId}
             row={editing}
-            isAdmin={isAdmin}
+            canEdit={canEdit}
             onCancel={() => setEditing(null)}
             onSaved={() => {
               setEditing(null);
@@ -249,13 +249,13 @@ function KpiInfoBox({
 function KpiEditForm({
   connectionId,
   row,
-  isAdmin,
+  canEdit,
   onCancel,
   onSaved,
 }: {
   connectionId: string;
   row: KpiConfigGroupRow;
-  isAdmin: boolean;
+  canEdit: boolean;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -270,7 +270,7 @@ function KpiEditForm({
         : `${defaultWeekly} (Weekly) / ${defaultMonthly} (Monthly)`
       : (defaultWeekly ?? defaultMonthly ?? "—");
 
-  if (!isAdmin) {
+  if (!canEdit) {
     return (
       <div className="space-y-4">
         <KpiInfoBox row={row} directionLabel={directionLabel} defaultTargetLabel={defaultTargetLabel} />

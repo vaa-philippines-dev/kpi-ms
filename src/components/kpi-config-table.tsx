@@ -60,11 +60,11 @@ const COLUMNS: DataTableColumn<ConnectionConfigRow>[] = [
  */
 export function KpiConfigTable({
   connections,
-  isAdmin,
+  canEdit,
   initialConnectionId,
 }: {
   connections: ConnectionConfigRow[];
-  isAdmin: boolean;
+  canEdit: boolean;
   initialConnectionId?: string;
 }) {
   // Deep link from Connections' "KPI Config →" — auto-opens the row the
@@ -104,7 +104,7 @@ export function KpiConfigTable({
             <p className="text-xs text-muted">
               {openConn.vaName} · {openConn.departmentName}
             </p>
-            <KpiConfigPanel connectionId={openConn.id} isAdmin={isAdmin} />
+            <KpiConfigPanel connectionId={openConn.id} canEdit={canEdit} />
           </div>
         )}
       </Modal>
