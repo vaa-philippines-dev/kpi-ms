@@ -1,5 +1,6 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
+import { HelpHintListener } from "@/components/help-hint-listener";
 import { SubmissionNotificationListener } from "@/components/submission-notification-listener";
 import { TicketNotificationListener } from "@/components/ticket-notification-listener";
 import { ToastProvider } from "@/components/ui/toast";
@@ -57,6 +58,7 @@ export default async function DashboardLayout({
       )}
       {isSubmissionWatcher && <SubmissionNotificationListener />}
       {session && <TicketNotificationListener />}
+      {authSession?.user && <HelpHintListener loginCount={authSession.user.loginCount} />}
     </ToastProvider>
   );
 }
