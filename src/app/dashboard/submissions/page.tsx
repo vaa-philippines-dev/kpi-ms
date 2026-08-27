@@ -56,7 +56,7 @@ export default async function SubmissionsPage(
     await Promise.all([
       prisma.connection.findMany({
         where: scope,
-        include: { vaUser: true, department: true },
+        include: { vaUser: true, department: true, team: true },
         orderBy: { clientName: "asc" },
       }),
       prisma.submission.findMany({
@@ -139,6 +139,7 @@ export default async function SubmissionsPage(
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
+      teamName: c.team?.name ?? null,
       clientName: c.clientName,
       departmentName: c.department.name,
       submitted,
@@ -258,6 +259,8 @@ export default async function SubmissionsPage(
               )}
               <SubmissionTrackerTable
                 rows={trackerRows}
+                period={selectedPeriod}
+                periodStart={selectedPeriodStart.toISOString()}
                 periodLabel={isMonthly ? "Monthly" : "Weekly"}
                 canEdit={canEditSubmissions}
               />

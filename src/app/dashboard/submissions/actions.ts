@@ -7,7 +7,7 @@ import { recomputePerformanceSummary } from "@/lib/performance";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { logActivity } from "@/lib/activity-log";
-import { KpiPeriod } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 // "Change a VA's wrongly-submitted date" — Admin, DM, the DM-equivalent
 // OPS_MANAGER, and OM (Team Leader) can all correct/remove a submission,
@@ -74,6 +74,146 @@ export async function getSubmissionsForConnection(
       noData: r.noData,
     })),
   }));
+}
+
+export type ConnectionPeriodKpiRow = {
+  kpiDefinitionId: string;
+  name: string;
+  unit: string | null;
+  direction: KpiDirection;
+  targetValue: number;
+  actualValue: number | null;
+  status: PerformanceStatus;
+  // True when nothing was submitted for this KPI this period — distinct
+  // from a genuine PerformanceStatus.NO_DATA that could in principle be
+  // computed from a real (zero-valued) submission.
+  missing: boolean;
+};
+
+export type ConnectionPeriodDetail = {
+  connectionId: string;
+  clientName: string;
+  vaName: string;
+  departmentName: string;
+  teamName: string | null;
+  period: KpiPeriod;
+  periodStart: string;
+  kpiRows: ConnectionPeriodKpiRow[];
+  missingCount: number;
+  totalCount: number;
+  submissions: SubmissionRow[];
+};
+
+// Missing KPIs surface first (that's the actionable part), then worst
+// performance status first — NO_DATA sorts last here since by this point
+// it only means "has data but nothing to flag", the opposite of `missing`.
+const DETAIL_STATUS_SEVERITY: Record<PerformanceStatus, number> = {
+  [PerformanceStatus.CRITICAL]: 0,
+  [PerformanceStatus.AT_RISK]: 1,
+  [PerformanceStatus.ON_TARGET]: 2,
+  [PerformanceStatus.NO_DATA]: 3,
+};
+
+/**
+ * Backs the "view actual data" popup on the Current Period Status tracker —
+ * clicking a VA there previously only opened the raw edit/delete log
+ * (SubmissionEditModal), with no way to see what was actually submitted
+ * against target, or which of the connection's KPIs never came in at all.
+ * Read-only aside from the edit/delete actions already exposed elsewhere in
+ * this file; scoped to exactly the row's period/periodStart, not the
+ * connection's full history.
+ */
+export async function getConnectionPeriodDetail(
+  connectionId: string,
+  period: KpiPeriod,
+  periodStart: string,
+): Promise<ConnectionPeriodDetail> {
+  const session = await requireSubmissionEditor();
+  const scope = connectionScopeWhere(session);
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...scope },
+    include: { vaUser: true, department: true, team: true },
+  });
+  if (!connection) {
+    throw new Error("Connection not found or not in your scope.");
+  }
+
+  const periodStartDate = new Date(periodStart);
+
+  const [configs, summaries, applicableKpis, submissions] = await Promise.all([
+    prisma.kpiConfig.findMany({ where: { connectionId } }),
+    prisma.performanceSummary.findMany({
+      where: { connectionId, period, periodStart: periodStartDate },
+      include: { kpiDefinition: true },
+    }),
+    prisma.kpiDefinition.findMany({
+      where: {
+        period,
+        departmentId: connection.departmentId,
+        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.submission.findMany({
+      where: { connectionId, period, periodStart: periodStartDate },
+      orderBy: { submittedAt: "desc" },
+      include: { records: { include: { kpiDefinition: true } } },
+    }),
+  ]);
+
+  const configByKpi = new Map(configs.map((c) => [c.kpiDefinitionId, c]));
+  const summaryByKpi = new Map(summaries.map((s) => [s.kpiDefinitionId, s]));
+  // Ground truth for "missing" is an actual SubmissionRecord, not a null
+  // PerformanceSummary.actualValue — a KPI a VA explicitly marked "no data
+  // available" also ends up with a null actualValue, and would otherwise be
+  // indistinguishable here from one nobody has touched at all.
+  const submittedKpiIds = new Set(submissions.flatMap((s) => s.records.map((r) => r.kpiDefinitionId)));
+
+  const kpiRows: ConnectionPeriodKpiRow[] = applicableKpis
+    .filter((kpi) => configByKpi.get(kpi.id)?.isApplicable ?? true)
+    .map((kpi) => {
+      const summary = summaryByKpi.get(kpi.id);
+      const config = configByKpi.get(kpi.id);
+      const missing = !submittedKpiIds.has(kpi.id);
+      return {
+        kpiDefinitionId: kpi.id,
+        name: kpi.name,
+        unit: kpi.unit,
+        direction: kpi.direction,
+        targetValue: summary?.targetValue ?? config?.targetValue ?? kpi.targetValue,
+        actualValue: summary?.actualValue ?? null,
+        status: summary?.status ?? PerformanceStatus.NO_DATA,
+        missing,
+      };
+    })
+    .sort((a, b) => {
+      if (a.missing !== b.missing) return a.missing ? -1 : 1;
+      return DETAIL_STATUS_SEVERITY[a.status] - DETAIL_STATUS_SEVERITY[b.status];
+    });
+
+  return {
+    connectionId: connection.id,
+    clientName: connection.clientName,
+    vaName: connection.vaUser.name ?? connection.vaUser.email,
+    departmentName: connection.department.name,
+    teamName: connection.team?.name ?? null,
+    period,
+    periodStart: periodStartDate.toISOString(),
+    kpiRows,
+    missingCount: kpiRows.filter((r) => r.missing).length,
+    totalCount: kpiRows.length,
+    submissions: submissions.map((s) => ({
+      id: s.id,
+      period: s.period,
+      periodStart: s.periodStart.toISOString(),
+      submittedAt: s.submittedAt.toISOString(),
+      values: s.records.map((r) => ({
+        kpiName: r.kpiDefinition.name,
+        value: r.value,
+        noData: r.noData,
+      })),
+    })),
+  };
 }
 
 /** Moves a submission to a different period/date — e.g. a VA submitted

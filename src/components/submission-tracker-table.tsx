@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
-import { SubmissionEditModal } from "@/components/submission-edit-modal";
+import { SubmissionDetailModal } from "@/components/submission-detail-modal";
+import { KpiPeriod } from "@/generated/prisma/enums";
 
 export type SubmissionTrackerRow = {
   connectionId: string;
   vaName: string;
+  teamName: string | null;
   clientName: string;
   departmentName: string;
   submitted: boolean;
@@ -44,13 +46,21 @@ function getColumns(
             type="button"
             onClick={() => onEdit(row)}
             className="text-accent hover:underline"
-            title="View / correct this connection's submissions"
+            title="View this connection's actual submitted data"
           >
             {v as string}
           </button>
         ) : (
           (v as string)
         ),
+    },
+    {
+      key: "teamName",
+      label: "Team",
+      sortable: true,
+      filterable: "select",
+      className: "text-muted",
+      render: (v) => (v as string | null) ?? "—",
     },
     { key: "clientName", label: "Client", sortable: true, filterable: true },
     {
@@ -81,15 +91,21 @@ function getColumns(
  * selects, rather than a fixed Weekly+Monthly pair.
  *
  * When `canEdit` (Admin/DM/Ops Manager/Team Leader), clicking a VA's name
- * opens SubmissionEditModal so a wrongly-dated submission can be corrected
- * or removed — VA/Service Manager viewers just see plain text instead.
+ * opens SubmissionDetailModal — the connection's actual/target per KPI for
+ * this period, which KPIs are still missing, and the raw submission log
+ * (with edit/delete for a wrongly-dated one) — VA/Service Manager viewers
+ * just see plain text instead.
  */
 export function SubmissionTrackerTable({
   rows,
+  period,
+  periodStart,
   periodLabel,
   canEdit,
 }: {
   rows: SubmissionTrackerRow[];
+  period: KpiPeriod;
+  periodStart: string;
   periodLabel: string;
   canEdit: boolean;
 }) {
@@ -105,12 +121,13 @@ export function SubmissionTrackerTable({
         emptyMessage="No connections match the current filters."
       />
       {canEdit && (
-        <SubmissionEditModal
+        <SubmissionDetailModal
           open={editing !== null}
           onClose={() => setEditing(null)}
           connectionId={editing?.connectionId ?? ""}
-          vaName={editing?.vaName ?? ""}
-          clientName={editing?.clientName ?? ""}
+          period={period}
+          periodStart={periodStart}
+          periodLabel={periodLabel}
         />
       )}
     </>
