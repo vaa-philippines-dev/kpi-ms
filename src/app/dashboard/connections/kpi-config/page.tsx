@@ -14,9 +14,13 @@ export default async function KpiConfigPage(
 
   const session = await requireSession();
   // Mirrors requireKpiConfigEditor() in actions.ts — ADMIN, DM (Manager),
-  // and OM (Team Leader) can edit; everyone else gets the read-only view.
+  // OPS_MANAGER, and OM (Team Leader) can edit; everyone else gets the
+  // read-only view.
   const canEditKpiConfig =
-    session.role === "ADMIN" || session.role === "DM" || session.role === "OM";
+    session.role === "ADMIN" ||
+    session.role === "DM" ||
+    session.role === "OPS_MANAGER" ||
+    session.role === "OM";
   const scope = connectionScopeWhere(session);
 
   const connections = await prisma.connection.findMany({

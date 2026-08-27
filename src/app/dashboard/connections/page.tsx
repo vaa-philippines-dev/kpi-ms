@@ -28,10 +28,11 @@ export default async function ConnectionsPage(
   const isAdmin = session.role === "ADMIN";
   const isDeptScopedManager = session.role === "DM" || session.role === "OPS_MANAGER";
   // Mirrors requireKpiConfigEditor() in kpi-config/actions.ts — ADMIN, DM,
-  // and OM can edit KPI config from the embedded tab too; distinct from
-  // `isAdmin` above, which still gates connection-management actions that
-  // remain admin-only.
-  const canEditKpiConfig = isAdmin || session.role === "DM" || session.role === "OM";
+  // OPS_MANAGER, and OM can edit KPI config from the embedded tab too;
+  // distinct from `isAdmin` above, which still gates connection-management
+  // actions that remain admin-only.
+  const canEditKpiConfig =
+    isAdmin || session.role === "DM" || session.role === "OPS_MANAGER" || session.role === "OM";
   // Mirrors requireConnectionEditor() in ./actions.ts — ADMIN, DM, and OM
   // can edit a connection's status, type, account info, and notes, each
   // locked to the connections connectionScopeWhere already lets them see;

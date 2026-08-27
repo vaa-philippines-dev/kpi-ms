@@ -7,18 +7,19 @@ import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
-// Editing KPI config is open to ADMIN, DM (Manager), and OM (Team Leader) —
-// each locked to the connections they can already see via
-// connectionScopeWhere (DM: own department, OM: own team's connections),
-// same "lock to session, ignore what the client claims" pattern as
-// connections/actions.ts's requireConnectionCreator. Uses the real
-// signed-in session (auth()), not requireSession()'s view-as-aware one, so
-// an admin previewing another role can't accidentally perform a write as
-// that role.
+// Editing KPI config is open to ADMIN, DM (Manager), the DM-equivalent
+// OPS_MANAGER, and OM (Team Leader) — matching the KPI Library's editor
+// roles (kpi-library/actions.ts) — each locked to the connections they can
+// already see via connectionScopeWhere (DM/OPS_MANAGER: own department, OM:
+// own team's connections), same "lock to session, ignore what the client
+// claims" pattern as connections/actions.ts's requireConnectionCreator.
+// Uses the real signed-in session (auth()), not requireSession()'s
+// view-as-aware one, so an admin previewing another role can't accidentally
+// perform a write as that role.
 async function requireKpiConfigEditor(): Promise<ScopingSession> {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM" && role !== "OM") {
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
     throw new Error("You don't have permission to manage KPI config.");
   }
   return {
