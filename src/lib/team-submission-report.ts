@@ -44,8 +44,13 @@ export async function getTeamSubmissionReport(
   if (teamIds.length === 0) return [];
 
   const [teams, connections] = await Promise.all([
+    // isActive: true — a disbanded team (legacy IsActive=false) can still
+    // have stale Connection rows pointing at it that were never reassigned;
+    // without this filter it resurfaces as a phantom row (e.g. Amazon's
+    // disbanded "Team 10" still showing 24 active-but-unreassigned
+    // connections).
     prisma.team.findMany({
-      where: { id: { in: teamIds } },
+      where: { id: { in: teamIds }, isActive: true },
       include: { department: true, teamLeader: true },
       orderBy: { name: "asc" },
     }),
