@@ -56,6 +56,9 @@ export function DeptTeamSummaryPanel({
               <li key={r.id} className="flex items-center gap-3 py-2.5">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{r.name}</p>
+                  {r.leaderName && (
+                    <p className="truncate text-xs text-muted">{r.leaderName}</p>
+                  )}
                   <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
                     <div
                       className={`h-full rounded-full ${rateBarClass(r.ratePct)}`}

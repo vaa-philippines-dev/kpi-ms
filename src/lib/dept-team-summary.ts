@@ -5,6 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 export type GroupSubmissionRow = {
   id: string;
   name: string;
+  leaderName: string | null;
   submitted: number;
   total: number;
   ratePct: number;
@@ -13,6 +14,7 @@ export type GroupSubmissionRow = {
 async function buildRow(
   id: string,
   name: string,
+  leaderName: string | null,
   scope: Prisma.ConnectionWhereInput,
   period: KpiPeriod,
   periodStart: Date,
@@ -31,7 +33,7 @@ async function buildRow(
   });
   const total = connections.length;
   if (total === 0) {
-    return { id, name, submitted: 0, total: 0, ratePct: 0 };
+    return { id, name, leaderName, submitted: 0, total: 0, ratePct: 0 };
   }
   // Measured via PerformanceSummary, not Submission — legacy bulk imports
   // write performance data straight into PerformanceSummary and never
@@ -49,6 +51,7 @@ async function buildRow(
   return {
     id,
     name,
+    leaderName,
     submitted: submittedGroups.length,
     total,
     ratePct: Math.round((submittedGroups.length / total) * 100),
@@ -73,7 +76,7 @@ export async function getDepartmentSubmissionSummary(
   });
   return Promise.all(
     departments.map((dept) =>
-      buildRow(dept.id, dept.name, { departmentId: dept.id, ...extraScope }, period, periodStart),
+      buildRow(dept.id, dept.name, null, { departmentId: dept.id, ...extraScope }, period, periodStart),
     ),
   );
 }
@@ -82,6 +85,11 @@ export async function getDepartmentSubmissionSummary(
  * One row per team visible within `scope`, for the non-Admin "Team Summary"
  * side panel — e.g. a DM sees every team in their department, an OM sees
  * just the team(s) they lead (since `scope` is already narrowed to that).
+ * Also prepends a leading "No Team" row for connections with no team
+ * assigned at all — previously dropped from this panel entirely (only
+ * connections with a `teamId` were ever looked at), which hid submissions
+ * from otherwise-unassigned VAs rather than surfacing them as needing a
+ * team.
  */
 export async function getTeamSubmissionSummary(
   scope: Prisma.ConnectionWhereInput,
@@ -94,19 +102,40 @@ export async function getTeamSubmissionSummary(
     distinct: ["teamId"],
   });
   const teamIds = withTeam.map((c) => c.teamId!).filter(Boolean);
-  if (teamIds.length === 0) return [];
 
-  // isActive: true — a disbanded team (legacy IsActive=false) can still have
-  // stale Connection rows pointing at it that were never reassigned; without
-  // this filter it resurfaces as a phantom row (e.g. Amazon's disbanded
-  // "Team 10" still showing 24 active-but-unreassigned connections).
-  const teams = await prisma.team.findMany({
-    where: { id: { in: teamIds }, isActive: true },
-    orderBy: { name: "asc" },
-  });
-  return Promise.all(
-    teams.map((team) =>
-      buildRow(team.id, team.name, { ...scope, teamId: team.id }, period, periodStart),
+  // Includes disbanded (isActive: false) teams too — excluding them here
+  // used to mean any connection still pointing at a disbanded team (e.g.
+  // Amazon's "Team 10", 24 active-but-unreassigned connections, confirmed
+  // against both Postgres and the legacy KPI-Portal sheet) vanished from
+  // this panel entirely: not counted toward any team, not counted toward
+  // "No Team" either (its connections still have a real teamId, just one
+  // pointing at a disbanded team), silently understating the department's
+  // real total. Shown with a "(Disbanded)" suffix instead so it reads as
+  // "these still need reassigning," not a live team.
+  const teams =
+    teamIds.length === 0
+      ? []
+      : await prisma.team.findMany({
+          where: { id: { in: teamIds } },
+          include: { teamLeader: true },
+          orderBy: { name: "asc" },
+        });
+
+  const [teamRows, noTeamRow] = await Promise.all([
+    Promise.all(
+      teams.map((team) =>
+        buildRow(
+          team.id,
+          team.isActive ? team.name : `${team.name} (Disbanded)`,
+          team.teamLeader?.name ?? team.teamLeader?.email ?? null,
+          { ...scope, teamId: team.id },
+          period,
+          periodStart,
+        ),
+      ),
     ),
-  );
+    buildRow("no-team", "No Team", null, { ...scope, teamId: null }, period, periodStart),
+  ]);
+
+  return noTeamRow.total > 0 ? [noTeamRow, ...teamRows] : teamRows;
 }
