@@ -19,6 +19,15 @@ export function computeDeviationPct(
  * Ported from the legacy Apps Script `calcStatus()`. Overshooting a target
  * is never penalized — only underperforming in the direction that matters
  * triggers At Risk / Critical, gated by two independent thresholds.
+ *
+ * NO_DATA means "nothing was submitted" (actualValue is null) — it must
+ * never fire just because a real submitted value happens to make deviation
+ * un-expressible as a percentage (a zero targetValue, e.g. a KPI whose
+ * master target was never configured past its default). `underperforming`
+ * is checked before computeDeviationPct is even called, so a zero target
+ * that's actually being met (or exceeded, in the good direction) reports
+ * ON_TARGET; only an unmet zero target falls back to CRITICAL instead of
+ * a percentage it can't compute.
  */
 export function computeStatus(
   direction: KpiDirection,
@@ -27,17 +36,18 @@ export function computeStatus(
   deviationThresholdPct: number,
   criticalThresholdPct: number,
 ): PerformanceStatus {
-  const dev = computeDeviationPct(targetValue, actualValue);
-  if (dev === null || actualValue === null) return PerformanceStatus.NO_DATA;
+  if (actualValue === null) return PerformanceStatus.NO_DATA;
 
   const underperforming =
     direction === KpiDirection.HIGHER_IS_BETTER
       ? actualValue < targetValue
       : actualValue > targetValue;
 
-  if (!underperforming || dev <= deviationThresholdPct) {
-    return PerformanceStatus.ON_TARGET;
-  }
+  if (!underperforming) return PerformanceStatus.ON_TARGET;
+
+  const dev = computeDeviationPct(targetValue, actualValue);
+  if (dev === null) return PerformanceStatus.CRITICAL;
+  if (dev <= deviationThresholdPct) return PerformanceStatus.ON_TARGET;
   if (dev <= criticalThresholdPct) return PerformanceStatus.AT_RISK;
   return PerformanceStatus.CRITICAL;
 }

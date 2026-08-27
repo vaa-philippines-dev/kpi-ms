@@ -22,28 +22,27 @@ function DirIndicator({ direction }: { direction: KpiDirection }) {
 function KpiTable({ label, detail }: { label: string; detail: ConnectionWeekDetail }) {
   if (detail.kpiRows.length === 0) return null;
 
-  // getConnectionWeekDetail falls back to the department's FULL KPI catalog
-  // when nothing's been submitted yet for this period — isApplicable barely
-  // narrows that list in practice (see the comment on that function), so
-  // rendering it here as a real table dumped a dozen+ mostly-unrelated
-  // "No Data" rows for any connection that simply hadn't submitted yet.
-  // A VA doesn't need a preview of what COULD be submitted, just whether
-  // they still owe something for this period.
-  if (!detail.hasSubmission) {
-    return (
-      <div className="mt-4">
-        <h3 className="mb-2 text-xs font-semibold text-muted uppercase">{label}</h3>
-        <p className="flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-          <AlertTriangle className="size-3.5 shrink-0" />
-          Not submitted yet for this period.
-        </p>
-      </div>
-    );
-  }
+  // hasSubmission now means EVERY applicable KPI has been submitted this
+  // period, not just some — a connection's KPIs are usually submitted one
+  // cluster at a time (e.g. "Tiktok Shop", "Instagram"), so a single
+  // connection-wide flag used to falsely mark every other not-yet-submitted
+  // cluster as done the moment any one cluster was submitted. The table is
+  // always shown now (per-row `submitted` distinguishes "not submitted yet"
+  // from a real, explicitly-marked "No Data"); the warning just calls out
+  // how many rows are still outstanding.
+  const pending = detail.kpiRows.filter((r) => !r.submitted).length;
 
   return (
     <div className="mt-4">
       <h3 className="mb-2 text-xs font-semibold text-muted uppercase">{label}</h3>
+      {pending > 0 && (
+        <p className="mb-2 flex items-center gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          {pending === detail.kpiRows.length
+            ? "Not submitted yet for this period."
+            : `${pending} of ${detail.kpiRows.length} KPIs still need to be submitted for this period.`}
+        </p>
+      )}
       <div className="overflow-hidden rounded-lg border border-surface-border">
         <table className="w-full text-sm">
           <thead className="bg-surface-hover/60 text-xs text-muted uppercase">
@@ -68,7 +67,11 @@ function KpiTable({ label, detail }: { label: string; detail: ConnectionWeekDeta
                   <DirIndicator direction={r.direction} />
                 </td>
                 <td className="px-3 py-2">
-                  <StatusBadge status={r.status} />
+                  {r.submitted ? (
+                    <StatusBadge status={r.status} />
+                  ) : (
+                    <span className="text-xs text-muted">Not submitted</span>
+                  )}
                 </td>
               </tr>
             ))}

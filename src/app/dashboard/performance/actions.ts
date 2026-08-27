@@ -16,6 +16,11 @@ export type ConnectionWeekKpiRow = {
   benchmarkValue: number | null;
   actualValue: number | null;
   status: PerformanceStatus;
+  // Whether THIS specific KPI has an actual SubmissionRecord for this
+  // period — as opposed to `status` being NO_DATA because a submission
+  // explicitly marked it "no data available". Lets the UI tell "nothing
+  // submitted yet" apart from "submitted, and there's genuinely no data".
+  submitted: boolean;
 };
 
 const STATUS_SEVERITY: Record<PerformanceStatus, number> = {
@@ -50,15 +55,25 @@ export type ConnectionWeekDetail = {
 
 /**
  * Legacy's connection-detail popup (AppSettings.html's `openConnWeekDetail`,
- * the one with the Dir column and Benchmark subtitle) — when the week was
- * actually submitted, it shows only the KPIs present in that submission,
- * not the department/service's full KPI catalog; the full catalog (filtered
- * by KpiConfig.isApplicable) is a fallback for weeks with nothing submitted
- * yet. Showing the full catalog unconditionally — the previous bug here —
- * made every already-submitted week look padded with dozens of unrelated
- * "No Data" KPIs, since isApplicable is TRUE for nearly every KPI/connection
- * pair on both legacy and this system (never used as a real per-connection
- * filter in practice).
+ * the one with the Dir column and Benchmark subtitle). Always shows the
+ * department/service's full applicable KPI catalog (filtered by
+ * KpiConfig.isApplicable), each row flagged with whether IT SPECIFICALLY has
+ * been submitted this period — not just whether the connection has *any*
+ * submission this period. A connection's KPIs are usually submitted one
+ * cluster (e.g. "Tiktok Shop", "Instagram") at a time, so a connection-wide
+ * "has this period been submitted" flag falsely marks every other
+ * not-yet-submitted cluster as done the moment any one cluster is
+ * submitted — see `hasSubmission` below, which now requires every
+ * applicable KPI to be submitted, not just one.
+ *
+ * "Submitted" is read off actual SubmissionRecord rows, not off
+ * PerformanceSummary presence — PerformanceSummary rows are never deleted
+ * (recomputePerformanceSummary falls them back to NO_DATA instead) and can
+ * in principle exist without ever having had a Submission behind them (e.g.
+ * a direct legacy-sync write), so their mere existence doesn't reliably
+ * prove a submission happened. Same reasoning as lib/connection-trend.ts and
+ * commit 2d9cd9d's fix for the submissions tracker — just scoped per-KPI
+ * here instead of per-connection.
  */
 export async function getConnectionWeekDetail(
   connectionId: string,
@@ -75,23 +90,24 @@ export async function getConnectionWeekDetail(
 
   const periodStartDate = new Date(periodStart);
 
-  const [configs, submission, summaries, interventions] = await Promise.all([
+  const [configs, applicableKpis, summaries, submittedRecords, interventions] = await Promise.all([
     prisma.kpiConfig.findMany({
       where: { connectionId },
     }),
-    // Source of truth for "has this period been submitted" — PerformanceSummary
-    // rows are never deleted (recomputePerformanceSummary just falls them back
-    // to NO_DATA), so their mere presence doesn't reliably say whether a
-    // Submission exists for this period. See lib/connection-trend.ts, which
-    // has the same fix, and commit 2d9cd9d's identical fix for the
-    // submissions tracker.
-    prisma.submission.findFirst({
-      where: { connectionId, period, periodStart: periodStartDate },
-      select: { id: true },
+    prisma.kpiDefinition.findMany({
+      where: {
+        period,
+        departmentId: connection.departmentId,
+        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+      },
+      orderBy: { name: "asc" },
     }),
     prisma.performanceSummary.findMany({
       where: { connectionId, period, periodStart: periodStartDate },
-      include: { kpiDefinition: true },
+    }),
+    prisma.submissionRecord.findMany({
+      where: { submission: { connectionId, period, periodStart: periodStartDate } },
+      select: { kpiDefinitionId: true },
     }),
     prisma.intervention.findMany({
       where: { connectionId },
@@ -101,53 +117,43 @@ export async function getConnectionWeekDetail(
   ]);
 
   const configByKpi = new Map(configs.map((c) => [c.kpiDefinitionId, c]));
+  const summaryByKpi = new Map(summaries.map((s) => [s.kpiDefinitionId, s]));
+  const submittedKpiIds = new Set(submittedRecords.map((r) => r.kpiDefinitionId));
 
   const benchmarkFor = (kpiDefinitionId: string, targetValue: number, masterTarget: number) => {
     const config = configByKpi.get(kpiDefinitionId);
     return config?.targetValue != null && config.targetValue !== masterTarget ? masterTarget : null;
   };
 
-  const hasSubmission = submission !== null;
+  const applicable = applicableKpis.filter((kpi) => configByKpi.get(kpi.id)?.isApplicable ?? true);
 
-  let kpiRows: ConnectionWeekKpiRow[];
-  if (hasSubmission) {
-    kpiRows = summaries.map((s) => ({
-      kpiDefinitionId: s.kpiDefinitionId,
-      name: s.kpiDefinition.name,
-      unit: s.kpiDefinition.unit,
-      direction: s.kpiDefinition.direction,
-      targetValue: s.targetValue,
-      benchmarkValue: benchmarkFor(s.kpiDefinitionId, s.targetValue, s.kpiDefinition.targetValue),
-      actualValue: s.actualValue,
-      status: s.status,
-    }));
-  } else {
-    const applicableKpis = await prisma.kpiDefinition.findMany({
-      where: {
-        period,
-        departmentId: connection.departmentId,
-        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
-      },
-      orderBy: { name: "asc" },
-    });
-    kpiRows = applicableKpis
-      .filter((kpi) => configByKpi.get(kpi.id)?.isApplicable ?? true)
-      .map((kpi) => {
-        const config = configByKpi.get(kpi.id);
-        const targetValue = config?.targetValue ?? kpi.targetValue;
-        return {
-          kpiDefinitionId: kpi.id,
-          name: kpi.name,
-          unit: kpi.unit,
-          direction: kpi.direction,
-          targetValue,
-          benchmarkValue: benchmarkFor(kpi.id, targetValue, kpi.targetValue),
-          actualValue: null,
-          status: PerformanceStatus.NO_DATA,
-        };
-      });
-  }
-  kpiRows.sort((a, b) => STATUS_SEVERITY[a.status] - STATUS_SEVERITY[b.status]);
+  const kpiRows: ConnectionWeekKpiRow[] = applicable.map((kpi) => {
+    const config = configByKpi.get(kpi.id);
+    const targetValue = config?.targetValue ?? kpi.targetValue;
+    const summary = summaryByKpi.get(kpi.id);
+    const submitted = submittedKpiIds.has(kpi.id);
+    return {
+      kpiDefinitionId: kpi.id,
+      name: kpi.name,
+      unit: kpi.unit,
+      direction: kpi.direction,
+      targetValue: summary?.targetValue ?? targetValue,
+      benchmarkValue: benchmarkFor(kpi.id, summary?.targetValue ?? targetValue, kpi.targetValue),
+      actualValue: submitted ? (summary?.actualValue ?? null) : null,
+      status: submitted ? (summary?.status ?? PerformanceStatus.NO_DATA) : PerformanceStatus.NO_DATA,
+      submitted,
+    };
+  });
+  // Not-yet-submitted rows sink below every real status (including a
+  // genuine "submitted, no data" NO_DATA), so an incomplete cluster reads
+  // as clearly outstanding rather than blending in with the rest.
+  kpiRows.sort((a, b) => {
+    const rankA = a.submitted ? STATUS_SEVERITY[a.status] : 4;
+    const rankB = b.submitted ? STATUS_SEVERITY[b.status] : 4;
+    return rankA - rankB;
+  });
+
+  const hasSubmission = applicable.length > 0 && applicable.every((kpi) => submittedKpiIds.has(kpi.id));
 
   return {
     connectionId: connection.id,

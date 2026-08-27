@@ -136,12 +136,19 @@ export function PerformanceDetailModal({
               <InfoItem label="Team Leader">{detail.teamLeaderName ?? "—"}</InfoItem>
             </div>
 
-            {!detail.hasSubmission && (
-              <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-                <AlertTriangle className="size-3.5 shrink-0" />
-                No submission received for this {periodWord.toLowerCase()}
-              </div>
-            )}
+            {!detail.hasSubmission &&
+              (() => {
+                const pending = detail.kpiRows.filter((r) => !r.submitted).length;
+                if (pending === 0) return null;
+                return (
+                  <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                    <AlertTriangle className="size-3.5 shrink-0" />
+                    {pending === detail.kpiRows.length
+                      ? `No submission received for this ${periodWord.toLowerCase()}`
+                      : `${pending} of ${detail.kpiRows.length} KPIs still not submitted for this ${periodWord.toLowerCase()}`}
+                  </div>
+                );
+              })()}
 
             <div className="max-h-[45vh] overflow-y-auto rounded-lg border border-surface-border">
               <table className="w-full text-sm">
@@ -175,7 +182,11 @@ export function PerformanceDetailModal({
                         <DirIndicator direction={r.direction} />
                       </td>
                       <td className="px-3 py-2">
-                        <StatusBadge status={r.status} />
+                        {r.submitted ? (
+                          <StatusBadge status={r.status} />
+                        ) : (
+                          <span className="text-xs text-muted">Not submitted</span>
+                        )}
                       </td>
                     </tr>
                   ))}
