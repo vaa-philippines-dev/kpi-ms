@@ -9,7 +9,22 @@ import { createTicket } from "@/app/dashboard/dev/actions";
 import { TICKET_CATEGORY_LABELS, TICKET_PRIORITY_LABELS } from "@/lib/ticket-labels";
 import { TicketCategory, TicketPriority } from "@/generated/prisma/enums";
 
-export function NewTicketModal() {
+export function NewTicketModal({
+  defaultSubject = "",
+  defaultCategory = TicketCategory.OTHER,
+  defaultBody = "",
+  renderTrigger,
+}: {
+  /** Pre-fills the form — used by call sites that already know what the
+   * ticket is about (e.g. a crash screen filing a BUG ticket for itself)
+   * so the reporter doesn't have to re-type context that's already known. */
+  defaultSubject?: string;
+  defaultCategory?: TicketCategory;
+  defaultBody?: string;
+  /** Custom trigger element; defaults to the "+ New Ticket" button the
+   * tickets page uses. Receives the function that opens the modal. */
+  renderTrigger?: (open: () => void) => React.ReactNode;
+} = {}) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
@@ -21,9 +36,13 @@ export function NewTicketModal() {
 
   return (
     <>
-      <Button type="button" onClick={() => setOpen(true)}>
-        + New Ticket
-      </Button>
+      {renderTrigger ? (
+        renderTrigger(() => setOpen(true))
+      ) : (
+        <Button type="button" onClick={() => setOpen(true)}>
+          + New Ticket
+        </Button>
+      )}
 
       <Modal open={open} onClose={close} title="Raise a Ticket">
         <form
@@ -43,13 +62,20 @@ export function NewTicketModal() {
         >
           <div>
             <label className="mb-1 block text-xs font-medium text-muted uppercase">Subject *</label>
-            <Input name="subject" required autoComplete="off" placeholder="Short summary of your concern" className="w-full" />
+            <Input
+              name="subject"
+              required
+              autoComplete="off"
+              defaultValue={defaultSubject}
+              placeholder="Short summary of your concern"
+              className="w-full"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted uppercase">Category</label>
-              <Select name="category" defaultValue={TicketCategory.OTHER} className="w-full">
+              <Select name="category" defaultValue={defaultCategory} className="w-full">
                 {Object.entries(TICKET_CATEGORY_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
@@ -71,7 +97,14 @@ export function NewTicketModal() {
 
           <div>
             <label className="mb-1 block text-xs font-medium text-muted uppercase">Message *</label>
-            <Textarea name="body" required rows={4} placeholder="What's going on?" className="w-full" />
+            <Textarea
+              name="body"
+              required
+              rows={4}
+              defaultValue={defaultBody}
+              placeholder="What's going on?"
+              className="w-full"
+            />
           </div>
 
           <div>

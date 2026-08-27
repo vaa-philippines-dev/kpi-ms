@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
+import { NewTicketModal } from "@/components/new-ticket-modal";
+import { TicketCategory } from "@/generated/prisma/enums";
 
 /**
  * Safety net for a genuinely unexpected crash while submitting (e.g. a DB
@@ -32,7 +34,20 @@ export default function SubmitKpiError({
         </h2>
         <p className="mt-2 text-sm text-muted">
           Your submission wasn&apos;t saved. Please try again — if it keeps
-          happening, contact your Team Leader or Manager.
+          happening, contact your Team Leader or Manager, or{" "}
+          <NewTicketModal
+            defaultSubject="Submission error"
+            defaultCategory={TicketCategory.BUG}
+            defaultBody={`What were you trying to submit when this happened?\n\n(Error reference: ${
+              error.digest ?? "none"
+            })`}
+            renderTrigger={(open) => (
+              <button type="button" onClick={open} className="text-accent hover:underline">
+                submit a ticket
+              </button>
+            )}
+          />
+          .
         </p>
         <button
           type="button"
