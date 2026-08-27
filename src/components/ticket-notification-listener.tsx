@@ -7,14 +7,17 @@ import type { TicketNotification } from "@/lib/realtime";
 import { dispatchTicketLive } from "@/lib/ticket-live-bus";
 import { TICKET_STATUS_LABELS } from "@/lib/ticket-labels";
 
-function describeTicketEvent(payload: TicketNotification): string {
+function describeTicketEvent(payload: TicketNotification): { title: string; message: string } {
   switch (payload.kind) {
     case "created":
-      return `New ticket from ${payload.actorName}: "${payload.subject}"`;
+      return { title: "New ticket", message: `${payload.actorName} — "${payload.subject}"` };
     case "message":
-      return `${payload.actorName} replied to "${payload.subject}"`;
+      return { title: `${payload.actorName} replied`, message: `"${payload.subject}"` };
     case "status":
-      return `"${payload.subject}" is now ${TICKET_STATUS_LABELS[payload.status]}`;
+      return {
+        title: "Ticket updated",
+        message: `"${payload.subject}" is now ${TICKET_STATUS_LABELS[payload.status]}`,
+      };
   }
 }
 
@@ -37,9 +40,11 @@ export function TicketNotificationListener() {
     source.onmessage = (e) => {
       const payload = JSON.parse(e.data) as TicketNotification;
       if (dispatchTicketLive(payload)) return;
+      const { title, message } = describeTicketEvent(payload);
       toast(
-        describeTicketEvent(payload),
+        message,
         payload.kind === "status" && payload.status === "CLOSED" ? "success" : "info",
+        { title, onClick: () => router.push(`/dashboard/dev/tickets/${payload.ticketId}`) },
       );
       router.refresh();
     };

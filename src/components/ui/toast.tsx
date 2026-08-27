@@ -1,18 +1,27 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { CheckCircle2, XCircle, Info, X } from "lucide-react";
 
 type ToastTone = "success" | "error" | "info";
+
+type ToastOptions = {
+  /** Bold lead line above the message — e.g. an event name or actor. */
+  title?: string;
+  /** Makes the whole card clickable (e.g. open the thing the toast is about); closes the toast on click. */
+  onClick?: () => void;
+};
 
 type ToastItem = {
   id: number;
   message: string;
   tone: ToastTone;
+  title?: string;
+  onClick?: () => void;
 };
 
 type ToastContextValue = {
-  toast: (message: string, tone?: ToastTone) => void;
+  toast: (message: string, tone?: ToastTone, options?: ToastOptions) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -23,19 +32,28 @@ const TONE_ICON = {
   info: Info,
 } as const;
 
-const TONE_STYLE = {
-  success: "border-success/30 text-success",
-  error: "border-danger/30 text-danger",
-  info: "border-surface-border text-foreground",
+const TONE_BADGE = {
+  success: "bg-success/10 text-success",
+  error: "bg-danger/10 text-danger",
+  info: "bg-accent/10 text-accent",
 } as const;
 
-const AUTO_DISMISS_MS = 4000;
+const TONE_BAR = {
+  success: "bg-success",
+  error: "bg-danger",
+  info: "bg-accent",
+} as const;
+
+const AUTO_DISMISS_MS = 5000;
+// Keep in sync with .animate-toast-out's duration in globals.css.
+const EXIT_MS = 180;
 
 /**
  * App-wide toast notifications. Mounted once in the dashboard layout;
- * any client component calls `useToast().toast(message, tone)`. Plain
- * React state, no portal/library — the stack is fixed-position and sits
- * above everything (including modals) via a high z-index.
+ * any client component calls `useToast().toast(message, tone, options)`.
+ * Docked bottom-right, Discord-style: icon badge, optional bold title,
+ * a progress bar that pauses on hover, and (via `onClick`) a whole-card
+ * click target for jumping straight to whatever the toast is about.
  */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
@@ -46,40 +64,100 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toast = useCallback(
-    (message: string, tone: ToastTone = "info") => {
+    (message: string, tone: ToastTone = "info", options?: ToastOptions) => {
       const id = nextId.current++;
-      setItems((prev) => [...prev, { id, message, tone }]);
-      setTimeout(() => dismiss(id), AUTO_DISMISS_MS);
+      setItems((prev) => [
+        ...prev,
+        { id, message, tone, title: options?.title, onClick: options?.onClick },
+      ]);
     },
-    [dismiss],
+    [],
   );
 
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[100] flex flex-col items-center gap-2 px-4">
-        {items.map((t) => {
-          const Icon = TONE_ICON[t.tone];
-          return (
-            <div
-              key={t.id}
-              role="status"
-              className={`animate-modal-pop pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-xl border bg-surface px-4 py-3 shadow-2xl shadow-black/20 ${TONE_STYLE[t.tone]}`}
-            >
-              <Icon className="mt-0.5 size-4 shrink-0" />
-              <p className="flex-1 text-sm text-foreground">{t.message}</p>
-              <button
-                onClick={() => dismiss(t.id)}
-                aria-label="Dismiss"
-                className="shrink-0 text-muted transition hover:text-foreground"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          );
-        })}
+      <div className="pointer-events-none fixed inset-x-4 bottom-4 z-[100] flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-96">
+        {items.map((item) => (
+          <ToastCard key={item.id} item={item} onDismiss={dismiss} />
+        ))}
       </div>
     </ToastContext.Provider>
+  );
+}
+
+function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: number) => void }) {
+  const [hovered, setHovered] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  // Wall-clock deadline, recomputed on every hover/unhover so pausing on
+  // hover actually pauses (not just visually) instead of dismissing under
+  // the reader's cursor mid-read.
+  const remainingRef = useRef(AUTO_DISMISS_MS);
+  // Set for real inside the effect below, before it's ever read (the
+  // cleanup only reads it once the effect has already run) — avoids calling
+  // the impure Date.now() during render just to seed a ref.
+  const deadlineRef = useRef(0);
+
+  const close = useCallback(() => {
+    setLeaving(true);
+    setTimeout(() => onDismiss(item.id), EXIT_MS);
+  }, [item.id, onDismiss]);
+
+  useEffect(() => {
+    if (hovered || leaving) return;
+    deadlineRef.current = Date.now() + remainingRef.current;
+    const timer = setTimeout(close, remainingRef.current);
+    return () => {
+      clearTimeout(timer);
+      remainingRef.current = Math.max(deadlineRef.current - Date.now(), 0);
+    };
+  }, [hovered, leaving, close]);
+
+  const Icon = TONE_ICON[item.tone];
+  const clickable = Boolean(item.onClick);
+
+  return (
+    <div
+      role="status"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={
+        clickable
+          ? () => {
+              item.onClick?.();
+              close();
+            }
+          : undefined
+      }
+      className={`group pointer-events-auto relative flex items-start gap-3 overflow-hidden rounded-xl border border-surface-border bg-surface p-3 pr-8 shadow-2xl shadow-black/30 ${
+        leaving ? "animate-toast-out" : "animate-toast-in"
+      } ${clickable ? "cursor-pointer transition-colors hover:bg-surface-hover" : ""}`}
+    >
+      <div className={`flex size-9 shrink-0 items-center justify-center rounded-full ${TONE_BADGE[item.tone]}`}>
+        <Icon className="size-5" />
+      </div>
+      <div className="min-w-0 flex-1 pt-0.5">
+        {item.title && <p className="text-sm font-semibold text-foreground">{item.title}</p>}
+        <p className="text-sm leading-snug text-muted">{item.message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          close();
+        }}
+        aria-label="Dismiss"
+        className="absolute top-2 right-2 flex size-5 items-center justify-center rounded-full text-muted opacity-0 transition hover:bg-surface-border hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+      >
+        <X className="size-3.5" />
+      </button>
+      <div
+        className={`absolute inset-x-0 bottom-0 h-0.5 origin-left ${TONE_BAR[item.tone]} opacity-40 ${
+          leaving ? "" : "animate-toast-progress"
+        }`}
+        style={{ animationPlayState: hovered ? "paused" : "running" }}
+      />
+    </div>
   );
 }
 

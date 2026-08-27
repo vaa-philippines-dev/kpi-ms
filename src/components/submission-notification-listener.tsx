@@ -25,7 +25,7 @@ export function SubmissionNotificationListener() {
     source.onmessage = (e) => {
       const payload = JSON.parse(e.data) as SubmissionNotification;
       const label = payload.cluster ? `${payload.period.toLowerCase()} (${payload.cluster})` : payload.period.toLowerCase();
-      toast(`${payload.clientName} submitted their ${label} KPI`, "info");
+      toast(`${payload.clientName} submitted their ${label} KPI`, "info", { title: "New submission" });
       router.refresh();
     };
 
