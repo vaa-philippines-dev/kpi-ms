@@ -96,22 +96,31 @@ export async function getTeamSubmissionSummary(
   period: KpiPeriod,
   periodStart: Date,
 ): Promise<GroupSubmissionRow[]> {
-  const withTeam = await prisma.connection.findMany({
-    where: { ...scope, teamId: { not: null } },
+  // Team membership lives on the VA (User.teamId), never on the connection.
+  // Connection.teamId is written once at creation/import and goes stale the
+  // moment a VA transfers teams — teams/actions.ts's addTeamMember/
+  // removeTeamMember/transferTeamMember update only User.teamId, by design
+  // (see its own comment: "Connections.TeamID goes stale on transfer; only
+  // User.teamId is trusted"). Legacy's getTeamSubmissionSummary
+  // (SubmissionsCore.js) never read the connection's team field either — it
+  // always grouped by the VA's own TeamID. Grouping by Connection.teamId
+  // here (as this used to) diverged from legacy's per-team totals by up to
+  // ~70% of a department's active connections (verified against Amazon's
+  // roster: Team 01 read 22 instead of 31, Team 03 read 17 instead of 53).
+  const teamUsers = await prisma.user.findMany({
+    where: { teamId: { not: null }, vaConnections: { some: scope } },
     select: { teamId: true },
     distinct: ["teamId"],
   });
-  const teamIds = withTeam.map((c) => c.teamId!).filter(Boolean);
+  const teamIds = teamUsers.map((u) => u.teamId!).filter(Boolean);
 
   // Includes disbanded (isActive: false) teams too — excluding them here
-  // used to mean any connection still pointing at a disbanded team (e.g.
-  // Amazon's "Team 10", 24 active-but-unreassigned connections, confirmed
-  // against both Postgres and the legacy KPI-Portal sheet) vanished from
-  // this panel entirely: not counted toward any team, not counted toward
-  // "No Team" either (its connections still have a real teamId, just one
-  // pointing at a disbanded team), silently understating the department's
-  // real total. Shown with a "(Disbanded)" suffix instead so it reads as
-  // "these still need reassigning," not a live team.
+  // used to mean any VA still pointing at a disbanded team (e.g. Amazon's
+  // "Team 10") vanished from this panel entirely: not counted toward any
+  // team, not counted toward "No Team" either (they still have a real
+  // teamId, just one pointing at a disbanded team), silently understating
+  // the department's real total. Shown with a "(Disbanded)" suffix instead
+  // so it reads as "these still need reassigning," not a live team.
   const teams =
     teamIds.length === 0
       ? []
@@ -128,13 +137,20 @@ export async function getTeamSubmissionSummary(
           team.id,
           team.isActive ? team.name : `${team.name} (Disbanded)`,
           team.teamLeader?.name ?? team.teamLeader?.email ?? null,
-          { ...scope, teamId: team.id },
+          { ...scope, vaUser: { teamId: team.id } },
           period,
           periodStart,
         ),
       ),
     ),
-    buildRow("no-team", "No Team", null, { ...scope, teamId: null }, period, periodStart),
+    buildRow(
+      "no-team",
+      "No Team",
+      null,
+      { ...scope, vaUser: { teamId: null } },
+      period,
+      periodStart,
+    ),
   ]);
 
   return noTeamRow.total > 0 ? [noTeamRow, ...teamRows] : teamRows;

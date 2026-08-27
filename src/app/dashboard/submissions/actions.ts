@@ -132,7 +132,7 @@ export async function getConnectionPeriodDetail(
   const scope = connectionScopeWhere(session);
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...scope },
-    include: { vaUser: true, department: true, team: true },
+    include: { vaUser: { include: { team: true } }, department: true },
   });
   if (!connection) {
     throw new Error("Connection not found or not in your scope.");
@@ -196,7 +196,7 @@ export async function getConnectionPeriodDetail(
     clientName: connection.clientName,
     vaName: connection.vaUser.name ?? connection.vaUser.email,
     departmentName: connection.department.name,
-    teamName: connection.team?.name ?? null,
+    teamName: connection.vaUser.team?.name ?? null,
     period,
     periodStart: periodStartDate.toISOString(),
     kpiRows,

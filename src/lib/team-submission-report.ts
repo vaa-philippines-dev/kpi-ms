@@ -35,12 +35,16 @@ export async function getTeamSubmissionReport(
     starts.push(new Date(weeklyStart.getTime() - i * 7 * 24 * 60 * 60 * 1000));
   }
 
-  const withTeam = await prisma.connection.findMany({
-    where: { ...scope, teamId: { not: null } },
+  // Team membership lives on the VA (User.teamId), never on the connection
+  // — see lib/dept-team-summary.ts's getTeamSubmissionSummary for the full
+  // explanation of why Connection.teamId goes stale and can't be trusted
+  // for grouping.
+  const teamUsers = await prisma.user.findMany({
+    where: { teamId: { not: null }, vaConnections: { some: scope } },
     select: { teamId: true },
     distinct: ["teamId"],
   });
-  const teamIds = withTeam.map((c) => c.teamId).filter((id): id is string => !!id);
+  const teamIds = teamUsers.map((u) => u.teamId).filter((id): id is string => !!id);
   if (teamIds.length === 0) return [];
 
   const [teams, connections] = await Promise.all([
@@ -59,8 +63,17 @@ export async function getTeamSubmissionReport(
     // (END_OF_CONTRACT/END_OF_PROJECT) and not-yet-started (PENDING)
     // connections, and would now catch INACTIVE too.
     prisma.connection.findMany({
-      where: { ...scope, teamId: { in: teamIds }, status: ConnectionStatus.ACTIVE },
-      select: { id: true, teamId: true, createdAt: true, startDate: true },
+      where: {
+        ...scope,
+        vaUser: { teamId: { in: teamIds } },
+        status: ConnectionStatus.ACTIVE,
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        startDate: true,
+        vaUser: { select: { teamId: true } },
+      },
     }),
   ]);
 
@@ -82,9 +95,10 @@ export async function getTeamSubmissionReport(
 
   const connsByTeam = new Map<string, typeof connections>();
   for (const c of connections) {
-    if (!c.teamId) continue;
-    if (!connsByTeam.has(c.teamId)) connsByTeam.set(c.teamId, []);
-    connsByTeam.get(c.teamId)!.push(c);
+    const teamId = c.vaUser.teamId;
+    if (!teamId) continue;
+    if (!connsByTeam.has(teamId)) connsByTeam.set(teamId, []);
+    connsByTeam.get(teamId)!.push(c);
   }
 
   return teams.map((team) => {

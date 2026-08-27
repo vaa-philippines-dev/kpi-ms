@@ -81,7 +81,12 @@ export default async function PerformancePage(
   // its rows out per-department and would otherwise have a fixed dept.id
   // clobbered by spreading a dept filter into its own per-row scope.
   const teamTypeScope: Prisma.ConnectionWhereInput = {
-    ...(teamFilter ? { teamId: teamFilter } : {}),
+    // Filters by the VA's own team (User.teamId), not Connection.teamId —
+    // the latter is written once at creation/import and goes stale on
+    // transfer, so it disagrees with the VA's real team for a large share
+    // of connections. See lib/dept-team-summary.ts's getTeamSubmissionSummary
+    // for the full explanation.
+    ...(teamFilter ? { vaUser: { teamId: teamFilter } } : {}),
     ...(typeFilter ? { connectionType: typeFilter } : {}),
   };
   const attrScope: Prisma.ConnectionWhereInput = {
@@ -119,7 +124,9 @@ export default async function PerformancePage(
           periodStart: selectedPeriodStart,
         },
         include: {
-          connection: { include: { department: true, vaUser: true, team: true } },
+          connection: {
+            include: { department: true, vaUser: { include: { team: true } } },
+          },
           kpiDefinition: true,
         },
       }),
@@ -133,7 +140,7 @@ export default async function PerformancePage(
         select: { id: true, name: true },
       }),
       prisma.team.findMany({
-        where: { connections: { some: scope } },
+        where: { members: { some: { vaConnections: { some: scope } } } },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),
@@ -162,7 +169,7 @@ export default async function PerformancePage(
       clientName: connection.clientName,
       vaName: connection.vaUser.name ?? connection.vaUser.email,
       departmentName: connection.department.name,
-      teamName: connection.team?.name ?? null,
+      teamName: connection.vaUser.team?.name ?? null,
       connectionType: connection.connectionType,
       status: rollupStatus(statuses),
       durationDays: daysSince(connection.startDate ?? connection.createdAt),
