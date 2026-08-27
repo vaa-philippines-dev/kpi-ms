@@ -54,6 +54,7 @@ export default async function TicketDetailPage(props: PageProps<"/dashboard/dev/
           <TicketThread
             ticketId={ticket.id}
             currentUserId={session.id}
+            isAdmin={isAdmin}
             initialMessages={initialMessages}
             initialStatus={ticket.status}
           />

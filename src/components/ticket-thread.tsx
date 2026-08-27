@@ -62,12 +62,15 @@ function initials(name: string) {
 export function TicketThread({
   ticketId,
   currentUserId,
+  isAdmin,
   initialMessages,
   initialStatus,
   className = "h-[70vh]",
 }: {
   ticketId: string;
   currentUserId: string;
+  /** Only the admin may reply once the ticket is Closed — see sendTicketMessage. */
+  isAdmin: boolean;
   initialMessages: ThreadMessage[];
   initialStatus: TicketStatus;
   /** Overrides the thread's own height — pass e.g. "h-full" when embedding inside a taller shell. */
@@ -76,7 +79,8 @@ export function TicketThread({
   const { toast } = useToast();
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
   const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
-  const [, setStatus] = useState<TicketStatus>(initialStatus);
+  const [status, setStatus] = useState<TicketStatus>(initialStatus);
+  const locked = status === "CLOSED" && !isAdmin;
   const [draft, setDraft] = useState("");
   const [attachmentUrl, setAttachmentUrl] = useState("");
   const [showAttachment, setShowAttachment] = useState(false);
@@ -133,7 +137,7 @@ export function TicketThread({
 
   async function handleSend() {
     const body = draft.trim();
-    if (!body || sending) return;
+    if (!body || sending || locked) return;
     const cleanAttachment = attachmentUrl.trim() || null;
     const tempId = `pending-${currentUserId}-${body}-${Date.now()}`;
     applyMessage({
@@ -262,62 +266,70 @@ export function TicketThread({
       </div>
 
       <div className="border-t border-surface-border p-3">
-        {showAttachment && (
-          <div className="mb-2 flex items-center gap-2">
-            <ImageIcon className="size-4 shrink-0 text-muted" />
-            <input
-              value={attachmentUrl}
-              onChange={(e) => setAttachmentUrl(e.target.value)}
-              placeholder="Paste an image/video link…"
-              className="w-full rounded-lg border border-surface-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-accent"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setShowAttachment(false);
-                setAttachmentUrl("");
-              }}
-              aria-label="Remove attachment"
-              className="shrink-0 text-muted hover:text-foreground"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
+        {locked ? (
+          <p className="py-1.5 text-center text-xs text-muted">
+            This ticket is closed. Only an admin can reply.
+          </p>
+        ) : (
+          <>
+            {showAttachment && (
+              <div className="mb-2 flex items-center gap-2">
+                <ImageIcon className="size-4 shrink-0 text-muted" />
+                <input
+                  value={attachmentUrl}
+                  onChange={(e) => setAttachmentUrl(e.target.value)}
+                  placeholder="Paste an image/video link…"
+                  className="w-full rounded-lg border border-surface-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAttachment(false);
+                    setAttachmentUrl("");
+                  }}
+                  aria-label="Remove attachment"
+                  className="shrink-0 text-muted hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAttachment((v) => !v)}
+                aria-label="Attach a link"
+                className={`flex size-9 shrink-0 items-center justify-center rounded-full transition ${
+                  showAttachment ? "bg-accent/15 text-accent" : "text-muted hover:bg-surface-hover hover:text-foreground"
+                }`}
+              >
+                <Link2 className="size-4" />
+              </button>
+              <Textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                rows={1}
+                placeholder="Write a reply…"
+                className="max-h-32 min-h-9 w-full resize-none py-2"
+              />
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!draft.trim() || sending}
+                aria-label="Send"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowUp className="size-4" strokeWidth={2.5} />
+              </button>
+            </div>
+          </>
         )}
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            onClick={() => setShowAttachment((v) => !v)}
-            aria-label="Attach a link"
-            className={`flex size-9 shrink-0 items-center justify-center rounded-full transition ${
-              showAttachment ? "bg-accent/15 text-accent" : "text-muted hover:bg-surface-hover hover:text-foreground"
-            }`}
-          >
-            <Link2 className="size-4" />
-          </button>
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={1}
-            placeholder="Write a reply…"
-            className="max-h-32 min-h-9 w-full resize-none py-2"
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!draft.trim() || sending}
-            aria-label="Send"
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <ArrowUp className="size-4" strokeWidth={2.5} />
-          </button>
-        </div>
       </div>
     </div>
   );

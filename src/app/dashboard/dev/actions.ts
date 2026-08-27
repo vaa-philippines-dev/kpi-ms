@@ -113,6 +113,12 @@ export async function sendTicketMessage(
   if (!ticket) {
     throw new Error("Ticket not found.");
   }
+  // Closed is a dead end for everyone except the admin — only the admin
+  // replying reopens it (see `reopening` below); anyone else must wait for
+  // that reopen instead of being able to revive a closed ticket themselves.
+  if (ticket.status === TicketStatus.CLOSED && session.role !== UserRole.ADMIN) {
+    throw new Error("This ticket is closed. Only an admin can reply.");
+  }
 
   const sender = await prisma.user.findUniqueOrThrow({
     where: { id: session.id },
@@ -121,9 +127,9 @@ export async function sendTicketMessage(
   const senderName = sender.name ?? sender.email;
   const cleanAttachmentUrl = attachmentUrl?.trim() || null;
 
-  // A closed ticket is never a dead end — anyone replying (requester or
-  // admin) reopens it to In Progress rather than requiring a separate
-  // "Reopen" action first.
+  // A closed ticket is never a dead end for the admin — an admin replying
+  // reopens it to In Progress rather than requiring a separate "Reopen"
+  // action first. Non-admins never reach here while closed (blocked above).
   const reopening = ticket.status === TicketStatus.CLOSED;
 
   const message = await prisma.$transaction(async (tx) => {

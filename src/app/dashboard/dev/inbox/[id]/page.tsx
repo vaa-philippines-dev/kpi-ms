@@ -54,6 +54,7 @@ export default async function InboxTicketPage(props: PageProps<"/dashboard/dev/i
         <TicketThread
           ticketId={ticket.id}
           currentUserId={session.id}
+          isAdmin
           initialMessages={initialMessages}
           initialStatus={ticket.status}
           className="h-[60vh] min-h-0 xl:h-full"
