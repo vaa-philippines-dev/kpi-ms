@@ -21,6 +21,7 @@ import {
   updateConnectionStatus,
   updateConnectionType,
   updateConnectionInfo,
+  updateConnectionAssignment,
   toggleConnectionFlag,
   updateConnectionNotes,
   deleteConnection,
@@ -29,6 +30,16 @@ import {
 const TYPE_LABELS: Record<ConnectionType, string> = {
   REGULAR: "Regular",
   PROJECT_BASED: "Project-based",
+};
+
+type AssignmentDepartment = { id: string; name: string };
+type AssignmentService = { id: string; name: string; departmentId: string };
+type AssignmentVaUser = {
+  id: string;
+  name: string | null;
+  email: string;
+  departmentId: string | null;
+  additionalDepartmentIds: string[];
 };
 
 export type ConnectionStatusEventRow = {
@@ -53,9 +64,12 @@ export type ConnectionRow = {
   shortCode: string | null;
   clientName: string;
   secondaryName: string | null;
+  vaUserId: string;
   vaName: string;
   vaEmail: string;
+  departmentId: string;
   departmentName: string;
+  serviceId: string | null;
   serviceName: string | null;
   teamLeaderName: string | null;
   status: ConnectionStatus;
@@ -221,6 +235,124 @@ function ShortCodeItem({ shortCode }: { shortCode: string | null }) {
   );
 }
 
+// Reassign which VA (and, for admins, which department/service) a
+// connection belongs to — sits next to the Account Info form and follows
+// the same cascading Department -> Service/VA pattern as
+// NewConnectionModal. DM/OM get a locked department (same restriction as
+// connection creation) and can only reassign the VA within it; ADMIN can
+// move a connection to any department.
+function ConnectionAssignmentForm({
+  connection,
+  departments,
+  services,
+  vaUsers,
+  lockedDepartmentId,
+}: {
+  connection: ConnectionRow;
+  departments: AssignmentDepartment[];
+  services: AssignmentService[];
+  vaUsers: AssignmentVaUser[];
+  lockedDepartmentId?: string;
+}) {
+  const [departmentId, setDepartmentId] = useState(lockedDepartmentId ?? connection.departmentId);
+  const [serviceId, setServiceId] = useState(connection.serviceId ?? "");
+  const [vaUserId, setVaUserId] = useState(connection.vaUserId);
+
+  const vaBelongsToDept = (u: AssignmentVaUser, deptId: string) =>
+    u.departmentId === deptId || u.additionalDepartmentIds.includes(deptId);
+
+  const servicesForDept = services.filter((s) => s.departmentId === departmentId);
+  const vaUsersForDept = vaUsers.filter((u) => vaBelongsToDept(u, departmentId));
+  const lockedDepartment = lockedDepartmentId
+    ? departments.find((d) => d.id === lockedDepartmentId)
+    : undefined;
+
+  function handleDepartmentChange(nextDeptId: string) {
+    setDepartmentId(nextDeptId);
+    if (!services.some((s) => s.id === serviceId && s.departmentId === nextDeptId)) {
+      setServiceId("");
+    }
+    const currentVa = vaUsers.find((u) => u.id === vaUserId);
+    if (!currentVa || !vaBelongsToDept(currentVa, nextDeptId)) {
+      setVaUserId("");
+    }
+  }
+
+  return (
+    <form
+      action={updateConnectionAssignment}
+      className="grid grid-cols-1 gap-2 rounded-lg border border-dashed border-surface-border p-3 sm:grid-cols-3"
+    >
+      <p className="text-xs font-medium text-muted uppercase sm:col-span-3">
+        Reassign VA / Department
+      </p>
+      <input type="hidden" name="id" value={connection.id} />
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted uppercase">Department</label>
+        {lockedDepartmentId ? (
+          <>
+            <input type="hidden" name="departmentId" value={lockedDepartmentId} />
+            <p className="rounded-lg border border-surface-border bg-surface-hover/40 px-2.5 py-2 text-sm">
+              {lockedDepartment?.name ?? "Your department"}
+            </p>
+          </>
+        ) : (
+          <Select
+            name="departmentId"
+            value={departmentId}
+            onChange={(e) => handleDepartmentChange(e.target.value)}
+            className="w-full"
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted uppercase">Service</label>
+        <Select
+          name="serviceId"
+          value={serviceId}
+          onChange={(e) => setServiceId(e.target.value)}
+          className="w-full"
+        >
+          <option value="">— None —</option>
+          {servicesForDept.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted uppercase">VA</label>
+        <Select
+          name="vaUserId"
+          value={vaUserId}
+          onChange={(e) => setVaUserId(e.target.value)}
+          required
+          className="w-full"
+        >
+          <option value="" disabled>
+            — Select VA —
+          </option>
+          {vaUsersForDept.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name ?? u.email}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <Button type="submit" className="px-3 py-1.5 text-xs sm:col-span-3 sm:w-fit">
+        Save assignment
+      </Button>
+    </form>
+  );
+}
+
 type DetailTab = "performance" | "kpi-config" | "interventions";
 
 function ConnectionDetailTabs({
@@ -329,6 +461,10 @@ export function ConnectionsTable({
   isAdmin,
   canEditKpi,
   canEditConnection,
+  assignmentDepartments,
+  assignmentServices,
+  assignmentVaUsers,
+  lockedDepartmentId,
   initialOpenId = null,
 }: {
   connections: ConnectionRow[];
@@ -340,6 +476,13 @@ export function ConnectionsTable({
   // info/notes (mirrors canEditKpi's role list), but flagging and deleting
   // a connection stay admin-only.
   canEditConnection: boolean;
+  // Lists backing the VA/Department/Service reassignment form — same
+  // shape (and same DM/OM department-locked filtering) as NewConnectionModal
+  // gets from page.tsx.
+  assignmentDepartments: AssignmentDepartment[];
+  assignmentServices: AssignmentService[];
+  assignmentVaUsers: AssignmentVaUser[];
+  lockedDepartmentId?: string;
   // Deep-links straight into a connection's detail modal — e.g. the
   // Performance Summary table's "View Connection" link (`?open=<id>`).
   initialOpenId?: string | null;
@@ -439,6 +582,17 @@ export function ConnectionsTable({
                   Save account info
                 </Button>
               </form>
+            )}
+
+            {canEditConnection && (
+              <ConnectionAssignmentForm
+                key={openConn.id}
+                connection={openConn}
+                departments={assignmentDepartments}
+                services={assignmentServices}
+                vaUsers={assignmentVaUsers}
+                lockedDepartmentId={lockedDepartmentId}
+              />
             )}
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">

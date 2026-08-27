@@ -58,6 +58,32 @@ export default async function ConnectionsPage(
           u.additionalDepartments.some((d) => d.departmentId === session.departmentId),
       )
     : vaUsers;
+  // Assignment (reassign VA/department/service) form on an existing
+  // connection is available to OM too (requireConnectionEditor includes it,
+  // unlike requireConnectionCreator above) — so its department-locked
+  // filtering covers DM/OPS_MANAGER/OM, one role wider than creation's.
+  const isDeptLockedForAssignment = isDeptScopedManager || session.role === "OM";
+  const assignmentDepartments = isDeptLockedForAssignment
+    ? departments.filter((d) => d.id === session.departmentId)
+    : departments;
+  const assignmentServices = isDeptLockedForAssignment
+    ? services.filter((s) => s.departmentId === session.departmentId)
+    : services;
+  const assignmentVaUsers = (
+    isDeptLockedForAssignment
+      ? vaUsers.filter(
+          (u) =>
+            u.departmentId === session.departmentId ||
+            u.additionalDepartments.some((d) => d.departmentId === session.departmentId),
+        )
+      : vaUsers
+  ).map((u) => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    departmentId: u.departmentId,
+    additionalDepartmentIds: u.additionalDepartments.map((d) => d.departmentId),
+  }));
 
   if (departments.length === 0) {
     return (
@@ -102,9 +128,12 @@ export default async function ConnectionsPage(
     shortCode: c.shortCode,
     clientName: c.clientName,
     secondaryName: c.secondaryName,
+    vaUserId: c.vaUserId,
     vaName: c.vaUser.name ?? c.vaUser.email,
     vaEmail: c.vaUser.email,
+    departmentId: c.departmentId,
     departmentName: c.department.name,
+    serviceId: c.serviceId,
     serviceName: c.service?.name ?? null,
     teamLeaderName: c.team?.teamLeader
       ? c.team.teamLeader.name ?? c.team.teamLeader.email
@@ -171,6 +200,12 @@ export default async function ConnectionsPage(
             isAdmin={isAdmin}
             canEditKpi={canEditKpiConfig}
             canEditConnection={canEditConnection}
+            assignmentDepartments={assignmentDepartments}
+            assignmentServices={assignmentServices}
+            assignmentVaUsers={assignmentVaUsers}
+            lockedDepartmentId={
+              isDeptLockedForAssignment ? (session.departmentId ?? undefined) : undefined
+            }
             initialOpenId={openId}
           />
         )}

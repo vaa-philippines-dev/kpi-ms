@@ -373,6 +373,82 @@ export async function updateConnectionInfo(formData: FormData) {
   revalidatePath("/dashboard/connections");
 }
 
+// Reassigns which VA (and, for admins, which department/service) a
+// connection belongs to — the "change the VA connected to this client, or
+// move the connection to another department/service" counterpart to
+// updateConnectionInfo above. DM/OM stay locked to their own department
+// (same restriction requireConnectionCreator applies on create) so they
+// can only reassign VAs within it; only ADMIN can move a connection across
+// departments.
+export async function updateConnectionAssignment(formData: FormData) {
+  const session = await requireConnectionEditor();
+  const id = String(formData.get("id") ?? "");
+  const vaUserId = String(formData.get("vaUserId") ?? "");
+  const departmentId = String(formData.get("departmentId") ?? "");
+  const serviceId = String(formData.get("serviceId") ?? "") || null;
+  if (!id || !vaUserId || !departmentId) {
+    throw new Error("VA and department are required.");
+  }
+
+  const before = await prisma.connection.findFirst({
+    where: { id, ...connectionScopeWhere(session) },
+    include: { vaUser: true, department: true },
+  });
+  if (!before) throw new Error("Connection not found.");
+
+  if (session.role !== "ADMIN" && departmentId !== session.departmentId) {
+    throw new Error("You can only assign connections within your own department.");
+  }
+
+  const [va, department, service] = await Promise.all([
+    prisma.user.findUnique({ where: { id: vaUserId }, include: { additionalDepartments: true } }),
+    prisma.department.findUnique({ where: { id: departmentId } }),
+    serviceId ? prisma.service.findUnique({ where: { id: serviceId } }) : Promise.resolve(null),
+  ]);
+  if (!va || va.role !== "VA") throw new Error("Invalid VA.");
+  if (!department) throw new Error("Invalid department.");
+  if (serviceId && (!service || service.departmentId !== departmentId)) {
+    throw new Error("Selected service does not belong to the selected department.");
+  }
+  const vaInDept =
+    va.departmentId === departmentId ||
+    va.additionalDepartments.some((d) => d.departmentId === departmentId);
+  if (!vaInDept) {
+    throw new Error("Selected VA does not belong to the selected department.");
+  }
+
+  await prisma.connection.update({
+    where: { id },
+    data: { vaUserId, departmentId, serviceId },
+  });
+
+  const changes = diffFields(
+    { vaUserId: before.vaUserId, departmentId: before.departmentId, serviceId: before.serviceId },
+    { vaUserId, departmentId, serviceId },
+    ["vaUserId", "departmentId", "serviceId"],
+  );
+  if (changes.length > 0) {
+    const bits: string[] = [];
+    if (before.vaUserId !== vaUserId) {
+      bits.push(`VA ${before.vaUser.name ?? before.vaUser.email} → ${va.name ?? va.email}`);
+    }
+    if (before.departmentId !== departmentId) {
+      bits.push(`department ${before.department.name} → ${department.name}`);
+    }
+    await logActivity(prisma, {
+      actor: { id: session.id, role: session.role },
+      action: "UPDATE",
+      entityType: "Connection",
+      entityId: id,
+      entityLabel: before.clientName,
+      summary: `Reassigned connection "${before.clientName}"${bits.length ? ` — ${bits.join(", ")}` : ""}`,
+      changes,
+      departmentId: before.departmentId,
+    });
+  }
+  revalidatePath("/dashboard/connections");
+}
+
 export type ConnectionPerformanceRow = {
   kpiDefinitionId: string;
   kpiName: string;
