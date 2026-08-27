@@ -15,6 +15,7 @@ export type ViewingAs = {
 export type ViewAsDepartment = { id: string; name: string };
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "EXECUTIVE", label: "Executive" },
   { value: "DM", label: "Manager" },
   { value: "OPS_MANAGER", label: "Ops Manager" },
   { value: "OM", label: "Team Leader" },
@@ -24,6 +25,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Admin",
+  EXECUTIVE: "Executive",
   DM: "Manager",
   OPS_MANAGER: "Ops Manager",
   OM: "Team Leader",

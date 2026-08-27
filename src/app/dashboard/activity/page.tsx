@@ -19,7 +19,7 @@ const RECENT_LIMIT = 2000;
 // trail.
 export default async function ActivityLogPage() {
   const session = await requireSession();
-  if (session.role !== "ADMIN") {
+  if (session.role !== "ADMIN" && session.role !== "EXECUTIVE") {
     redirect("/dashboard");
   }
 

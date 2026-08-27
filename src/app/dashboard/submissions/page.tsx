@@ -44,6 +44,7 @@ export default async function SubmissionsPage(
 
   const session = await requireSession();
   const scope = connectionScopeWhere(session);
+  const isUnrestrictedViewer = session.role === UserRole.ADMIN || session.role === UserRole.EXECUTIVE;
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
   const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
@@ -84,7 +85,7 @@ export default async function SubmissionsPage(
         },
         select: { periodStart: true },
       }),
-      session.role === UserRole.ADMIN
+      isUnrestrictedViewer
         ? getDepartmentSubmissionSummary(KpiPeriod.WEEKLY, weeklyStart)
         : getTeamSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart),
     ]);
@@ -168,7 +169,7 @@ export default async function SubmissionsPage(
   // only — DM and the DM-equivalent OPS_MANAGER are this app's Manager
   // equivalent (lib/connection-scope.ts).
   const canViewTeamReport =
-    session.role === UserRole.ADMIN ||
+    isUnrestrictedViewer ||
     session.role === UserRole.DM ||
     session.role === UserRole.OPS_MANAGER;
 
@@ -276,7 +277,7 @@ export default async function SubmissionsPage(
           </div>
 
           <DeptTeamSummaryPanel
-            title={session.role === UserRole.ADMIN ? "Department Summary" : "Team Summary"}
+            title={isUnrestrictedViewer ? "Department Summary" : "Team Summary"}
             rows={sideRows}
           />
         </div>

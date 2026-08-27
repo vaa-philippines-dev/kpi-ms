@@ -27,18 +27,18 @@ export default async function VaKpiSheetPage(
   );
 
   const session = await requireSession();
-  const isAdmin = session.role === "ADMIN";
+  const isUnrestricted = session.role === "ADMIN" || session.role === "EXECUTIVE";
   const scope = connectionScopeWhere(session);
 
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
   const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
 
-  const departments = isAdmin
+  const departments = isUnrestricted
     ? await prisma.department.findMany({ orderBy: { name: "asc" } })
     : [];
 
-  if (isAdmin && departments.length === 0) {
+  if (isUnrestricted && departments.length === 0) {
     return (
       <>
         <PageHeader title="VA KPI Sheet" description="No departments are configured yet." />
@@ -47,7 +47,7 @@ export default async function VaKpiSheetPage(
     );
   }
 
-  const selectedDepartmentId = isAdmin
+  const selectedDepartmentId = isUnrestricted
     ? requestedDepartmentId && departments.some((d) => d.id === requestedDepartmentId)
       ? requestedDepartmentId
       : departments[0].id
@@ -55,7 +55,7 @@ export default async function VaKpiSheetPage(
 
   // KPI columns are department-specific, so Admin is pinned to one
   // department at a time (like legacy); DM/OM/VA are already scoped.
-  const effectiveScope = isAdmin ? { departmentId: selectedDepartmentId } : scope;
+  const effectiveScope = isUnrestricted ? { departmentId: selectedDepartmentId } : scope;
 
   const connections = await prisma.connection.findMany({
     where: effectiveScope,
@@ -78,7 +78,7 @@ export default async function VaKpiSheetPage(
   // among the in-scope connections — not just the ones with a submission
   // this period — so the grid shows "No Data" instead of silently omitting
   // a column/row that simply hasn't reported yet.
-  const departmentIds = isAdmin
+  const departmentIds = isUnrestricted
     ? [selectedDepartmentId!]
     : [...new Set(connections.map((c) => c.departmentId))];
 
@@ -153,7 +153,7 @@ export default async function VaKpiSheetPage(
       </div>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        {isAdmin && (
+        {isUnrestricted && (
           <form method="GET" className="flex gap-2">
             {anchor && <input type="hidden" name="date" value={toDateParam(anchor)} />}
             <Select name="departmentId" defaultValue={selectedDepartmentId} className="w-full min-w-[200px]">

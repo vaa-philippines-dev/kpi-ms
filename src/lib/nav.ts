@@ -144,14 +144,14 @@ const loginActivityItem: NavItem = {
   href: "/dashboard/login-activity",
   label: "Login Activity",
   icon: History,
-  roles: ["ADMIN", "DM", "OPS_MANAGER"],
+  roles: ["ADMIN", "EXECUTIVE", "DM", "OPS_MANAGER"],
   keywords: "sign in audit last login",
 };
 const activityLogItem: NavItem = {
   href: "/dashboard/activity",
   label: "Activity Log",
   icon: Activity,
-  roles: ["ADMIN"],
+  roles: ["ADMIN", "EXECUTIVE"],
   keywords: "audit trail changes edits deletions kpi submissions dm om team leader",
 };
 const teamManagementItem: NavItem = {
@@ -176,14 +176,14 @@ const customersItem: NavItem = {
   href: "/dashboard/customers",
   label: "Customers",
   icon: Contact,
-  roles: ["ADMIN"],
+  roles: ["ADMIN", "EXECUTIVE"],
   keywords: "accounts directory",
 };
 const systemSettingsItem: NavItem = {
   href: "/dashboard/settings",
   label: "System Settings",
   icon: Settings,
-  roles: ["ADMIN"],
+  roles: ["ADMIN", "EXECUTIVE"],
   keywords: "app name week start sync",
 };
 const devInboxItem: NavItem = {
@@ -245,6 +245,43 @@ const adminGroups: NavGroup[] = [
   {
     label: "Dev",
     items: [devInboxItem],
+  },
+];
+
+// EXECUTIVE — read-only admin: same Overview/Reports/Administration groups
+// as ADMIN (full visibility, nothing to manage), but the Dev group points at
+// the regular Tickets page instead of the Inbox triage shell. Inbox is
+// deliberately excluded — sendTicketMessage() lets anyone who can see a
+// ticket reply to it (no separate role check beyond the closed-ticket admin
+// lock), so giving Executive Inbox's unscoped ticketScopeWhere visibility
+// would incidentally let them message into every ticket company-wide, which
+// is a real write capability, not a view.
+const executiveGroups: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem],
+  },
+  {
+    label: "Reports",
+    items: [submissionsItem, performanceItem, vaKpiSheetItem, lifetimeValueItem, weeklyInterventionsItem],
+  },
+  {
+    label: "Administration",
+    items: [
+      usersItem,
+      loginActivityItem,
+      activityLogItem,
+      teamManagementItem,
+      departmentsItem,
+      kpiLibraryItem,
+      customersItem,
+      systemSettingsItem,
+      interventionsItem,
+    ],
+  },
+  {
+    label: "Dev",
+    items: [devTicketsItem],
   },
 ];
 
@@ -310,6 +347,7 @@ const vaGroups: NavGroup[] = [
 
 const navGroupsByRole: Record<string, NavGroup[]> = {
   ADMIN: adminGroups,
+  EXECUTIVE: executiveGroups,
   DM: managerGroups,
   // Ops Manager is department-wide/DM-equivalent by spec — reuses the exact
   // same nav groups as DM rather than a parallel copy that could drift.

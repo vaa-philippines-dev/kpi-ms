@@ -2,6 +2,7 @@ import { UserRole } from "@/generated/prisma/enums";
 
 export const ROLE_LABELS: Record<string, string> = {
   [UserRole.ADMIN]: "Admin",
+  [UserRole.EXECUTIVE]: "Executive",
   [UserRole.DM]: "DM",
   [UserRole.OPS_MANAGER]: "Ops Manager",
   [UserRole.OM]: "Team Leader",

@@ -35,6 +35,13 @@ enum ActivityAction {
 
 enum UserRole {
   ADMIN
+  // Full read visibility everywhere ADMIN has it (every department,
+  // connection, report, and admin page) but never a mutation — every
+  // create/update/delete action's own role check is a fixed allow-list
+  // that simply never names EXECUTIVE, rather than a "not VA" style
+  // exclusion, so this role can't fall through into write access by
+  // accident. See lib/connection-scope.ts for the read-side scoping.
+  EXECUTIVE
   DM
   // Operations Manager — department-wide permissions equivalent to DM
   // (Manager). Distinct from OM below, which despite the short name is the

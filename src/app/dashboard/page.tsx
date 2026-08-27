@@ -90,7 +90,13 @@ export default async function DashboardOverviewPage(
     );
   }
 
-  const isAdmin = session.role === "ADMIN";
+  const isAdmin = session.role === "ADMIN" || session.role === "EXECUTIVE";
+  // This fallback branch is now also reached by EXECUTIVE (full read scope
+  // via connectionScopeWhere, but no role check anywhere grants it a
+  // mutation) — DepartmentBreakdownTable's isManager prop used to be a bare
+  // `true` on the assumption only ADMIN/DM/OPS_MANAGER ever got here, which
+  // would have handed EXECUTIVE the Log Intervention form too.
+  const isManager = ["ADMIN", "DM", "OPS_MANAGER"].includes(session.role);
 
   // "Needs attention" counts (missing KPI config, unsubmitted, critical) now
   // live in the topbar bell, so this page only computes the status rollup,
@@ -207,6 +213,7 @@ export default async function DashboardOverviewPage(
             connectionRows={allConnectionRows}
             periodStart={selectedPeriodStart.toISOString()}
             period={selectedPeriod}
+            isManager={isManager}
             interventionTypes={interventionTypes}
           />
 
@@ -286,9 +293,7 @@ export default async function DashboardOverviewPage(
               connectionsByDept={Object.fromEntries(connectionsByDept)}
               periodStart={selectedPeriodStart.toISOString()}
               period={selectedPeriod}
-              // This branch is only reached by ADMIN/DM/OPS_MANAGER — OM,
-              // SERVICE_MANAGER, and VA all return their own dashboard above.
-              isManager
+              isManager={isManager}
               interventionTypes={interventionTypes}
             />
           )}

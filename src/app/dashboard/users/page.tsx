@@ -33,9 +33,16 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
   if (!session) {
     redirect("/sign-in");
   }
-  if (session.role !== "ADMIN" && session.role !== "DM" && session.role !== "OPS_MANAGER") {
+  if (
+    session.role !== "ADMIN" &&
+    session.role !== "EXECUTIVE" &&
+    session.role !== "DM" &&
+    session.role !== "OPS_MANAGER"
+  ) {
     redirect("/dashboard");
   }
+  // canManage/manageableRoles below stay ADMIN-only-ish (isAdmin || isDM) —
+  // EXECUTIVE is neither, so it can view but never manage.
   const isAdmin = session.role === "ADMIN";
   const isDM = session.role === "DM" || session.role === "OPS_MANAGER";
 

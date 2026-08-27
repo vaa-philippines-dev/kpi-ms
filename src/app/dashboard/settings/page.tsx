@@ -20,8 +20,9 @@ const WEEKDAYS = [
 export default async function SettingsPage() {
   const session = await getEffectiveSession();
   const isAdmin = session?.role === "ADMIN";
+  const canView = isAdmin || session?.role === "EXECUTIVE";
 
-  if (!isAdmin) {
+  if (!canView) {
     return (
       <>
         <PageHeader title="System Settings" />
@@ -44,87 +45,126 @@ export default async function SettingsPage() {
       />
 
       <div className="max-w-2xl space-y-6">
-        <form
-          action={updateSetting}
-          className="space-y-2 rounded-lg border border-surface-border p-4"
-        >
-          <input type="hidden" name="key" value="APP_NAME" />
-          <label className="block text-sm font-medium">
-            App Name
-            <span className="ml-2 text-xs text-muted">
-              shown next to the logo in the dashboard sidebar
-            </span>
-          </label>
-          <Input name="value" defaultValue={appName} className="w-full" />
-          <Button type="submit">Save</Button>
-        </form>
+        {isAdmin ? (
+          <>
+            <form
+              action={updateSetting}
+              className="space-y-2 rounded-lg border border-surface-border p-4"
+            >
+              <input type="hidden" name="key" value="APP_NAME" />
+              <label className="block text-sm font-medium">
+                App Name
+                <span className="ml-2 text-xs text-muted">
+                  shown next to the logo in the dashboard sidebar
+                </span>
+              </label>
+              <Input name="value" defaultValue={appName} className="w-full" />
+              <Button type="submit">Save</Button>
+            </form>
 
-        <form
-          action={updateSetting}
-          className="space-y-2 rounded-lg border border-surface-border p-4"
-        >
-          <input type="hidden" name="key" value="WEEK_START_DAY" />
-          <label className="block text-sm font-medium">
-            Week Start Day
-            <span className="ml-2 text-xs text-muted">
-              which day weekly periods start on, for target calculations
-            </span>
-          </label>
-          <Select name="value" defaultValue={String(weekStartDay)} className="w-full">
-            {WEEKDAYS.map((day, i) => (
-              <option key={day} value={i}>
-                {day}
-              </option>
-            ))}
-          </Select>
-          <Button type="submit">Save</Button>
-        </form>
+            <form
+              action={updateSetting}
+              className="space-y-2 rounded-lg border border-surface-border p-4"
+            >
+              <input type="hidden" name="key" value="WEEK_START_DAY" />
+              <label className="block text-sm font-medium">
+                Week Start Day
+                <span className="ml-2 text-xs text-muted">
+                  which day weekly periods start on, for target calculations
+                </span>
+              </label>
+              <Select name="value" defaultValue={String(weekStartDay)} className="w-full">
+                {WEEKDAYS.map((day, i) => (
+                  <option key={day} value={i}>
+                    {day}
+                  </option>
+                ))}
+              </Select>
+              <Button type="submit">Save</Button>
+            </form>
 
-        <form
-          action={updateSetting}
-          className="space-y-2 rounded-lg border border-surface-border p-4"
-        >
-          <input type="hidden" name="key" value="INTERVENTION_TYPES" />
-          <label className="block text-sm font-medium">
-            Intervention Types
-            <span className="ml-2 text-xs text-muted">
-              comma-separated, shown as options when logging an intervention
-            </span>
-          </label>
-          <Input
-            name="value"
-            defaultValue={interventionTypes.join(", ")}
-            className="w-full"
-          />
-          <Button type="submit">Save</Button>
-        </form>
+            <form
+              action={updateSetting}
+              className="space-y-2 rounded-lg border border-surface-border p-4"
+            >
+              <input type="hidden" name="key" value="INTERVENTION_TYPES" />
+              <label className="block text-sm font-medium">
+                Intervention Types
+                <span className="ml-2 text-xs text-muted">
+                  comma-separated, shown as options when logging an intervention
+                </span>
+              </label>
+              <Input
+                name="value"
+                defaultValue={interventionTypes.join(", ")}
+                className="w-full"
+              />
+              <Button type="submit">Save</Button>
+            </form>
 
-        <div>
-          <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
-            Sync Connection IDs
-          </h2>
-          <p className="mb-3 text-xs text-muted">
-            Pulls new VA↔client connections from the real CMS on demand.
-            Create-only: existing connections here are never modified, and
-            rows that already match an existing connection (by CMS ID or by
-            VA + client name) are skipped, not duplicated. Also available
-            from the VA Connections page for Admin, DM, and Operations
-            Manager.
-          </p>
-          <SyncButton label="Sync Connection IDs" endpoint="/api/cms-sync/connections" />
-        </div>
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+                Sync Connection IDs
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                Pulls new VA↔client connections from the real CMS on demand.
+                Create-only: existing connections here are never modified, and
+                rows that already match an existing connection (by CMS ID or by
+                VA + client name) are skipped, not duplicated. Also available
+                from the VA Connections page for Admin, DM, and Operations
+                Manager.
+              </p>
+              <SyncButton label="Sync Connection IDs" endpoint="/api/cms-sync/connections" />
+            </div>
 
-        <div>
-          <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
-            Legacy Sync
-          </h2>
-          <p className="mb-3 text-xs text-muted">
-            Pulls from the legacy Google Sheet on demand — no cron job. Safe
-            to re-run: every row is upserted by its legacy ID, so nothing
-            gets duplicated.
-          </p>
-          <LegacySyncPanel />
-        </div>
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+                Legacy Sync
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                Pulls from the legacy Google Sheet on demand — no cron job. Safe
+                to re-run: every row is upserted by its legacy ID, so nothing
+                gets duplicated.
+              </p>
+              <LegacySyncPanel />
+            </div>
+          </>
+        ) : (
+          // EXECUTIVE — same values, read-only: no form/Save, and the Sync
+          // panels are hidden entirely since they're action triggers rather
+          // than configuration values there's anything to "view".
+          <>
+            <div className="space-y-1 rounded-lg border border-surface-border p-4">
+              <p className="text-sm font-medium">
+                App Name
+                <span className="ml-2 text-xs text-muted">
+                  shown next to the logo in the dashboard sidebar
+                </span>
+              </p>
+              <p className="text-sm text-muted">{appName}</p>
+            </div>
+
+            <div className="space-y-1 rounded-lg border border-surface-border p-4">
+              <p className="text-sm font-medium">
+                Week Start Day
+                <span className="ml-2 text-xs text-muted">
+                  which day weekly periods start on, for target calculations
+                </span>
+              </p>
+              <p className="text-sm text-muted">{WEEKDAYS[weekStartDay]}</p>
+            </div>
+
+            <div className="space-y-1 rounded-lg border border-surface-border p-4">
+              <p className="text-sm font-medium">
+                Intervention Types
+                <span className="ml-2 text-xs text-muted">
+                  comma-separated, shown as options when logging an intervention
+                </span>
+              </p>
+              <p className="text-sm text-muted">{interventionTypes.join(", ")}</p>
+            </div>
+          </>
+        )}
       </div>
     </>
   );

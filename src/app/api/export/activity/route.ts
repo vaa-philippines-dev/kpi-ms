@@ -7,7 +7,7 @@ const RECENT_LIMIT = 2000;
 
 export async function GET() {
   const session = await requireSession();
-  if (session.role !== "ADMIN") {
+  if (session.role !== "ADMIN" && session.role !== "EXECUTIVE") {
     return new Response("Forbidden", { status: 403 });
   }
 

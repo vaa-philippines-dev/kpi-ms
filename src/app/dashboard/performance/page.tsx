@@ -75,6 +75,10 @@ export default async function PerformancePage(
     session.role === "DM" ||
     session.role === "OPS_MANAGER" ||
     session.role === "OM";
+  // Deliberately excludes EXECUTIVE, unlike isManager above — this only
+  // picks which read-only summary/title to show, whereas isManager also
+  // unlocks the Log Intervention quick action further down.
+  const isUnrestrictedViewer = session.role === "ADMIN" || session.role === "EXECUTIVE";
 
   // Team/type narrow every widget the same way; department is split out
   // separately below because getDepartmentSubmissionSummary already breaks
@@ -240,7 +244,7 @@ export default async function PerformancePage(
     // both already support either period).
     getPerformanceTrend(finalScope, selectedPeriod, weekStartDay, 6, anchor),
     getSubmissionTrend(finalScope, selectedPeriod, weekStartDay, 6, anchor),
-    session.role === "ADMIN"
+    isUnrestrictedViewer
       ? getDepartmentSubmissionSummary(
           selectedPeriod,
           selectedPeriodStart,
@@ -350,7 +354,7 @@ export default async function PerformancePage(
           </div>
 
           <DeptTeamSummaryPanel
-            title={session.role === "ADMIN" ? "Department Summary" : "Team Summary"}
+            title={isUnrestrictedViewer ? "Department Summary" : "Team Summary"}
             rows={sideRows}
             // Team Report (now /dashboard/reports/team-submissions) is
             // Admin/Manager-only, same as legacy's button — DM and the

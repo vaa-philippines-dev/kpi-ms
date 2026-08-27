@@ -49,6 +49,7 @@ export function DashboardStatCards({
   connectionRows,
   periodStart,
   period,
+  isManager,
   interventionTypes,
 }: {
   totalConnections: number;
@@ -56,6 +57,7 @@ export function DashboardStatCards({
   connectionRows: DeptConnectionRow[];
   periodStart: string;
   period: KpiPeriod;
+  isManager: boolean;
   interventionTypes: string[];
 }) {
   const [openStatus, setOpenStatus] = useState<PerformanceStatus | null>(null);
@@ -132,7 +134,7 @@ export function DashboardStatCards({
           connectionId={openConnectionId}
           periodStart={periodStart}
           period={period}
-          isManager
+          isManager={isManager}
           interventionTypes={interventionTypes}
           onClose={() => setOpenConnectionId(null)}
         />

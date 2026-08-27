@@ -45,7 +45,7 @@ const STATUS_TONE = {
 
 export default async function CustomersPage() {
   const session = await getEffectiveSession();
-  const isAdmin = session?.role === "ADMIN";
+  const isAdmin = session?.role === "ADMIN" || session?.role === "EXECUTIVE";
 
   if (!isAdmin) {
     return (

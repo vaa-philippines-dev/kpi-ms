@@ -25,11 +25,16 @@ export default async function TeamSubmissionReportPage(
   const session = await requireSession();
   if (
     session.role !== UserRole.ADMIN &&
+    session.role !== UserRole.EXECUTIVE &&
     session.role !== UserRole.DM &&
     session.role !== UserRole.OPS_MANAGER
   ) {
     redirect("/dashboard/submissions");
   }
+  // Treated the same as ADMIN below (department picker, unscoped summary) —
+  // EXECUTIVE has full read visibility but the department filter form is a
+  // plain GET, so there's no mutation surface here to worry about.
+  const isUnrestrictedViewer = session.role === UserRole.ADMIN || session.role === UserRole.EXECUTIVE;
 
   const searchParams = await props.searchParams;
   const dateParam = typeof searchParams.date === "string" ? searchParams.date : undefined;
@@ -41,14 +46,14 @@ export default async function TeamSubmissionReportPage(
   // Department filter is admin-only (mirrors legacy's dept dropdown, which
   // only Admin sees) — a DM's scope is already department-locked.
   const scope =
-    session.role === UserRole.ADMIN && departmentId
+    isUnrestrictedViewer && departmentId
       ? { ...baseScope, departmentId }
       : baseScope;
   const weekStartDay = await getWeekStartDay();
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
 
   const [departments, teamRows] = await Promise.all([
-    session.role === UserRole.ADMIN
+    isUnrestrictedViewer
       ? prisma.department.findMany({ orderBy: { name: "asc" } })
       : Promise.resolve([]),
     getTeamSubmissionReport(scope, weeklyStart),
@@ -73,7 +78,7 @@ export default async function TeamSubmissionReportPage(
         description="Weekly submission-rate trend per team, for the selected period."
       />
 
-      {session.role === UserRole.ADMIN && departments.length > 0 && (
+      {isUnrestrictedViewer && departments.length > 0 && (
         <form method="GET" className="mb-6 flex flex-wrap gap-2">
           {dateParam && <input type="hidden" name="date" value={dateParam} />}
           <Select name="departmentId" defaultValue={departmentId} className="w-48">

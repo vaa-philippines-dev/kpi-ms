@@ -35,10 +35,11 @@ export async function requireSession(): Promise<ScopingSession> {
  * VA -> own connections only; OM (Team Leader equivalent) -> connections of
  * users on teams they lead; DM (Manager equivalent) and OPS_MANAGER
  * (Operations Manager, same department-wide scope as DM) -> connections in
- * their department; ADMIN and SERVICE_MANAGER (CS Specialist equivalent) ->
- * everything. Unlike the legacy Apps Script app (which trusted a
- * client-asserted userId/role), this reads off the server-verified session,
- * so it can't be spoofed from the browser.
+ * their department; ADMIN, EXECUTIVE (read-only admin — see UserRole), and
+ * SERVICE_MANAGER (CS Specialist equivalent) -> everything. Unlike the
+ * legacy Apps Script app (which trusted a client-asserted userId/role), this
+ * reads off the server-verified session, so it can't be spoofed from the
+ * browser.
  *
  * The ADMIN/SERVICE_MANAGER parity mirrors legacy's getVAConnections()
  * (VAConnections.js): 'Virtual Assistant' and 'Team Leader' are filtered,
@@ -52,6 +53,7 @@ export function connectionScopeWhere(
 ): Prisma.ConnectionWhereInput {
   switch (session.role) {
     case UserRole.ADMIN:
+    case UserRole.EXECUTIVE:
     case UserRole.SERVICE_MANAGER:
       return {};
     case UserRole.DM:
@@ -93,6 +95,7 @@ export function departmentScopeWhere(
 ): { departmentId?: string; id?: string } {
   switch (session.role) {
     case UserRole.ADMIN:
+    case UserRole.EXECUTIVE:
     case UserRole.SERVICE_MANAGER:
       return {};
     case UserRole.DM:
@@ -154,6 +157,7 @@ export async function getSubmissionWatcherIds(
 export function canAccessDepartment(session: ScopingSession, departmentId: string): boolean {
   switch (session.role) {
     case UserRole.ADMIN:
+    case UserRole.EXECUTIVE:
     case UserRole.SERVICE_MANAGER:
       return true;
     case UserRole.DM:

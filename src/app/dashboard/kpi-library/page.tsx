@@ -24,7 +24,8 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
   // department's definitions too, since only ADMIN/SERVICE_MANAGER are
   // meant to be unscoped here (see connection-scope.ts's role table).
   const scope = departmentScopeWhere(session);
-  const isUnrestricted = session.role === "ADMIN" || session.role === "SERVICE_MANAGER";
+  const isUnrestricted =
+    session.role === "ADMIN" || session.role === "EXECUTIVE" || session.role === "SERVICE_MANAGER";
 
   const [kpis, departments, services] = await Promise.all([
     prisma.kpiDefinition.findMany({

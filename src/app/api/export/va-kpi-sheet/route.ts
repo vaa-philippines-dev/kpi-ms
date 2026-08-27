@@ -8,15 +8,15 @@ import { KpiPeriod } from "@/generated/prisma/enums";
 
 export async function GET(request: NextRequest) {
   const session = await requireSession();
-  const isAdmin = session.role === "ADMIN";
+  const isUnrestricted = session.role === "ADMIN" || session.role === "EXECUTIVE";
   const scope = connectionScopeWhere(session);
   const requestedDepartmentId = request.nextUrl.searchParams.get("departmentId") || undefined;
 
-  // KPI columns are department-specific, so Admin always exports exactly one
-  // department (defaulting to the first alphabetically) — same rule the page
-  // uses, so the CSV always matches what's currently on screen.
+  // KPI columns are department-specific, so Admin/Executive always export
+  // exactly one department (defaulting to the first alphabetically) — same
+  // rule the page uses, so the CSV always matches what's currently on screen.
   let effectiveScope = scope;
-  if (isAdmin) {
+  if (isUnrestricted) {
     const departments = await prisma.department.findMany({ orderBy: { name: "asc" } });
     const departmentId =
       requestedDepartmentId && departments.some((d) => d.id === requestedDepartmentId)

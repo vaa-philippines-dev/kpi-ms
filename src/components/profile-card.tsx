@@ -94,7 +94,7 @@ export function ProfileCard({
             Submit KPIs
           </Link>
 
-          {role === "ADMIN" && (
+          {(role === "ADMIN" || role === "EXECUTIVE") && (
             <Link
               href="/dashboard/settings"
               onClick={() => setOpen(false)}
