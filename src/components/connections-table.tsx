@@ -718,6 +718,8 @@ export function ConnectionsTable({
                   action={deleteConnection}
                   fields={{ id: openConn.id }}
                   label="Delete connection"
+                  confirmLabel="This also permanently deletes all its submissions and history."
+                  typeToConfirm={openConn.clientName}
                   successMessage="Connection deleted."
                   onSuccess={() => setOpenId(null)}
                 />

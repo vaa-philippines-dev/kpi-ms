@@ -533,13 +533,22 @@ export async function deleteConnection(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const connection = await prisma.connection.findUnique({ where: { id } });
-  try {
-    await prisma.connection.delete({ where: { id } });
-  } catch {
-    throw new Error(
-      "Can't delete a connection that already has submissions recorded against it.",
-    );
-  }
+  if (!connection) return;
+  // Admin-only, and deliberately unconditional: every table that references
+  // this connection is wiped first so the delete below never trips a
+  // foreign-key error, regardless of how much submission/history data has
+  // piled up against it. Order matters — children before parents.
+  await prisma.$transaction([
+    prisma.submissionRecord.deleteMany({ where: { submission: { connectionId: id } } }),
+    prisma.submission.deleteMany({ where: { connectionId: id } }),
+    prisma.submissionDraft.deleteMany({ where: { connectionId: id } }),
+    prisma.performanceSummary.deleteMany({ where: { connectionId: id } }),
+    prisma.kpiConfigHistory.deleteMany({ where: { kpiConfig: { connectionId: id } } }),
+    prisma.kpiConfig.deleteMany({ where: { connectionId: id } }),
+    prisma.intervention.deleteMany({ where: { connectionId: id } }),
+    prisma.connectionStatusEvent.deleteMany({ where: { connectionId: id } }),
+    prisma.connection.delete({ where: { id } }),
+  ]);
   await logActivity(prisma, {
     actor: { id: session!.user!.id, role: session!.user!.role },
     action: "DELETE",
