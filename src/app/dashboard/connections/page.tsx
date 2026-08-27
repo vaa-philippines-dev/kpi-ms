@@ -115,8 +115,13 @@ export default async function ConnectionsPage(
     include: {
       department: true,
       service: true,
-      vaUser: true,
-      team: { include: { teamLeader: true } },
+      // team.teamLeader nested here (not on Connection.team) — Connection's
+      // own teamId is written once at creation/import and goes stale the
+      // moment a VA transfers teams (never set at all for CMS-synced
+      // connections), same reason Team Summary/Team Report were switched to
+      // vaUser.teamId in 93dca9f/df6c0a3. The VA's own team is the only
+      // trusted membership pointer.
+      vaUser: { include: { team: { include: { teamLeader: true } } } },
       statusEvents: { orderBy: { changedAt: "desc" }, take: 5, include: { changedBy: true } },
       interventions: { orderBy: { createdAt: "desc" }, take: 5 },
       _count: { select: { kpiConfigs: true, interventions: true } },
@@ -135,8 +140,8 @@ export default async function ConnectionsPage(
     departmentName: c.department.name,
     serviceId: c.serviceId,
     serviceName: c.service?.name ?? null,
-    teamLeaderName: c.team?.teamLeader
-      ? c.team.teamLeader.name ?? c.team.teamLeader.email
+    teamLeaderName: c.vaUser.team?.teamLeader
+      ? c.vaUser.team.teamLeader.name ?? c.vaUser.team.teamLeader.email
       : null,
     status: c.status,
     connectionType: c.connectionType,

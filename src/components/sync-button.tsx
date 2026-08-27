@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 type PhaseResult = { created: number; updated: number; skipped: number; errors: string[] };
@@ -35,6 +36,7 @@ function ReportTable({ report }: { report: SyncReport }) {
 type Progress = { phase: string; done: number; total: number };
 
 export function SyncButton({ label, endpoint }: { label: string; endpoint: string }) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<SyncReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,7 @@ export function SyncButton({ label, endpoint }: { label: string; endpoint: strin
           } else if (event.type === "done") {
             setReport(event.report);
             setProgress(null);
+            router.refresh();
           } else if (event.type === "error") {
             setError(event.error);
           }
