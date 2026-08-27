@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
-import { updateTicketStatus, updateTicketMeta } from "@/app/dashboard/dev/actions";
+import { updateTicketStatus, updateTicketMeta, deleteTicket } from "@/app/dashboard/dev/actions";
 import { subscribeToTicketLive } from "@/lib/ticket-live-bus";
 import {
   TICKET_STATUS_LABELS,
@@ -32,6 +35,7 @@ export function TicketMetaPanel({
   priority: initialPriority,
   category: initialCategory,
   canModerate,
+  className = "",
 }: {
   ticketId: string;
   subject: string;
@@ -42,7 +46,9 @@ export function TicketMetaPanel({
   priority: TicketPriority;
   category: TicketCategory;
   canModerate: boolean;
+  className?: string;
 }) {
+  const router = useRouter();
   const { toast } = useToast();
   const [status, setStatus] = useState(initialStatus);
   const [priority, setPriority] = useState(initialPriority);
@@ -99,7 +105,9 @@ export function TicketMetaPanel({
   }
 
   return (
-    <div className="w-full shrink-0 space-y-4 rounded-2xl border border-surface-border bg-surface p-5 xl:w-72">
+    <div
+      className={`w-full shrink-0 space-y-4 overflow-y-auto rounded-2xl border border-surface-border bg-surface p-5 xl:w-72 ${className}`}
+    >
       <div>
         <p className="text-xs font-medium text-muted uppercase">Subject</p>
         <p className="mt-1 text-sm font-medium">{subject}</p>
@@ -176,6 +184,24 @@ export function TicketMetaPanel({
           )}
         </div>
       </div>
+
+      {canModerate && (
+        <div className="border-t border-surface-border pt-4">
+          <ConfirmSubmitButton
+            action={deleteTicket}
+            fields={{ ticketId }}
+            label={
+              <span className="inline-flex items-center gap-1.5">
+                <Trash2 className="size-3.5" />
+                Delete ticket
+              </span>
+            }
+            confirmLabel="This permanently deletes the ticket and its whole conversation — it cannot be undone. Sure?"
+            tone="danger"
+            onSuccess={() => router.push("/dashboard/dev/inbox")}
+          />
+        </div>
+      )}
     </div>
   );
 }

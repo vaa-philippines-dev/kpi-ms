@@ -248,6 +248,35 @@ export async function updateTicketStatus(ticketId: string, status: TicketStatus)
   revalidatePath("/dashboard/dev/tickets");
 }
 
+export async function deleteTicket(formData: FormData) {
+  const session = await requireAdmin();
+  const ticketId = String(formData.get("ticketId") ?? "");
+
+  const ticket = await prisma.ticket.findUnique({ where: { id: ticketId }, select: { subject: true } });
+  if (!ticket) {
+    throw new Error("Ticket not found.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Logged before the delete (entityId isn't a real FK — see
+    // ActivityLog.entityId — so the row survives the cascade fine) so the
+    // audit trail has the subject even though the ticket itself is gone.
+    await logActivity(tx, {
+      actor: { id: session.id, role: session.role, departmentId: session.departmentId },
+      action: "DELETE",
+      entityType: "Ticket",
+      entityId: ticketId,
+      entityLabel: ticket.subject,
+      summary: `Deleted ticket "${ticket.subject}"`,
+    });
+    // TicketMessage.ticket has onDelete: Cascade — no separate message cleanup needed.
+    await tx.ticket.delete({ where: { id: ticketId } });
+  });
+
+  revalidatePath("/dashboard/dev/inbox");
+  revalidatePath("/dashboard/dev/tickets");
+}
+
 export async function updateTicketMeta(
   ticketId: string,
   data: { priority?: TicketPriority; category?: TicketCategory },

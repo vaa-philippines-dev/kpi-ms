@@ -1,41 +1,14 @@
-import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { PageHeader } from "@/components/page-header";
-import { TicketListTable, type TicketListRow } from "@/components/ticket-list-table";
-import { requireSession } from "@/lib/connection-scope";
-import { roleLabel } from "@/lib/roles";
-import { UserRole } from "@/generated/prisma/enums";
+import { MessageCircle } from "lucide-react";
 
-// Admin's all-tickets triage view — every ticket raised by every role,
-// newest activity first. The Tickets page (src/app/dashboard/dev/tickets)
-// is the everyone-else counterpart, scoped to a person's own (and, for
-// DM/OPS_MANAGER/OM, their team's) tickets.
-export default async function DevInboxPage() {
-  const session = await requireSession();
-  if (session.role !== UserRole.ADMIN) {
-    redirect("/dashboard/dev/tickets");
-  }
-
-  const tickets = await prisma.ticket.findMany({
-    include: { createdBy: { select: { name: true, email: true, role: true } } },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  const rows: TicketListRow[] = tickets.map((t) => ({
-    id: t.id,
-    subject: t.subject,
-    requester: t.createdBy.name ?? t.createdBy.email,
-    requesterRole: roleLabel(t.createdBy.role),
-    category: t.category,
-    priority: t.priority,
-    status: t.status,
-    updatedAt: t.updatedAt.toISOString(),
-  }));
-
+// Right-pane empty state for the messenger-style Inbox (see
+// dev/inbox/layout.tsx / InboxShell) — rendered when no conversation is
+// selected yet. Admin-gating and data fetching both live in the layout.
+export default function DevInboxIndexPage() {
   return (
-    <>
-      <PageHeader title="Inbox" description="Every ticket raised by every user, most recent activity first." />
-      <TicketListTable rows={rows} showRequester emptyMessage="No tickets yet." />
-    </>
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-muted">
+      <MessageCircle className="size-8" />
+      <p className="text-sm font-medium text-foreground">Select a conversation</p>
+      <p className="text-xs">Pick a ticket from the list to view it here.</p>
+    </div>
   );
 }

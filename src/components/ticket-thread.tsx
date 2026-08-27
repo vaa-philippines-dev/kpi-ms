@@ -64,11 +64,14 @@ export function TicketThread({
   currentUserId,
   initialMessages,
   initialStatus,
+  className = "h-[70vh]",
 }: {
   ticketId: string;
   currentUserId: string;
   initialMessages: ThreadMessage[];
   initialStatus: TicketStatus;
+  /** Overrides the thread's own height — pass e.g. "h-full" when embedding inside a taller shell. */
+  className?: string;
 }) {
   const { toast } = useToast();
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
@@ -158,7 +161,7 @@ export function TicketThread({
   }
 
   return (
-    <div className="flex h-[70vh] flex-col rounded-2xl border border-surface-border bg-surface">
+    <div className={`flex flex-col rounded-2xl border border-surface-border bg-surface ${className}`}>
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <div className="flex flex-col">
           {timeline.length === 0 && (
