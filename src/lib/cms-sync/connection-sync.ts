@@ -63,6 +63,15 @@ function mapCmsStatus(row: Record<string, string>): ConnectionStatus | null {
 const pairKey = (vaUserId: string, clientName: string) =>
   `${vaUserId}::${clientName.trim().toLowerCase()}`;
 
+// The CMS's historical rows are unreliable — many stayed marked
+// Active/Started/Pending long after the connection actually ended in the
+// legacy KPI Portal (the source of truth), which mapCmsStatus alone can't
+// catch. Per the user (2026-08-27): only pull in connections that actually
+// started this month or later; anything older is presumed already known to
+// the legacy Portal (or a stale CMS row) and is left for the one-off
+// scripts/cleanup-stale-cms-connections.ts pass instead of a fresh import.
+const CMS_FETCH_CUTOFF = new Date(Date.UTC(2026, 7, 1)); // 2026-08-01
+
 /**
  * Imports new VA↔client connections from the real CMS (Customer Management
  * System) Google Sheet's VAConnections tab — see src/lib/legacy-sync's
@@ -176,6 +185,11 @@ export async function runCmsConnectionSync(
         connResult.skipped++;
         return;
       }
+      const startDate = dateOrNull(row.ActualStartDate) ?? dateOrNull(row.VAConnectionDate);
+      if (!startDate || startDate < CMS_FETCH_CUTOFF) {
+        connResult.skipped++;
+        return;
+      }
       const va = vaById.get(row.VAID ?? "");
       const vaEmail = (va?.Email ?? "").trim().toLowerCase();
       const vaUserId = vaEmail ? userIdByEmail.get(vaEmail) : undefined;
@@ -208,7 +222,6 @@ export async function runCmsConnectionSync(
       existingShortCodes.add(shortCode);
       existingCmsIds.add(connectionId);
 
-      const startDate = dateOrNull(row.ActualStartDate) ?? dateOrNull(row.VAConnectionDate);
       const connectionType =
         row.ConnectionType === "Project-based" ? ConnectionType.PROJECT_BASED : ConnectionType.REGULAR;
 
