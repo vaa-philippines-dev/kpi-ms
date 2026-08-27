@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { getClusterIcon } from "@/lib/cluster-icons";
 
@@ -20,6 +20,9 @@ export function KpiValueField({
   hint,
   cluster,
   index = 0,
+  defaultValue,
+  defaultNoData = false,
+  onValueChange,
 }: {
   name: string;
   label: string;
@@ -29,8 +32,15 @@ export function KpiValueField({
    * which icon to show to the left of the label. */
   cluster: string;
   index?: number;
+  /** Pre-fills the number field — used to hydrate a saved autosave draft. */
+  defaultValue?: number | null;
+  defaultNoData?: boolean;
+  /** Fires on every keystroke/toggle — used to feed a parent's debounced
+   * draft autosave. Not needed for a plain one-shot submit form. */
+  onValueChange?: (value: string, noData: boolean) => void;
 }) {
-  const [noData, setNoData] = useState(false);
+  const [noData, setNoData] = useState(defaultNoData);
+  const inputRef = useRef<HTMLInputElement>(null);
   // Resolves an existing icon component from a static lookup table (not a
   // component defined inline), so it's stable across renders despite the
   // lint rule's generic "component created during render" heuristic.
@@ -57,7 +67,10 @@ export function KpiValueField({
               name={`${name}_nodata`}
               value="1"
               checked={noData}
-              onChange={(e) => setNoData(e.target.checked)}
+              onChange={(e) => {
+                setNoData(e.target.checked);
+                onValueChange?.(inputRef.current?.value ?? "", e.target.checked);
+              }}
               className="size-3.5 rounded border-surface-border"
             />
             No data available
@@ -65,6 +78,7 @@ export function KpiValueField({
         </div>
       </div>
       <Input
+        ref={inputRef}
         id={name}
         name={name}
         type="number"
@@ -72,6 +86,8 @@ export function KpiValueField({
         required={!noData}
         disabled={noData}
         placeholder="0"
+        defaultValue={defaultValue ?? undefined}
+        onChange={onValueChange ? (e) => onValueChange(e.target.value, noData) : undefined}
         className="w-24 shrink-0 text-right user-invalid:border-danger disabled:opacity-40"
       />
     </div>

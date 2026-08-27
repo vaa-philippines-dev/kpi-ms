@@ -161,6 +161,7 @@ model KpiDefinition {
   criticalThresholdPct  Float                @default(25)
   submissionRecords     SubmissionRecord[]
   performanceSummaries  PerformanceSummary[]
+  submissionDrafts      SubmissionDraft[]
   kpiConfigs            KpiConfig[]
   // Legacy KPIID — one legacy KPI has both a WeeklyTarget and MonthlyTarget,
   // so it maps to up to two rows here (one per period); unique per period.
@@ -219,6 +220,7 @@ model Connection {
   kpiConfigs           KpiConfig[]
   submissions          Submission[]
   performanceSummaries PerformanceSummary[]
+  submissionDrafts     SubmissionDraft[]
   interventions        Intervention[]
   createdAt            DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime                @updatedAt @db.Timestamptz(3)
@@ -371,6 +373,29 @@ model SubmissionRecord {
   @@index([kpiDefinitionId])
 }
 
+// Autosaved per-KPI value for the "view all clusters" submit flow — lets a
+// VA fill in values across several areas in one sitting without losing
+// progress if the tab closes before the final Submit. Purely a scratch pad:
+// never counted toward a KPI's status, cleared once the real Submission
+// that covers it is created.
+model SubmissionDraft {
+  id              String        @id @default(cuid())
+  connection      Connection    @relation(fields: [connectionId], references: [id])
+  connectionId    String
+  kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id])
+  kpiDefinitionId String
+  period          KpiPeriod
+  periodStart     DateTime      @db.Timestamptz(3)
+  value           Float?
+  noData          Boolean       @default(false)
+  updatedBy       User          @relation(fields: [updatedById], references: [id])
+  updatedById     String
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@unique([connectionId, kpiDefinitionId, period, periodStart])
+  @@index([connectionId, period, periodStart])
+}
+
 // Computed on write from SubmissionRecord — see lib/performance.ts.
 model PerformanceSummary {
   id              String            @id @default(cuid())
@@ -429,6 +454,7 @@ model User {
   ticketsCreated    Ticket[]                @relation("TicketCreator")
   ticketsClosed     Ticket[]                @relation("TicketCloser")
   ticketMessages    TicketMessage[]         @relation("TicketMessageSender")
+  submissionDrafts  SubmissionDraft[]
   // Extra departments a VA also belongs to, on top of `department` above
   // (kept as-is, e.g. a VA who does both Amazon and Executive Assistant
   // work). Managers (DM/OPS_MANAGER/OM) never get rows here — they stay

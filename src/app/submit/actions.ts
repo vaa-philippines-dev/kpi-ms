@@ -37,6 +37,16 @@ export async function createSubmission(
   );
   const clusterRaw = formData.get("cluster");
   const cluster = typeof clusterRaw === "string" && clusterRaw.length > 0 ? clusterRaw : undefined;
+  // Plural `clusters` (comma-separated) — set by the "view all clusters"
+  // form, which submits several areas in one call. Falls back to the
+  // singular `cluster` for the existing one-area-at-a-time forms.
+  const clustersRaw = formData.get("clusters");
+  const targetClusters =
+    typeof clustersRaw === "string" && clustersRaw.length > 0
+      ? clustersRaw.split(",").filter(Boolean)
+      : cluster
+        ? [cluster]
+        : undefined;
 
   if (!connectionId || !Object.values(KpiPeriod).includes(period)) {
     return { error: "Missing connection or period." };
@@ -44,10 +54,15 @@ export async function createSubmission(
 
   // Two independent limits: per-connection (catches repeated spam against
   // one target) and per-IP (catches one caller hammering many connections).
+  // Limits are generous rather than tight — every caller here is already
+  // authenticated, and one connection's worth of legitimate submitting
+  // (several KPI clusters, each its own call, plus the occasional
+  // correction) or one manager backfilling many connections in a sitting
+  // was tripping the old 10/30 caps.
   const ip = await getClientIp();
   const [connectionLimit, ipLimit] = await Promise.all([
-    checkRateLimit(`submit:${connectionId}`, { max: 10, windowMs: 60 * 60 * 1000 }),
-    checkRateLimit(`submit-ip:${ip}`, { max: 30, windowMs: 60 * 60 * 1000 }),
+    checkRateLimit(`submit:${connectionId}`, { max: 40, windowMs: 60 * 60 * 1000 }),
+    checkRateLimit(`submit-ip:${ip}`, { max: 120, windowMs: 60 * 60 * 1000 }),
   ]);
   const limit = !connectionLimit.allowed ? connectionLimit : ipLimit;
   if (!limit.allowed) {
@@ -104,7 +119,7 @@ export async function createSubmission(
   const kpisWithConfig = connection.department.kpiDefinitions
     .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
     .filter(({ config }) => config?.isApplicable ?? true)
-    .filter(({ kpi }) => !cluster || kpi.cluster === cluster);
+    .filter(({ kpi }) => !targetClusters || targetClusters.includes(kpi.cluster));
 
   const values: { kpiDefinitionId: string; value: number | null; noData: boolean }[] = [];
   const rawPayload: Record<string, number | string> = {};
@@ -132,9 +147,21 @@ export async function createSubmission(
 
   const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
 
+  // Human-readable label for activity log / notification / error messages —
+  // a single area name when submitting one cluster (as most calls still
+  // do), or a count when the "view all clusters" form submits several at
+  // once in a single call.
+  const clusterLabel =
+    targetClusters && targetClusters.length === 1
+      ? targetClusters[0]
+      : targetClusters && targetClusters.length > 1
+        ? `${targetClusters.length} areas`
+        : undefined;
+
   if (session.user.role === "VA") {
-    // Scoped to just this cluster's KPIs (not the whole department/period) —
-    // clusters are submitted one at a time, so an earlier cluster's summary
+    // Scoped to just the targeted cluster(s)' KPIs (not the whole
+    // department/period) — clusters can be submitted one at a time or
+    // batched via "view all clusters", so an earlier submission's summary
     // rows must not block a later, still-unsubmitted cluster for the same
     // period.
     const alreadySubmitted = await prisma.performanceSummary.findFirst({
@@ -145,9 +172,15 @@ export async function createSubmission(
       },
     });
     if (alreadySubmitted) {
+      const subject =
+        targetClusters && targetClusters.length > 1
+          ? "One or more of these areas have"
+          : clusterLabel
+            ? `${clusterLabel} has`
+            : undefined;
       return {
-        error: cluster
-          ? `${cluster} has already been submitted for this period. Contact your Team Leader or Manager if it needs to be corrected.`
+        error: subject
+          ? `${subject} already been submitted for this period. Contact your Team Leader or Manager if it needs to be corrected.`
           : "This period has already been submitted. Contact your Team Leader or Manager to correct it.",
       };
     }
@@ -193,8 +226,21 @@ export async function createSubmission(
       entityType: "Submission",
       entityId: created.id,
       entityLabel: connection.clientName,
-      summary: `Submitted ${period.toLowerCase()}${cluster ? ` (${cluster})` : ""} data for "${connection.clientName}"`,
+      summary: `Submitted ${period.toLowerCase()}${clusterLabel ? ` (${clusterLabel})` : ""} data for "${connection.clientName}"`,
       departmentId: connection.departmentId,
+    });
+
+    // Clears any autosaved drafts for the KPIs just submitted — e.g. from
+    // the "view all clusters" form. Scoped to this call's own KPI ids, not
+    // every draft for the period, so a still-unsubmitted cluster's draft
+    // (outside the submission window, say) survives.
+    await tx.submissionDraft.deleteMany({
+      where: {
+        connectionId,
+        period,
+        periodStart,
+        kpiDefinitionId: { in: kpisWithConfig.map(({ kpi }) => kpi.id) },
+      },
     });
   });
 
@@ -212,7 +258,7 @@ export async function createSubmission(
       clientName: connection.clientName,
       departmentName: connection.department.name,
       period,
-      cluster,
+      cluster: clusterLabel,
       submittedAt: new Date().toISOString(),
       recipientIds: watcherIds,
     });

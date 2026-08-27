@@ -15,12 +15,13 @@ import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-w
 import { rollupStatus } from "@/lib/performance";
 import { normalizeShortCode } from "@/lib/connection-short-code";
 import { checkRateLimit, formatRetryAfter } from "@/lib/rate-limit";
-import { getKpiClusters, groupByCluster } from "@/lib/kpi-cluster";
+import { getKpiClusters, getSubmittableKpis, groupByCluster } from "@/lib/kpi-cluster";
 import { PeriodForm } from "./period-form";
 import { CodeForm } from "./code-form";
 import { ClusterForm } from "./cluster-form";
 import { SubmitForm } from "./submit-form";
 import { SubmitShell } from "./submit-shell";
+import { AllClustersForm } from "./all-clusters-form";
 
 const TOTAL_STEPS = 4;
 
@@ -66,6 +67,7 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   const dateParam = typeof searchParams.date === "string" ? searchParams.date : undefined;
   const codeParam = typeof searchParams.code === "string" ? searchParams.code.trim() : undefined;
   const clusterParam = typeof searchParams.cluster === "string" ? searchParams.cluster : undefined;
+  const viewAll = searchParams.view === "all";
   const success = searchParams.success === "1";
 
   const session = await auth();
@@ -231,24 +233,6 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
     );
   }
 
-  // Rate-limit the code -> connection lookup, keyed by account (the only
-  // surface that's guessable now that it's not behind a browsable list).
-  const lookupLimit = await checkRateLimit(`submit-lookup:${session.user.id}`, {
-    max: 20,
-    windowMs: 10 * 60 * 1000,
-  });
-  if (!lookupLimit.allowed) {
-    return (
-      <SubmitShell>
-        <StepHeader step={2} title="Too many attempts" />
-        <p className="mt-4 text-center text-sm text-muted">
-          Please wait {formatRetryAfter(lookupLimit.retryAfterMs)} before trying another code.
-        </p>
-        <StartOverLink />
-      </SubmitShell>
-    );
-  }
-
   const scope = connectionScopeWhere({
     id: session.user.id,
     role: session.user.role,
@@ -257,10 +241,16 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   });
 
   const shortCode = normalizeShortCode(codeParam);
-  const connection = await prisma.connection.findFirst({
-    where: { shortCode, ...scope },
-    include: { department: true, vaUser: true },
-  });
+  // Fetched alongside the connection lookup rather than after it — unrelated
+  // queries, and running them serially just adds a second round trip to a
+  // page that's already a fresh navigation per wizard step.
+  const [connection, weekStartDay] = await Promise.all([
+    prisma.connection.findFirst({
+      where: { shortCode, ...scope },
+      include: { department: true, vaUser: true },
+    }),
+    getWeekStartDay(),
+  ]);
 
   const codeStepHref = `/submit?${new URLSearchParams({
     period,
@@ -268,6 +258,26 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   }).toString()}`;
 
   if (!connection) {
+    // Rate-limit failed lookups only, keyed by account — a code that
+    // resolves never touches this, so normal multi-area submitting (which
+    // revisits this page many times with the same code in the URL) can't
+    // burn through the budget. Only repeated code-guessing (misses) does.
+    const lookupLimit = await checkRateLimit(`submit-lookup:${session.user.id}`, {
+      max: 20,
+      windowMs: 10 * 60 * 1000,
+    });
+    if (!lookupLimit.allowed) {
+      return (
+        <SubmitShell>
+          <StepHeader step={2} title="Too many attempts" />
+          <p className="mt-4 text-center text-sm text-muted">
+            Please wait {formatRetryAfter(lookupLimit.retryAfterMs)} before trying another code.
+          </p>
+          <StartOverLink />
+        </SubmitShell>
+      );
+    }
+
     return (
       <SubmitShell>
         <StepHeader step={2} title="Code not recognized" />
@@ -290,7 +300,6 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   // can still go back and correct it — mirrors the legacy
   // isSummarySubmitted() check. Computed once up front since both the
   // cluster picker (Step 3) and the value-entry step (Step 4) need it.
-  const weekStartDay = await getWeekStartDay();
   const periodStart = currentPeriodStart(period, anchorDate, weekStartDay);
 
   const clusterStepHref = `/submit?${new URLSearchParams({
@@ -321,6 +330,65 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
   const subtitle = `${connection.vaUser.name ?? connection.vaUser.email} · ${connection.clientName} · ${
     connection.department.name
   } · ${period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"}`;
+
+  // "View all clusters" — every not-yet-submitted area on one scrollable
+  // page with a single Submit at the bottom, for a VA who'd rather fill in
+  // everything in one sitting than submit-and-redirect per area.
+  if (viewAll) {
+    const groups = await getSubmittableKpis(
+      { departmentId: connection.departmentId, period, connectionId: connection.id, periodStart },
+      { excludeSubmitted: session.user.role === "VA" },
+    );
+    const drafts = await prisma.submissionDraft.findMany({
+      where: { connectionId: connection.id, period, periodStart },
+      select: { kpiDefinitionId: true, value: true, noData: true },
+    });
+    const initialDrafts = Object.fromEntries(
+      drafts.map((d) => [d.kpiDefinitionId, { value: d.value, noData: d.noData }]),
+    );
+
+    return (
+      <SubmitShell>
+        <StepHeader step={4} title="All areas" subtitle={subtitle} />
+        {outsideWindow ? (
+          <p className="mt-6 text-center text-sm text-muted">
+            Submissions for {connection.department.name} are only accepted
+            between{" "}
+            {formatManilaWindow(
+              connection.department.submissionWindowStart!,
+              connection.department.submissionWindowEnd!,
+            )}
+            . Please come back during that window.
+          </p>
+        ) : groups.length === 0 ? (
+          <p className="mt-6 text-center text-sm text-muted">
+            {clusters.length === 0
+              ? `No ${period === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPIs are configured for ${connection.department.name} yet.`
+              : "Everything has already been submitted for this period."}
+          </p>
+        ) : (
+          <AllClustersForm
+            groups={groups}
+            connectionId={connection.id}
+            period={period}
+            dateParam={dateParam}
+            submittingAsLabel={session.user.name ?? session.user.email ?? ""}
+            periodStartLabel={periodStart.toLocaleDateString()}
+            initialDrafts={initialDrafts}
+          />
+        )}
+        <Link
+          href={clusterStepHref}
+          className="mt-6 block text-center text-xs text-muted hover:underline"
+        >
+          Back to areas
+        </Link>
+        <StartOverLink />
+      </SubmitShell>
+    );
+  }
+
+  const viewAllHref = `${clusterStepHref}&view=all`;
 
   // Step 3: which cluster (e.g. Facebook, Instagram, Amazon Task-based) —
   // lets a VA submit one focused group of KPIs at a time instead of
@@ -357,6 +425,14 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
               clusters={clusters}
               extraParams={{ period, ...(dateParam ? { date: dateParam } : {}), code: codeParam }}
             />
+            {clusters.length > 1 && (
+              <Link
+                href={viewAllHref}
+                className="mt-4 block text-center text-sm text-accent hover:underline"
+              >
+                View all clusters instead →
+              </Link>
+            )}
           </>
         )}
         <StartOverLink />
