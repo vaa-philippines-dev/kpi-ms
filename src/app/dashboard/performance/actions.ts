@@ -75,9 +75,19 @@ export async function getConnectionWeekDetail(
 
   const periodStartDate = new Date(periodStart);
 
-  const [configs, summaries, interventions] = await Promise.all([
+  const [configs, submission, summaries, interventions] = await Promise.all([
     prisma.kpiConfig.findMany({
       where: { connectionId },
+    }),
+    // Source of truth for "has this period been submitted" — PerformanceSummary
+    // rows are never deleted (recomputePerformanceSummary just falls them back
+    // to NO_DATA), so their mere presence doesn't reliably say whether a
+    // Submission exists for this period. See lib/connection-trend.ts, which
+    // has the same fix, and commit 2d9cd9d's identical fix for the
+    // submissions tracker.
+    prisma.submission.findFirst({
+      where: { connectionId, period, periodStart: periodStartDate },
+      select: { id: true },
     }),
     prisma.performanceSummary.findMany({
       where: { connectionId, period, periodStart: periodStartDate },
@@ -97,8 +107,10 @@ export async function getConnectionWeekDetail(
     return config?.targetValue != null && config.targetValue !== masterTarget ? masterTarget : null;
   };
 
+  const hasSubmission = submission !== null;
+
   let kpiRows: ConnectionWeekKpiRow[];
-  if (summaries.length > 0) {
+  if (hasSubmission) {
     kpiRows = summaries.map((s) => ({
       kpiDefinitionId: s.kpiDefinitionId,
       name: s.kpiDefinition.name,
@@ -147,7 +159,7 @@ export async function getConnectionWeekDetail(
     teamName: connection.team?.name ?? null,
     teamLeaderName: connection.team?.teamLeader?.name ?? connection.team?.teamLeader?.email ?? null,
     periodStart: periodStartDate.toISOString(),
-    hasSubmission: summaries.length > 0,
+    hasSubmission,
     kpiRows,
     interventions: interventions.map((iv) => ({
       id: iv.id,

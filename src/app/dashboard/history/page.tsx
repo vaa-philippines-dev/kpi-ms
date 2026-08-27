@@ -76,7 +76,7 @@ export default async function HistoryPage(props: PageProps<"/dashboard/history">
     <>
       <PageHeader
         title="History"
-        description={`Your ${isMonthly ? "monthly" : "weekly"} status over the last ${PERIODS_SHOWN} periods, per connection. Switch periods with the Weekly / Monthly toggle above.`}
+        description={`Your ${isMonthly ? "monthly" : "weekly"} status over the last ${PERIODS_SHOWN} periods, per connection. Click a point or date to see the actual KPI values for that period. Switch periods with the Weekly / Monthly toggle above.`}
       />
       <div className="space-y-4">
         {cards.map(({ connection, points }) => (

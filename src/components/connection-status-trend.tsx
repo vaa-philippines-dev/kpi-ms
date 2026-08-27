@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState, type PointerEvent } from "react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import type { ConnectionTrendPoint } from "@/lib/connection-trend";
-import { PerformanceStatus } from "@/generated/prisma/enums";
+import { StatusBadge } from "@/components/status-badge";
+import { KpiDirection, PerformanceStatus } from "@/generated/prisma/enums";
 
 const STATUS_LABEL: Record<PerformanceStatus, string> = {
   [PerformanceStatus.ON_TARGET]: "On Target",
@@ -28,12 +30,14 @@ const LEVEL: Partial<Record<PerformanceStatus, number>> = {
   [PerformanceStatus.ON_TARGET]: 2,
 };
 
+// Compact — roughly 2/3 the height of the original chart, freeing up room
+// for the actual-KPI-values detail panel below without lengthening the page.
 const WIDTH = 480;
-const HEIGHT = 92;
+const HEIGHT = 60;
 const PAD_X = 8;
-const PAD_TOP = 8;
-const SCALE_BOTTOM = 54;
-const GAP_LANE_Y = 74;
+const PAD_TOP = 6;
+const SCALE_BOTTOM = 36;
+const GAP_LANE_Y = 50;
 
 function formatDate(d: Date, isMonthly: boolean) {
   return d.toLocaleDateString(undefined, {
@@ -44,13 +48,24 @@ function formatDate(d: Date, isMonthly: boolean) {
   });
 }
 
+function DirIndicator({ direction }: { direction: KpiDirection }) {
+  return direction === KpiDirection.LOWER_IS_BETTER ? (
+    <ArrowDown className="size-3 text-warning" aria-label="Lower is better" />
+  ) : (
+    <ArrowUp className="size-3 text-success" aria-label="Higher is better" />
+  );
+}
+
 /**
  * Per-connection status-over-time chart — a connected line through the
  * three ranked statuses (Critical/At Risk/On Target), with a separate lane
  * beneath the scale for periods with no data at all, so those don't read as
- * "worse than critical." Replaces the old isolated-dot row on the History
- * page with something you can actually trace a trend through, plus a real
- * hover tooltip instead of relying on the native title attribute.
+ * "worse than critical." A hover tooltip gives a quick date+status glance;
+ * clicking a point (or its date label) pins that period below the chart as
+ * a full table of the actual KPI values behind the rolled-up status — the
+ * graph itself only ever encodes status, on purpose (that's what makes a
+ * multi-period trend scannable), so the real numbers live in this separate
+ * panel instead of being crammed into the chart.
  */
 export function ConnectionStatusTrend({
   points,
@@ -60,6 +75,17 @@ export function ConnectionStatusTrend({
   isMonthly: boolean;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  const lastSubmittedIndex = useMemo(() => {
+    for (let i = points.length - 1; i >= 0; i--) {
+      if (points[i].status !== null) return i;
+    }
+    return points.length - 1;
+  }, [points]);
+  const [selectedIndex, setSelectedIndex] = useState(lastSubmittedIndex);
+  const selected = points[Math.min(selectedIndex, points.length - 1)] as
+    | ConnectionTrendPoint
+    | undefined;
 
   const xStep = points.length > 1 ? (WIDTH - PAD_X * 2) / (points.length - 1) : 0;
   const xAt = (i: number) => PAD_X + i * xStep;
@@ -85,11 +111,18 @@ export function ConnectionStatusTrend({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points]);
 
-  function handlePointerMove(e: PointerEvent<SVGRectElement>) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = ((e.clientX - rect.left) / rect.width) * WIDTH;
+  function indexAtClientX(clientX: number, rect: DOMRect) {
+    const relX = ((clientX - rect.left) / rect.width) * WIDTH;
     const idx = Math.round((relX - PAD_X) / (xStep || 1));
-    setHoverIndex(Math.min(Math.max(idx, 0), points.length - 1));
+    return Math.min(Math.max(idx, 0), points.length - 1);
+  }
+
+  function handlePointerMove(e: PointerEvent<SVGRectElement>) {
+    setHoverIndex(indexAtClientX(e.clientX, e.currentTarget.getBoundingClientRect()));
+  }
+
+  function handleClick(e: PointerEvent<SVGRectElement>) {
+    setSelectedIndex(indexAtClientX(e.clientX, e.currentTarget.getBoundingClientRect()));
   }
 
   const hovered = hoverIndex !== null ? points[hoverIndex] : null;
@@ -143,16 +176,20 @@ export function ConnectionStatusTrend({
           const level = p.status ? LEVEL[p.status] : undefined;
           const y = level !== undefined ? yAt(level) : GAP_LANE_Y;
           const isHovered = hoverIndex === i;
+          const isSelected = selectedIndex === i;
+          const ringProps = isSelected
+            ? { stroke: "var(--accent)", strokeWidth: 2 }
+            : { stroke: "var(--surface)", strokeWidth: 1.5 };
           if (!p.status) {
             return (
               <circle
                 key={i}
                 cx={xAt(i)}
                 cy={y}
-                r={isHovered ? 4.5 : 3.5}
+                r={isHovered || isSelected ? 4.5 : 3.5}
                 className="fill-surface stroke-surface-border"
-                strokeWidth={1.5}
-                strokeDasharray="2 1.5"
+                strokeWidth={isSelected ? 2 : 1.5}
+                strokeDasharray={isSelected ? undefined : "2 1.5"}
               />
             );
           }
@@ -161,10 +198,9 @@ export function ConnectionStatusTrend({
               key={i}
               cx={xAt(i)}
               cy={y}
-              r={isHovered ? 4.5 : 3.5}
+              r={isHovered || isSelected ? 4.5 : 3.5}
               className={STATUS_DOT_CLASS[p.status]}
-              stroke="var(--surface)"
-              strokeWidth={1.5}
+              {...ringProps}
             />
           );
         })}
@@ -186,8 +222,10 @@ export function ConnectionStatusTrend({
           width={WIDTH}
           height={HEIGHT}
           fill="transparent"
+          className="cursor-pointer"
           onPointerMove={handlePointerMove}
           onPointerLeave={() => setHoverIndex(null)}
+          onClick={handleClick}
         />
       </svg>
 
@@ -211,20 +249,78 @@ export function ConnectionStatusTrend({
         </div>
       )}
 
-      <div className="relative mt-1.5 h-4 text-[10px] text-muted">
+      <div className="relative mt-1 h-3.5 text-[10px] text-muted">
         {points.map((p, i) => {
           const pct = (xAt(i) / WIDTH) * 100;
           return (
-            <span
+            <button
               key={p.periodStart.toISOString()}
-              className="absolute -translate-x-1/2 whitespace-nowrap first:translate-x-0 last:-translate-x-full"
+              type="button"
+              onClick={() => setSelectedIndex(i)}
+              className={`absolute -translate-x-1/2 cursor-pointer whitespace-nowrap first:translate-x-0 last:-translate-x-full ${
+                selectedIndex === i ? "font-semibold text-foreground" : "hover:text-foreground"
+              }`}
               style={{ left: `${pct}%` }}
             >
               {formatDate(p.periodStart, isMonthly)}
-            </span>
+            </button>
           );
         })}
       </div>
+
+      {selected && (
+        <div className="mt-3 rounded-lg border border-surface-border bg-surface-hover/40 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-foreground">
+              {formatDate(selected.periodStart, isMonthly)}
+            </p>
+            {selected.status ? (
+              <StatusBadge status={selected.status} />
+            ) : (
+              <span className="text-xs text-muted">Not submitted</span>
+            )}
+          </div>
+
+          {selected.kpiRows.length > 0 ? (
+            <div className="mt-2 overflow-hidden rounded-md border border-surface-border">
+              <table className="w-full text-xs">
+                <thead className="bg-surface-hover/60 text-[10px] text-muted uppercase">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left font-medium">KPI</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Target</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Actual</th>
+                    <th className="px-2 py-1.5 text-center font-medium">Dir</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selected.kpiRows.map((r) => (
+                    <tr key={r.kpiDefinitionId} className="border-t border-surface-border">
+                      <td className="px-2 py-1.5 font-medium">{r.name}</td>
+                      <td className="px-2 py-1.5 text-muted">
+                        {r.targetValue}
+                        {r.unit ? ` ${r.unit}` : ""}
+                      </td>
+                      <td className="px-2 py-1.5 text-muted">
+                        {r.actualValue ?? "—"}
+                        {r.actualValue !== null && r.unit ? ` ${r.unit}` : ""}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        <DirIndicator direction={r.direction} />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <StatusBadge status={r.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-muted">Nothing was submitted for this period.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

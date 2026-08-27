@@ -1,14 +1,27 @@
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
 import { rollupStatus } from "@/lib/performance";
-import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+
+export type ConnectionTrendKpiRow = {
+  kpiDefinitionId: string;
+  name: string;
+  unit: string | null;
+  direction: KpiDirection;
+  targetValue: number;
+  actualValue: number | null;
+  status: PerformanceStatus;
+};
 
 export type ConnectionTrendPoint = {
   periodStart: Date;
-  /** Null = no KPI row exists for this period at all (nothing submitted),
+  /** Null = no Submission exists for this period at all (nothing submitted),
    *  distinct from NO_DATA (something was submitted but explicitly marked
    *  as having no data). */
   status: PerformanceStatus | null;
+  /** The actual per-KPI values behind `status` — empty when nothing was
+   *  submitted for this period. */
+  kpiRows: ConnectionTrendKpiRow[];
 };
 
 /** One week/month back from `periodStart` — same stepping as lib/trend.ts. */
@@ -23,9 +36,18 @@ function stepBack(periodStart: Date, period: KpiPeriod): Date {
 
 /**
  * One connection's rolled-up status for the last `periods` weeks/months,
- * oldest first — the per-connection counterpart to lib/trend.ts's
- * system-wide getPerformanceTrend (which counts connections per status, not
- * one connection's own status over time). Powers the VA-facing History page.
+ * oldest first, alongside the actual per-KPI values behind that status — the
+ * per-connection counterpart to lib/trend.ts's system-wide getPerformanceTrend
+ * (which counts connections per status, not one connection's own status over
+ * time). Powers the VA-facing History page.
+ *
+ * "Submitted" is read off the Submission table directly rather than off
+ * PerformanceSummary presence — PerformanceSummary rows are never deleted
+ * (recomputePerformanceSummary falls them back to NO_DATA instead), so their
+ * mere existence doesn't reliably say whether a period was actually
+ * submitted. Same fix as dashboard/performance/actions.ts's
+ * getConnectionWeekDetail and commit 2d9cd9d's fix for the submissions
+ * tracker.
  */
 export async function getConnectionTrend(
   connectionId: string,
@@ -42,14 +64,46 @@ export async function getConnectionTrend(
     cursor = stepBack(cursor, period);
   }
 
-  return Promise.all(
-    starts.map(async (periodStart) => {
-      const rows = await prisma.performanceSummary.findMany({
-        where: { connectionId, period, periodStart },
-        select: { status: true },
-      });
-      const status = rows.length > 0 ? rollupStatus(rows.map((r) => r.status)) : null;
-      return { periodStart, status };
+  // Two batched queries covering every period at once, rather than the old
+  // per-period round trips — same "one grouped query beats N sequential
+  // ones" fix as recomputePerformanceSummary.
+  const [submissions, summaries] = await Promise.all([
+    prisma.submission.findMany({
+      where: { connectionId, period, periodStart: { in: starts } },
+      select: { periodStart: true },
     }),
-  );
+    prisma.performanceSummary.findMany({
+      where: { connectionId, period, periodStart: { in: starts } },
+      include: { kpiDefinition: true },
+    }),
+  ]);
+
+  const submittedPeriods = new Set(submissions.map((s) => s.periodStart.getTime()));
+  const summariesByPeriod = new Map<number, typeof summaries>();
+  for (const s of summaries) {
+    const key = s.periodStart.getTime();
+    const list = summariesByPeriod.get(key);
+    if (list) list.push(s);
+    else summariesByPeriod.set(key, [s]);
+  }
+
+  return starts.map((periodStart) => {
+    const hasSubmission = submittedPeriods.has(periodStart.getTime());
+    const rows = summariesByPeriod.get(periodStart.getTime()) ?? [];
+    const status = hasSubmission ? rollupStatus(rows.map((r) => r.status)) : null;
+    const kpiRows: ConnectionTrendKpiRow[] = hasSubmission
+      ? rows
+          .map((r) => ({
+            kpiDefinitionId: r.kpiDefinitionId,
+            name: r.kpiDefinition.name,
+            unit: r.kpiDefinition.unit,
+            direction: r.kpiDefinition.direction,
+            targetValue: r.targetValue,
+            actualValue: r.actualValue,
+            status: r.status,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      : [];
+    return { periodStart, status, kpiRows };
+  });
 }
