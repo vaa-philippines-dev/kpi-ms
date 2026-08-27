@@ -21,11 +21,17 @@ export function HelpHintListener({ loginCount }: { loginCount: number }) {
 
   // Re-scheduling reads these through refs rather than the effect's own
   // closure so router/toast identity changes don't tear down and restart
-  // the timer chain mid-wait.
+  // the timer chain mid-wait. Kept current via their own effects (not a
+  // plain assignment during render) since writing to `.current` outside an
+  // effect/handler is a lint error.
   const routerRef = useRef(router);
-  routerRef.current = router;
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
   const toastRef = useRef(toast);
-  toastRef.current = toast;
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
