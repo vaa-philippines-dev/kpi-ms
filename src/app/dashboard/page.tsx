@@ -6,7 +6,7 @@ import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay, getInterventionTypes } from "@/lib/settings";
 import { getPerformanceTrend } from "@/lib/trend";
 import { getLongRunningConnections } from "@/lib/long-running";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicablePairs, loadInapplicableKpiPairs } from "@/lib/performance";
 import { UnassignedVasPanel } from "@/components/unassigned-vas-panel";
 import { DepartmentBreakdownTable, type DeptConnectionRow } from "./department-breakdown-table";
 import { DashboardStatCards } from "./dashboard-stat-cards";
@@ -150,11 +150,17 @@ export default async function DashboardOverviewPage(
   // connection with more than one weekly/monthly KPI, inflating On
   // Target/At Risk/Critical well past the Active Connections count above
   // them (e.g. 1,343 status-tile total against only 644 active connections).
+  // Drop any summary for a KPI since marked not-applicable for its
+  // connection — its PerformanceSummary row isn't cleaned up when that
+  // happens, so it would otherwise still drag down the connection's rollup.
+  const inapplicablePairs = await loadInapplicableKpiPairs(scope);
+  const applicableSummaries = excludeInapplicablePairs(summaries, inapplicablePairs);
+
   const byConnection = new Map<
     string,
     { connection: (typeof summaries)[number]["connection"]; statuses: PerformanceStatus[] }
   >();
-  for (const s of summaries) {
+  for (const s of applicableSummaries) {
     const existing = byConnection.get(s.connectionId);
     if (existing) existing.statuses.push(s.status);
     else byConnection.set(s.connectionId, { connection: s.connection, statuses: [s.status] });

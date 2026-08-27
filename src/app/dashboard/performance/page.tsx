@@ -20,7 +20,7 @@ import {
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
 import { getInterventionTypes } from "@/lib/settings";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicablePairs, loadInapplicableKpiPairs } from "@/lib/performance";
 import {
   ConnectionStatus,
   ConnectionType,
@@ -147,6 +147,12 @@ export default async function PerformancePage(
       getInterventionTypes(),
     ]);
 
+  // Drop any summary for a KPI since marked not-applicable for its
+  // connection — its PerformanceSummary row isn't cleaned up when that
+  // happens, so it would otherwise still drag down the connection's rollup.
+  const inapplicablePairs = await loadInapplicableKpiPairs({ AND: [scope, attrScope] });
+  const applicableSummaries = excludeInapplicablePairs(summaries, inapplicablePairs);
+
   // Roll each connection's KPIs for the period up to one worst-case status —
   // the Performance Summary table (and its stat cards) are per-connection,
   // not per-KPI, mirroring legacy's Performance Analytics table.
@@ -154,7 +160,7 @@ export default async function PerformancePage(
     string,
     { connection: (typeof summaries)[number]["connection"]; statuses: PerformanceStatus[] }
   >();
-  for (const s of summaries) {
+  for (const s of applicableSummaries) {
     const existing = byConnection.get(s.connectionId);
     if (existing) {
       existing.statuses.push(s.status);

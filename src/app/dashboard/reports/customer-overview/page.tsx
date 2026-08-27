@@ -12,7 +12,7 @@ import {
   parseAnchorDate,
 } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 const PERF_RANK: Record<PerformanceStatus, number> = {
@@ -85,8 +85,12 @@ export default async function CustomerOverviewPage(
       vaUser: { select: { name: true, email: true } },
       performanceSummaries: {
         where: { period, periodStart: { in: periods.map((p) => p.start) } },
-        select: { periodStart: true, status: true },
+        select: { periodStart: true, status: true, kpiDefinitionId: true },
       },
+      // Not-applicable KPIs can still have a PerformanceSummary row left
+      // over from before they were marked N/A — excluded below so a stale
+      // status doesn't drag down this connection's rollup.
+      kpiConfigs: { where: { isApplicable: false }, select: { kpiDefinitionId: true } },
     },
   });
 
@@ -115,8 +119,10 @@ export default async function CustomerOverviewPage(
     if (c.startDate && c.startDate > lastPeriodEnd) continue;
     cust.activeConnCount += 1;
 
+    const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
+    const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
     const statusByPeriod = new Map<number, PerformanceStatus[]>();
-    for (const s of c.performanceSummaries) {
+    for (const s of applicableSummaries) {
       const key = s.periodStart.getTime();
       if (!statusByPeriod.has(key)) statusByPeriod.set(key, []);
       statusByPeriod.get(key)!.push(s.status);

@@ -12,7 +12,7 @@ import { connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { normalizeShortCode } from "@/lib/connection-short-code";
 import { checkRateLimit, formatRetryAfter } from "@/lib/rate-limit";
 import { getKpiClusters, getSubmittableKpis, groupByCluster } from "@/lib/kpi-cluster";
@@ -94,17 +94,28 @@ export default async function SubmitPage(props: PageProps<"/submit">) {
             ...(successDate ? { date: successDate } : {}),
           }).toString()}`
         : undefined;
-    const summaries =
+    const [rawSummaries, inapplicableConfigs] =
       successConnectionId && successPeriodStartRaw
-        ? await prisma.performanceSummary.findMany({
-            where: {
-              connectionId: successConnectionId,
-              periodStart: new Date(successPeriodStartRaw),
-            },
-            include: { kpiDefinition: true },
-            orderBy: [{ kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { name: "asc" } }],
-          })
-        : [];
+        ? await Promise.all([
+            prisma.performanceSummary.findMany({
+              where: {
+                connectionId: successConnectionId,
+                periodStart: new Date(successPeriodStartRaw),
+              },
+              include: { kpiDefinition: true },
+              orderBy: [{ kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { name: "asc" } }],
+            }),
+            // Not-applicable KPIs can still have a PerformanceSummary row
+            // left over from before they were marked N/A — excluded below
+            // so a stale status doesn't drag down this connection's rollup.
+            prisma.kpiConfig.findMany({
+              where: { connectionId: successConnectionId, isApplicable: false },
+              select: { kpiDefinitionId: true },
+            }),
+          ])
+        : [[], []];
+    const inapplicableKpiIds = new Set(inapplicableConfigs.map((c) => c.kpiDefinitionId));
+    const summaries = excludeInapplicable(rawSummaries, inapplicableKpiIds);
     const overall = summaries.length > 0 ? rollupStatus(summaries.map((s) => s.status)) : null;
     // Grouped by cluster/area — a period can accumulate submissions from
     // more than one area, and several areas share KPI names (e.g. Facebook

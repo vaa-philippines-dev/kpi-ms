@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicablePairs, loadInapplicableKpiPairs } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -53,14 +53,19 @@ export async function getPerformanceTrend(
     cursor = stepBack(cursor, period);
   }
 
+  // Loaded once up front (not depending on periodStart) rather than inside
+  // the per-period map below.
+  const inapplicablePairs = await loadInapplicableKpiPairs(scope);
+
   return Promise.all(
     starts.map(async (periodStart) => {
       const rows = await prisma.performanceSummary.findMany({
         where: { connection: scope, period, periodStart },
-        select: { connectionId: true, status: true },
+        select: { connectionId: true, kpiDefinitionId: true, status: true },
       });
+      const applicableRows = excludeInapplicablePairs(rows, inapplicablePairs);
       const byConnection = new Map<string, PerformanceStatus[]>();
-      for (const r of rows) {
+      for (const r of applicableRows) {
         const statuses = byConnection.get(r.connectionId);
         if (statuses) statuses.push(r.status);
         else byConnection.set(r.connectionId, [r.status]);

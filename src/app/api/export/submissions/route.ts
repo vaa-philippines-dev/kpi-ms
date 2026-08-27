@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicablePairs, loadInapplicableKpiPairs } from "@/lib/performance";
 import { csvResponse } from "@/lib/csv";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
@@ -13,7 +13,7 @@ export async function GET() {
   const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
   const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
 
-  const [connections, summaries] = await Promise.all([
+  const [connections, rawSummaries, inapplicablePairs] = await Promise.all([
     prisma.connection.findMany({
       where: scope,
       include: { vaUser: true, department: true },
@@ -28,7 +28,12 @@ export async function GET() {
         ],
       },
     }),
+    // Not-applicable KPIs can still have a PerformanceSummary row left over
+    // from before they were marked N/A — excluded below so a stale status
+    // doesn't drag down a connection's rollup.
+    loadInapplicableKpiPairs(scope),
   ]);
+  const summaries = excludeInapplicablePairs(rawSummaries, inapplicablePairs);
 
   const byConnectionPeriod = new Map<string, PerformanceStatus[]>();
   for (const s of summaries) {

@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
@@ -70,6 +71,54 @@ export function rollupStatus(statuses: PerformanceStatus[]): PerformanceStatus {
   return withData.reduce((worst, s) =>
     STATUS_RANK[s] > STATUS_RANK[worst] ? s : worst,
   );
+}
+
+/**
+ * PerformanceSummary rows are never deleted or corrected when a KPI is
+ * later marked not-applicable for a connection (KpiConfig.isApplicable =
+ * false) — recomputePerformanceSummary only ever touches KPIs still
+ * present on the submission form, which already excludes N/A ones. So a
+ * KPI that was measured (and, say, missed target) before being marked N/A
+ * leaves a stale CRITICAL/AT_RISK row sitting in the current period that
+ * would otherwise still drag down rollupStatus. Every caller that rolls up
+ * raw PerformanceSummary rows into one connection status must filter with
+ * this first. Use this single-connection form (a plain Set of
+ * kpiDefinitionIds) when the summaries are already scoped to one
+ * connection; use `excludeInapplicablePairs` + `loadInapplicableKpiPairs`
+ * when rolling up many connections' summaries at once.
+ */
+export function excludeInapplicable<T extends { kpiDefinitionId: string }>(
+  summaries: T[],
+  inapplicableKpiIds: Set<string>,
+): T[] {
+  if (inapplicableKpiIds.size === 0) return summaries;
+  return summaries.filter((s) => !inapplicableKpiIds.has(s.kpiDefinitionId));
+}
+
+/** Multi-connection counterpart of `excludeInapplicable` — see its doc. */
+export function excludeInapplicablePairs<T extends { connectionId: string; kpiDefinitionId: string }>(
+  summaries: T[],
+  inapplicablePairs: Set<string>,
+): T[] {
+  if (inapplicablePairs.size === 0) return summaries;
+  return summaries.filter((s) => !inapplicablePairs.has(`${s.connectionId}:${s.kpiDefinitionId}`));
+}
+
+/**
+ * Loads the `${connectionId}:${kpiDefinitionId}` keys `excludeInapplicablePairs`
+ * needs, for every not-applicable KpiConfig row on a connection matching
+ * `scope` — the same Prisma.ConnectionWhereInput already used to scope the
+ * PerformanceSummary query being filtered. Pass `{ id: connectionId }` when
+ * scoping to a single connection.
+ */
+export async function loadInapplicableKpiPairs(
+  scope: Prisma.ConnectionWhereInput,
+): Promise<Set<string>> {
+  const rows = await prisma.kpiConfig.findMany({
+    where: { connection: scope, isApplicable: false },
+    select: { connectionId: true, kpiDefinitionId: true },
+  });
+  return new Set(rows.map((r) => `${r.connectionId}:${r.kpiDefinitionId}`));
 }
 
 /**

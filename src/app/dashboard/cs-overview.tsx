@@ -3,7 +3,7 @@ import { ComingSoon } from "@/components/page-header";
 import { CsStatusTable, type CsStatusRow } from "@/components/cs-status-table";
 import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { formatWeekRange } from "@/lib/period";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -37,6 +37,10 @@ export async function CsOverview({
         where: { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
         include: { kpiDefinition: true },
       },
+      // Not-applicable KPIs can still have a PerformanceSummary row left
+      // over from before they were marked N/A — excluded below so a stale
+      // status doesn't drag down this connection's rollup.
+      kpiConfigs: { where: { isApplicable: false }, select: { kpiDefinitionId: true } },
     },
     orderBy: { clientName: "asc" },
   });
@@ -47,18 +51,22 @@ export async function CsOverview({
 
   const weekLabel = formatWeekRange(weeklyStart);
 
-  const rows: CsStatusRow[] = connections.map((c) => ({
-    id: c.id,
-    clientName: c.clientName,
-    vaName: c.vaUser.name ?? c.vaUser.email,
-    status: rollupStatus(c.performanceSummaries.map((s) => s.status)),
-    kpiRows: c.performanceSummaries.map((s) => ({
-      name: s.kpiDefinition.name,
-      target: s.targetValue,
-      actual: s.actualValue,
-      status: s.status,
-    })),
-  }));
+  const rows: CsStatusRow[] = connections.map((c) => {
+    const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
+    const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
+    return {
+      id: c.id,
+      clientName: c.clientName,
+      vaName: c.vaUser.name ?? c.vaUser.email,
+      status: rollupStatus(applicableSummaries.map((s) => s.status)),
+      kpiRows: applicableSummaries.map((s) => ({
+        name: s.kpiDefinition.name,
+        target: s.targetValue,
+        actual: s.actualValue,
+        status: s.status,
+      })),
+    };
+  });
 
   const counts = {
     [PerformanceStatus.ON_TARGET]: rows.filter((r) => r.status === PerformanceStatus.ON_TARGET).length,

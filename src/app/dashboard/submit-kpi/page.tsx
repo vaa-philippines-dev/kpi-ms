@@ -13,7 +13,7 @@ import { getEffectiveSession } from "@/lib/view-as";
 import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { getKpiClusters, getSubmittableKpis, groupByCluster } from "@/lib/kpi-cluster";
 import { PeriodForm } from "@/app/submit/period-form";
 import { ClusterForm } from "@/app/submit/cluster-form";
@@ -91,13 +91,24 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
           ...(successDate ? { date: successDate } : {}),
         }).toString()}`
       : undefined;
-    const summaries = periodStartRaw
-      ? await prisma.performanceSummary.findMany({
-          where: { connectionId: connection.id, periodStart: new Date(periodStartRaw) },
-          include: { kpiDefinition: true },
-          orderBy: [{ kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { name: "asc" } }],
-        })
-      : [];
+    const [rawSummaries, inapplicableConfigs] = periodStartRaw
+      ? await Promise.all([
+          prisma.performanceSummary.findMany({
+            where: { connectionId: connection.id, periodStart: new Date(periodStartRaw) },
+            include: { kpiDefinition: true },
+            orderBy: [{ kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { name: "asc" } }],
+          }),
+          // Not-applicable KPIs can still have a PerformanceSummary row left
+          // over from before they were marked N/A — excluded below so a
+          // stale status doesn't drag down this connection's rollup.
+          prisma.kpiConfig.findMany({
+            where: { connectionId: connection.id, isApplicable: false },
+            select: { kpiDefinitionId: true },
+          }),
+        ])
+      : [[], []];
+    const inapplicableKpiIds = new Set(inapplicableConfigs.map((c) => c.kpiDefinitionId));
+    const summaries = excludeInapplicable(rawSummaries, inapplicableKpiIds);
     const overall = summaries.length > 0 ? rollupStatus(summaries.map((s) => s.status)) : null;
     // Grouped by cluster/area — several areas share KPI names (e.g.
     // Facebook and Instagram both have an "Engagement Rate"), so a flat

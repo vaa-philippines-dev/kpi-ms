@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 export type ConnectionTrendKpiRow = {
@@ -67,7 +67,7 @@ export async function getConnectionTrend(
   // Two batched queries covering every period at once, rather than the old
   // per-period round trips — same "one grouped query beats N sequential
   // ones" fix as recomputePerformanceSummary.
-  const [submissions, summaries] = await Promise.all([
+  const [submissions, rawSummaries, inapplicableConfigs] = await Promise.all([
     prisma.submission.findMany({
       where: { connectionId, period, periodStart: { in: starts } },
       select: { periodStart: true },
@@ -76,7 +76,16 @@ export async function getConnectionTrend(
       where: { connectionId, period, periodStart: { in: starts } },
       include: { kpiDefinition: true },
     }),
+    // Not-applicable KPIs still have PerformanceSummary rows sitting around
+    // from before they were marked N/A (see excludeInapplicable's doc) —
+    // filtered out below so they don't drag down this connection's status.
+    prisma.kpiConfig.findMany({
+      where: { connectionId, isApplicable: false },
+      select: { kpiDefinitionId: true },
+    }),
   ]);
+  const inapplicableKpiIds = new Set(inapplicableConfigs.map((c) => c.kpiDefinitionId));
+  const summaries = excludeInapplicable(rawSummaries, inapplicableKpiIds);
 
   const submittedPeriods = new Set(submissions.map((s) => s.periodStart.getTime()));
   const summariesByPeriod = new Map<number, typeof summaries>();

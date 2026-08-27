@@ -7,7 +7,7 @@ import { TeamConnectionsPanel, type TeamCard } from "@/components/team-connectio
 import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { getPerformanceTrend } from "@/lib/trend";
 import { formatWeekRange } from "@/lib/period";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -46,6 +46,10 @@ export async function TeamLeaderOverview({
           where: { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
           include: { kpiDefinition: true },
         },
+        // Not-applicable KPIs can still have a PerformanceSummary row left
+        // over from before they were marked N/A — excluded below so a stale
+        // status doesn't drag down this connection's rollup.
+        kpiConfigs: { where: { isApplicable: false }, select: { kpiDefinitionId: true } },
       },
       orderBy: { clientName: "asc" },
     }),
@@ -69,10 +73,12 @@ export async function TeamLeaderOverview({
   const weekLabel = formatWeekRange(weeklyStart);
 
   const cards: TeamCard[] = connections.map((c) => {
-    const status = rollupStatus(c.performanceSummaries.map((s) => s.status));
+    const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
+    const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
+    const status = rollupStatus(applicableSummaries.map((s) => s.status));
     const kpiRows =
-      c.performanceSummaries.length > 0
-        ? c.performanceSummaries.map((s) => ({
+      applicableSummaries.length > 0
+        ? applicableSummaries.map((s) => ({
             name: s.kpiDefinition.name,
             target: s.targetValue,
             actual: s.actualValue,
@@ -82,7 +88,8 @@ export async function TeamLeaderOverview({
             .filter(
               (k) =>
                 k.departmentId === c.departmentId &&
-                (k.serviceId === null || k.serviceId === c.serviceId),
+                (k.serviceId === null || k.serviceId === c.serviceId) &&
+                !inapplicableKpiIds.has(k.id),
             )
             .map((k) => ({
               name: k.name,

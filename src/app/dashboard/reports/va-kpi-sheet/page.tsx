@@ -5,7 +5,7 @@ import { VaKpiSheetTable, type VaKpiSheetCell } from "@/components/va-kpi-sheet-
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 // Spreadsheet-style matrix: one row per connection, one column per KPI
@@ -122,11 +122,20 @@ export default async function VaKpiSheetPage(
       }
       cells[kpi.id] = { kind: "data", actual: s.actualValue, target: s.targetValue, status: s.status };
     }
+    // Not-applicable KPIs can still have a PerformanceSummary row left over
+    // from before they were marked N/A — excluded below so a stale status
+    // doesn't drag down this connection's rollup (mirrors the `cfg &&
+    // !cfg.isApplicable` skip above, which only affects the per-cell
+    // display, not this overall figure).
+    const inapplicableKpiIds = new Set(
+      c.kpiConfigs.filter((cfg) => !cfg.isApplicable).map((cfg) => cfg.kpiDefinitionId),
+    );
+    const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
       clientName: c.clientName,
-      overallStatus: rollupStatus(c.performanceSummaries.map((s) => s.status)),
+      overallStatus: rollupStatus(applicableSummaries.map((s) => s.status)),
       cells,
     };
   });

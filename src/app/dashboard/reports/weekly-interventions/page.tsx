@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
-import { rollupStatus } from "@/lib/performance";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { KpiPeriod } from "@/generated/prisma/enums";
 
 // Cross-references this week's worst-case KPI status per connection with
@@ -34,6 +34,10 @@ export default async function WeeklyInterventionsReportPage(
       performanceSummaries: {
         where: { period: KpiPeriod.WEEKLY, periodStart: weekStart },
       },
+      // Not-applicable KPIs can still have a PerformanceSummary row left
+      // over from before they were marked N/A — excluded below so a stale
+      // status doesn't drag down this connection's rollup.
+      kpiConfigs: { where: { isApplicable: false }, select: { kpiDefinitionId: true } },
       interventions: {
         where: { createdAt: { gte: weekStart, lt: weekEnd } },
         orderBy: { createdAt: "desc" },
@@ -74,9 +78,11 @@ export default async function WeeklyInterventionsReportPage(
             </TableHead>
             <tbody>
               {connections.map((c) => {
+                const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
+                const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
                 const status =
-                  c.performanceSummaries.length > 0
-                    ? rollupStatus(c.performanceSummaries.map((s) => s.status))
+                  applicableSummaries.length > 0
+                    ? rollupStatus(applicableSummaries.map((s) => s.status))
                     : null;
                 return (
                   <Tr key={c.id} className="align-top">
