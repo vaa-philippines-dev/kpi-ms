@@ -76,9 +76,9 @@ const vaConnectionsItem: NavItem = {
 };
 const myKpiItem: NavItem = {
   href: "/dashboard/kpi",
-  label: "KPI",
+  label: "My KPI Config",
   icon: Target,
-  keywords: "my kpis targets actual status ongoing current",
+  keywords: "my kpis targets actual status ongoing current config custom default",
 };
 const historyItem: NavItem = {
   href: "/dashboard/history",
