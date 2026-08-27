@@ -13,8 +13,28 @@ const BANDS = [
 
 const WIDTH = 480;
 const HEIGHT = 160;
-const PAD_X = 6;
+const PAD_LEFT = 28; // room for the y-axis tick labels
+const PAD_RIGHT = 6;
 const PAD_TOP = 14;
+
+/**
+ * Round, evenly-spaced axis ticks from 0 to a value at least as large as
+ * `maxValue` — e.g. 18 -> [0, 5, 10, 15, 20] rather than the raw max, so the
+ * gridlines land on numbers a reader would actually pick. Values here are
+ * always whole connection counts, so the step is never let drop below 1.
+ */
+function niceTicks(maxValue: number, targetCount = 4): number[] {
+  if (maxValue <= 0) return [0, 1];
+  const rawStep = maxValue / targetCount;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const residual = rawStep / magnitude;
+  const niceResidual = residual > 5 ? 10 : residual > 2 ? 5 : residual > 1 ? 2 : 1;
+  const step = Math.max(1, Math.round(niceResidual * magnitude));
+  const niceMax = Math.ceil(maxValue / step) * step;
+  const ticks: number[] = [];
+  for (let v = 0; v <= niceMax; v += step) ticks.push(v);
+  return ticks;
+}
 
 /**
  * Standard (non-stacked) system-wide status trend — mirrors legacy's
@@ -33,10 +53,12 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const max = Math.max(...points.flatMap((p) => BANDS.map((band) => p[band.key])), 1);
+  const ticks = useMemo(() => niceTicks(max), [max]);
+  const niceMax = ticks[ticks.length - 1];
 
-  const xStep = points.length > 1 ? (WIDTH - PAD_X * 2) / (points.length - 1) : 0;
-  const xAt = (i: number) => PAD_X + i * xStep;
-  const yAt = (v: number) => HEIGHT - (v / max) * (HEIGHT - PAD_TOP);
+  const xStep = points.length > 1 ? (WIDTH - PAD_LEFT - PAD_RIGHT) / (points.length - 1) : 0;
+  const xAt = (i: number) => PAD_LEFT + i * xStep;
+  const yAt = (v: number) => HEIGHT - (v / niceMax) * (HEIGHT - PAD_TOP);
 
   // Each band's own line, plus a shared zero baseline to fill down to —
   // independent curves rather than cumulative boundaries, so nothing here
@@ -68,7 +90,7 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
   function handlePointerMove(e: React.PointerEvent<SVGRectElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
     const relX = ((e.clientX - rect.left) / rect.width) * WIDTH;
-    const idx = Math.round((relX - PAD_X) / (xStep || 1));
+    const idx = Math.round((relX - PAD_LEFT) / (xStep || 1));
     setHoverIndex(Math.min(Math.max(idx, 0), points.length - 1));
   }
 
@@ -80,14 +102,46 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
         role="img"
         aria-label="System-wide performance status by period"
       >
-        <line
-          x1={0}
-          y1={HEIGHT - 0.5}
-          x2={WIDTH}
-          y2={HEIGHT - 0.5}
-          className="stroke-surface-border"
-          strokeWidth={1}
-        />
+        {/* Vertical gridlines, one per period — kept faint so they read as
+            structure rather than competing with the series lines. */}
+        {points.map((_, i) => (
+          <line
+            key={`v-${i}`}
+            x1={xAt(i)}
+            y1={PAD_TOP - 6}
+            x2={xAt(i)}
+            y2={HEIGHT}
+            className="stroke-surface-border"
+            strokeWidth={1}
+            opacity={0.35}
+          />
+        ))}
+
+        {/* Horizontal gridlines at each rounded tick, with the value
+            labeled to the left — the "premium" axis treatment. */}
+        {ticks.map((t) => (
+          <g key={`h-${t}`}>
+            <line
+              x1={PAD_LEFT}
+              y1={yAt(t)}
+              x2={WIDTH}
+              y2={yAt(t)}
+              className="stroke-surface-border"
+              strokeWidth={1}
+              opacity={0.6}
+            />
+            <text
+              x={PAD_LEFT - 6}
+              y={yAt(t)}
+              textAnchor="end"
+              dominantBaseline="middle"
+              className="fill-muted"
+              fontSize={9.5}
+            >
+              {t}
+            </text>
+          </g>
+        ))}
 
         {BANDS.map((band) => {
           const line = seriesLines.get(band.key)!;
@@ -127,7 +181,7 @@ export function PerformanceTrendChart({ points }: { points: TrendPoint[] }) {
             y1={PAD_TOP - 6}
             x2={hoverX}
             y2={HEIGHT}
-            className="stroke-surface-border"
+            className="stroke-muted"
             strokeWidth={1}
           />
         )}
