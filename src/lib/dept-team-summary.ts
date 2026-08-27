@@ -107,12 +107,42 @@ export async function getTeamSubmissionSummary(
   // here (as this used to) diverged from legacy's per-team totals by up to
   // ~70% of a department's active connections (verified against Amazon's
   // roster: Team 01 read 22 instead of 31, Team 03 read 17 instead of 53).
-  const teamUsers = await prisma.user.findMany({
-    where: { teamId: { not: null }, vaConnections: { some: scope } },
-    select: { teamId: true },
-    distinct: ["teamId"],
+  //
+  // Bucketed here (in JS, from each connection's own department) rather
+  // than by a `vaUser: { teamId }` relation filter per team, because a VA
+  // can work across departments (User.additionalDepartments — e.g. one
+  // Executive Assistant VA who also handles an Amazon client): their
+  // `User.teamId` always points at their *home* department's team, which
+  // has nothing to do with this connection's department. Filtering by
+  // relation alone pulled that home team's row (and its unrelated leader —
+  // confirmed against Amazon's "Team 04": Executive Assistant's own "Team
+  // 04", led by Arlene Tacloy, was leaking in for exactly this reason) into
+  // a department it doesn't belong to, just because the team-name/number
+  // coincidentally matched one of this department's own teams. A
+  // connection only counts toward its VA's team when that team's own
+  // department matches the connection's department; otherwise it falls to
+  // "No Team" for this department's purposes.
+  const connections = await prisma.connection.findMany({
+    where: scope,
+    select: {
+      id: true,
+      departmentId: true,
+      vaUser: { select: { teamId: true, team: { select: { departmentId: true } } } },
+    },
   });
-  const teamIds = teamUsers.map((u) => u.teamId!).filter(Boolean);
+
+  const idsByTeam = new Map<string, string[]>();
+  const noTeamIds: string[] = [];
+  for (const c of connections) {
+    const teamId = c.vaUser.teamId;
+    if (teamId && c.vaUser.team?.departmentId === c.departmentId) {
+      const ids = idsByTeam.get(teamId) ?? [];
+      ids.push(c.id);
+      idsByTeam.set(teamId, ids);
+    } else {
+      noTeamIds.push(c.id);
+    }
+  }
 
   // Includes disbanded (isActive: false) teams too — excluding them here
   // used to mean any VA still pointing at a disbanded team (e.g. Amazon's
@@ -121,6 +151,7 @@ export async function getTeamSubmissionSummary(
   // teamId, just one pointing at a disbanded team), silently understating
   // the department's real total. Shown with a "(Disbanded)" suffix instead
   // so it reads as "these still need reassigning," not a live team.
+  const teamIds = [...idsByTeam.keys()];
   const teams =
     teamIds.length === 0
       ? []
@@ -137,20 +168,13 @@ export async function getTeamSubmissionSummary(
           team.id,
           team.isActive ? team.name : `${team.name} (Disbanded)`,
           team.teamLeader?.name ?? team.teamLeader?.email ?? null,
-          { ...scope, vaUser: { teamId: team.id } },
+          { id: { in: idsByTeam.get(team.id)! } },
           period,
           periodStart,
         ),
       ),
     ),
-    buildRow(
-      "no-team",
-      "No Team",
-      null,
-      { ...scope, vaUser: { teamId: null } },
-      period,
-      periodStart,
-    ),
+    buildRow("no-team", "No Team", null, { id: { in: noTeamIds } }, period, periodStart),
   ]);
 
   return noTeamRow.total > 0 ? [noTeamRow, ...teamRows] : teamRows;
