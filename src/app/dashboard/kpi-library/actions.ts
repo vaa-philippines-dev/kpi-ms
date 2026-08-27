@@ -181,11 +181,12 @@ export async function deleteKpiDefinition(formData: FormData) {
 
 // Same access rules as deleteKpiDefinition, but for the case a manager
 // wants the KPI gone regardless of the history attached to it — wipes every
-// SubmissionRecord/PerformanceSummary/KpiConfig(+History) row referencing
-// this KpiDefinition first (none of those relations cascade at the DB
-// level, so the plain delete above always fails once any exist), then the
-// KpiDefinition itself, all in one transaction. Irreversible: the UI only
-// offers this after the safe delete above has already been rejected.
+// SubmissionRecord/SubmissionDraft/PerformanceSummary/KpiConfig(+History)
+// row referencing this KpiDefinition first (none of those relations cascade
+// at the DB level, so the plain delete above always fails once any exist),
+// then the KpiDefinition itself, all in one transaction. Irreversible: the
+// UI only offers this after the safe delete above has already been
+// rejected, and gates it behind retyping the KPI's name.
 export async function forceDeleteKpiDefinition(formData: FormData) {
   const session = await requireManager();
   const id = String(formData.get("id") ?? "");
@@ -197,21 +198,23 @@ export async function forceDeleteKpiDefinition(formData: FormData) {
     // Sequential, and in this order specifically: KpiConfigHistory rows
     // must go before the KpiConfig rows they reference (its own FK target),
     // and that lookup joins through KpiConfig while it still exists.
-    // PerformanceSummary/SubmissionRecord have no such ordering constraint
-    // between each other, but keeping everything sequential inside one
-    // transaction avoids relying on that being safe.
+    // PerformanceSummary/SubmissionRecord/SubmissionDraft have no such
+    // ordering constraint between each other, but keeping everything
+    // sequential inside one transaction avoids relying on that being safe.
     const historyCount = await tx.kpiConfigHistory.deleteMany({
       where: { kpiConfig: { kpiDefinitionId: id } },
     });
     const configCount = await tx.kpiConfig.deleteMany({ where: { kpiDefinitionId: id } });
     const summaryCount = await tx.performanceSummary.deleteMany({ where: { kpiDefinitionId: id } });
     const submissionCount = await tx.submissionRecord.deleteMany({ where: { kpiDefinitionId: id } });
+    const draftCount = await tx.submissionDraft.deleteMany({ where: { kpiDefinitionId: id } });
     await tx.kpiDefinition.delete({ where: { id } });
     return {
       history: historyCount.count,
       configs: configCount.count,
       summaries: summaryCount.count,
       submissions: submissionCount.count,
+      drafts: draftCount.count,
     };
   });
 
@@ -223,7 +226,8 @@ export async function forceDeleteKpiDefinition(formData: FormData) {
     entityLabel: kpi ? `${kpi.name} (${kpi.cluster}, ${kpi.period})` : id,
     summary:
       `Force-deleted KPI "${kpi?.name ?? id}" along with ${counts.submissions} submission(s), ` +
-      `${counts.summaries} performance summary row(s), and ${counts.configs} config override(s)`,
+      `${counts.summaries} performance summary row(s), ${counts.configs} config override(s), ` +
+      `and ${counts.drafts} in-progress draft(s)`,
     departmentId: existing.departmentId,
   });
   revalidatePath("/dashboard/kpi-library");

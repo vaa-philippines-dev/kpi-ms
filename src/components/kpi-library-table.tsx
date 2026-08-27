@@ -851,7 +851,11 @@ export function KpiLibraryTable({
               onDone={() => setEditing(null)}
             />
             <div className="border-t border-surface-border pt-4">
-              <DeleteKpiControl kpiId={editing.id} onDeleted={() => setEditing(null)} />
+              <DeleteKpiControl
+                kpiId={editing.id}
+                kpiName={editing.name}
+                onDeleted={() => setEditing(null)}
+              />
             </div>
           </div>
         )}
@@ -868,7 +872,15 @@ export function KpiLibraryTable({
  * been rejected. Keeps the common case (no history yet) a single click
  * while still requiring a second explicit action to destroy real data.
  */
-function DeleteKpiControl({ kpiId, onDeleted }: { kpiId: string; onDeleted: () => void }) {
+function DeleteKpiControl({
+  kpiId,
+  kpiName,
+  onDeleted,
+}: {
+  kpiId: string;
+  kpiName: string;
+  onDeleted: () => void;
+}) {
   const [blocked, setBlocked] = useState(false);
 
   if (blocked) {
@@ -877,7 +889,8 @@ function DeleteKpiControl({ kpiId, onDeleted }: { kpiId: string; onDeleted: () =
         action={forceDeleteKpiDefinition}
         fields={{ id: kpiId }}
         label="Force delete anyway"
-        confirmLabel="This permanently deletes every submission, performance record, and config override for this KPI — it cannot be undone. Sure?"
+        confirmLabel="This permanently deletes every submission, performance record, and config override for this KPI — it cannot be undone."
+        typeToConfirm={kpiName}
         successMessage="KPI and its history deleted."
         onSuccess={onDeleted}
       />
