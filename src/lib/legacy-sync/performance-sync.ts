@@ -23,6 +23,16 @@ type LegacyKpiEntry = {
   status: string;
 };
 
+/** Legacy's SubmittedAt is a plain date/time string ("2026-05-11 14:32:00"
+ *  or similar) — falls back to periodStart (still better than "now", which
+ *  would make decades-old legacy data look like it just came in) when
+ *  missing or unparseable. */
+function parseSubmittedAt(raw: string | undefined, periodStart: Date): Date {
+  if (!raw) return periodStart;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? periodStart : d;
+}
+
 /** "2026-05-11" (weekly) or "May 2026" (monthly) -> UTC period start. */
 function parsePeriodStart(raw: string, period: KpiPeriod): Date | null {
   if (!raw) return null;
@@ -50,10 +60,21 @@ function parsePeriodStart(raw: string, period: KpiPeriod): Date | null {
  * upserts themselves run with bounded concurrency (see mapWithConcurrency
  * below) rather than one at a time — serial awaits over that many rows
  * blew past Vercel's function timeout before this ran to completion.
+ *
+ * Also backfills one Submission (+ SubmissionRecord per KPI) per legacy
+ * summary row, for any (connection, period, periodStart) that doesn't
+ * already have a real one — this import used to only touch PerformanceSummary,
+ * which left every legacy-only period looking "not submitted" everywhere
+ * that (correctly) checks Submission existence instead of PerformanceSummary
+ * presence, e.g. the History page and getConnectionWeekDetail. Re-run-safe:
+ * a period already covered by a real or previously-backfilled Submission is
+ * skipped, never duplicated.
  */
 export async function runPerformanceSync(
   onProgress?: (phase: string, done: number, total: number) => void,
+  options?: { dryRun?: boolean },
 ): Promise<SyncReport> {
+  const dryRun = options?.dryRun ?? false;
   const report: SyncReport = {};
 
   const [connections, kpiDefs, kpiConfigs] = await Promise.all([
@@ -63,7 +84,7 @@ export async function runPerformanceSync(
     }),
     prisma.kpiDefinition.findMany({
       where: { legacyId: { not: null } },
-      select: { id: true, legacyId: true, period: true, targetValue: true },
+      select: { id: true, legacyId: true, name: true, period: true, targetValue: true },
     }),
     prisma.kpiConfig.findMany({
       select: { connectionId: true, kpiDefinitionId: true, targetValue: true },
@@ -77,6 +98,7 @@ export async function runPerformanceSync(
   // Mirrored here so the fallback is baked into the stored row instead of
   // silently landing on 0 (a blank string is finite once Number()'d).
   const defaultTargetByKpiId = new Map(kpiDefs.map((k) => [k.id, k.targetValue]));
+  const kpiNameById = new Map(kpiDefs.map((k) => [k.id, k.name]));
   const configTargetByKey = new Map(
     kpiConfigs
       .filter((c) => c.targetValue !== null)
@@ -100,6 +122,21 @@ export async function runPerformanceSync(
       ).map((s) => `${s.connectionId}:${s.kpiDefinitionId}:${s.periodStart.toISOString()}`),
     );
 
+    // Which (connection, periodStart) pairs already have a real Submission —
+    // either a genuine in-app submission, or one this backfill already
+    // created on a prior run. Skipped so a re-run never double-creates, and
+    // so a period a VA has actually submitted through the new app keeps its
+    // real Submission as the only one (this legacy import wouldn't add
+    // anything ConnectionTrend doesn't already have from it).
+    const existingSubmissionKeys = new Set(
+      (
+        await prisma.submission.findMany({
+          where: { period },
+          select: { connectionId: true, periodStart: true },
+        })
+      ).map((s) => `${s.connectionId}:${s.periodStart.toISOString()}`),
+    );
+
     type Job = {
       summaryId: string;
       kpiId: string;
@@ -113,6 +150,16 @@ export async function runPerformanceSync(
       willUpdate: boolean;
     };
     const jobs: Job[] = [];
+
+    type SubmissionJob = {
+      summaryId: string;
+      connectionId: string;
+      periodStart: Date;
+      submittedAt: Date;
+      records: { kpiDefinitionId: string; value: number | null; noData: boolean }[];
+      rawPayload: Record<string, number | string>;
+    };
+    const submissionJobs: SubmissionJob[] = [];
 
     for (const row of rows) {
       const connectionId = connMap.get(row.ConnectionID ?? "");
@@ -129,6 +176,15 @@ export async function runPerformanceSync(
         result.errors.push(`${row.SummaryID}: unparseable KPIs JSON`);
         continue;
       }
+
+      // One Submission per legacy summary row (mirrors one real submit
+      // call), built alongside the per-KPI PerformanceSummary jobs below —
+      // skipped entirely once a real (or previously-backfilled) Submission
+      // already covers this connection/period.
+      const submissionKey = `${connectionId}:${periodStart.toISOString()}`;
+      const buildSubmission = !existingSubmissionKeys.has(submissionKey);
+      const submissionRecords: SubmissionJob["records"] = [];
+      const rawPayload: Record<string, number | string> = {};
 
       for (const entry of entries) {
         const kpiDefinitionId = kpiDefMap.get(`${entry.kpiId}:${period}`);
@@ -174,36 +230,59 @@ export async function runPerformanceSync(
           status,
           willUpdate: existingKeys.has(key),
         });
+
+        if (buildSubmission) {
+          submissionRecords.push({ kpiDefinitionId, value: actualValue, noData: entry.noData });
+          const kpiName = kpiNameById.get(kpiDefinitionId) ?? entry.kpiId;
+          rawPayload[kpiName] = entry.noData ? "No data available" : (actualValue ?? "No data available");
+        }
+      }
+
+      if (buildSubmission && submissionRecords.length > 0) {
+        // Marked as seen immediately (not just after the batch create below)
+        // so two legacy rows that somehow share a connection/periodStart
+        // within this same run don't both queue a Submission.
+        existingSubmissionKeys.add(submissionKey);
+        submissionJobs.push({
+          summaryId: row.SummaryID ?? "",
+          connectionId,
+          periodStart,
+          submittedAt: parseSubmittedAt(row.SubmittedAt, periodStart),
+          records: submissionRecords,
+          rawPayload,
+        });
       }
     }
 
     await mapWithConcurrency(jobs, 10, async (job) => {
       try {
-        await prisma.performanceSummary.upsert({
-          where: {
-            connectionId_kpiDefinitionId_periodStart: {
+        if (!dryRun) {
+          await prisma.performanceSummary.upsert({
+            where: {
+              connectionId_kpiDefinitionId_periodStart: {
+                connectionId: job.connectionId,
+                kpiDefinitionId: job.kpiDefinitionId,
+                periodStart: job.periodStart,
+              },
+            },
+            create: {
               connectionId: job.connectionId,
               kpiDefinitionId: job.kpiDefinitionId,
+              period,
               periodStart: job.periodStart,
+              actualValue: job.actualValue,
+              targetValue: job.targetValue,
+              pct: job.pct,
+              status: job.status,
             },
-          },
-          create: {
-            connectionId: job.connectionId,
-            kpiDefinitionId: job.kpiDefinitionId,
-            period,
-            periodStart: job.periodStart,
-            actualValue: job.actualValue,
-            targetValue: job.targetValue,
-            pct: job.pct,
-            status: job.status,
-          },
-          update: {
-            actualValue: job.actualValue,
-            targetValue: job.targetValue,
-            pct: job.pct,
-            status: job.status,
-          },
-        });
+            update: {
+              actualValue: job.actualValue,
+              targetValue: job.targetValue,
+              pct: job.pct,
+              status: job.status,
+            },
+          });
+        }
         if (job.willUpdate) result.updated++;
         else result.created++;
       } catch (e) {
@@ -212,6 +291,34 @@ export async function runPerformanceSync(
     }, (done, total) => onProgress?.(sheetName, done, total));
 
     report[sheetName] = result;
+
+    // Backfills the Submission (+ SubmissionRecord) rows this import never
+    // used to create — without them, getConnectionTrend/getConnectionWeekDetail
+    // (which check Submission existence, not PerformanceSummary, since
+    // PerformanceSummary rows are never deleted) treat every legacy-only
+    // period as "not submitted" even though it has real historical KPI data.
+    const submissionResult = emptyResult();
+    await mapWithConcurrency(submissionJobs, 10, async (job) => {
+      try {
+        if (!dryRun) {
+          await prisma.submission.create({
+            data: {
+              connectionId: job.connectionId,
+              period,
+              periodStart: job.periodStart,
+              submittedAt: job.submittedAt,
+              rawPayload: job.rawPayload,
+              records: { create: job.records },
+            },
+          });
+        }
+        submissionResult.created++;
+      } catch (e) {
+        submissionResult.errors.push(`${job.summaryId}: ${(e as Error).message}`);
+      }
+    }, (done, total) => onProgress?.(`${sheetName} (backfilling submissions)`, done, total));
+
+    report[`${sheetName}_submissions`] = submissionResult;
   }
 
   return report;

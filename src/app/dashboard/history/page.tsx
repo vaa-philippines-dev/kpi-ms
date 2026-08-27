@@ -5,7 +5,7 @@ import { getEffectiveSession } from "@/lib/view-as";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { getConnectionTrend } from "@/lib/connection-trend";
 import { getWeekStartDay } from "@/lib/settings";
-import { ConnectionStatusTrend } from "@/components/connection-status-trend";
+import { HistoryConnectionList } from "@/components/history-connection-list";
 import { parseAnchorDate } from "@/lib/period";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
@@ -78,18 +78,7 @@ export default async function HistoryPage(props: PageProps<"/dashboard/history">
         title="History"
         description={`Your ${isMonthly ? "monthly" : "weekly"} status over the last ${PERIODS_SHOWN} periods, per connection. Click a point or date to see the actual KPI values for that period. Switch periods with the Weekly / Monthly toggle above.`}
       />
-      <div className="space-y-4">
-        {cards.map(({ connection, points }) => (
-          <div
-            key={connection.id}
-            className="rounded-xl border border-surface-border bg-surface p-5"
-          >
-            <h2 className="text-sm font-semibold">{connection.clientName}</h2>
-            <p className="mb-4 text-xs text-muted">{connection.department.name}</p>
-            <ConnectionStatusTrend points={points} isMonthly={isMonthly} />
-          </div>
-        ))}
-      </div>
+      <HistoryConnectionList cards={cards} isMonthly={isMonthly} />
 
       <div className="mt-5 flex flex-wrap items-center gap-4 text-xs text-muted">
         {(
