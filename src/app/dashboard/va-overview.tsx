@@ -4,8 +4,16 @@ import { prisma } from "@/lib/prisma";
 import { ComingSoon } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HistorySummaryCard } from "@/components/history-summary-card";
+import { getConnectionTrend } from "@/lib/connection-trend";
 import { ConnectionStatus, KpiPeriod } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+
+// Teaser window for the dashboard's History summary — shorter than the real
+// History page's 10-period view (lib/connection-trend.ts's caller there),
+// since this is meant to be glanced at, not read in full before the click
+// through to /dashboard/history.
+const HISTORY_TEASER_PERIODS = 8;
 
 /**
  * VA's own dashboard content — mirrors legacy's renderVADashboard()
@@ -19,9 +27,11 @@ import type { Prisma } from "@/generated/prisma/client";
 export async function VaOverview({
   scope,
   weeklyStart,
+  weekStartDay,
 }: {
   scope: Prisma.ConnectionWhereInput;
   weeklyStart: Date;
+  weekStartDay: number;
 }) {
   const connections = await prisma.connection.findMany({
     where: scope,
@@ -50,6 +60,14 @@ export async function VaOverview({
   const submittedIds = new Set(submittedRows.map((s) => s.connectionId));
   const submittedCount = activeConns.filter((c) => submittedIds.has(c.id)).length;
 
+  const historyPreview = await Promise.all(
+    activeConns.map(async (c) => ({
+      connectionId: c.id,
+      clientName: c.clientName,
+      points: await getConnectionTrend(c.id, KpiPeriod.WEEKLY, weekStartDay, HISTORY_TEASER_PERIODS),
+    })),
+  );
+
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-3 gap-4">
@@ -66,6 +84,10 @@ export async function VaOverview({
           <div className="mt-1 text-sm">Pending</div>
         </div>
       </div>
+
+      {historyPreview.length > 0 && (
+        <HistorySummaryCard cards={historyPreview} periodsLabel={`last ${HISTORY_TEASER_PERIODS} weeks`} />
+      )}
 
       {activeConns.length > 0 && (
         <div>

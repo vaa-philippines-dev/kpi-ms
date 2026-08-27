@@ -85,7 +85,7 @@ export default async function DashboardOverviewPage(
     return (
       <>
         <PageHeader title="Dashboard" description="Your connections and this week's submissions." />
-        <VaOverview scope={scope} weeklyStart={weeklyStart} />
+        <VaOverview scope={scope} weeklyStart={weeklyStart} weekStartDay={weekStartDay} />
       </>
     );
   }
