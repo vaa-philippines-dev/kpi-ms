@@ -12,7 +12,7 @@ import {
   type RecentSubmissionRow,
 } from "@/components/recent-submissions-table";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
+import { currentPeriodStart, hoursAgo, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import {
   getDepartmentSubmissionSummary,
@@ -74,7 +74,7 @@ export default async function SubmissionsPage(
       prisma.submission.findMany({
         where: { connection: scope },
         orderBy: { submittedAt: "desc" },
-        take: 50,
+        take: 100,
         include: {
           connection: {
             select: {
@@ -83,7 +83,7 @@ export default async function SubmissionsPage(
               vaUser: { select: { name: true, email: true } },
             },
           },
-          records: { include: { kpiDefinition: { select: { name: true } } } },
+          records: { include: { kpiDefinition: { select: { name: true, targetValue: true } } } },
         },
       }),
       prisma.submission.findMany({
@@ -131,6 +131,21 @@ export default async function SubmissionsPage(
   const trackedConnections = connections.filter((c) => c.status === "ACTIVE");
   const excludedCount = connections.length - trackedConnections.length;
 
+  // Target isn't stored on the submission record itself — same effective-
+  // target rule as everywhere else (connection's KpiConfig override, else
+  // the KpiDefinition default), looked up in bulk for every connection that
+  // appears in this batch rather than per-row.
+  const recentConnectionIds = [...new Set(recentSubmissions.map((s) => s.connectionId))];
+  const recentTargetOverrides = recentConnectionIds.length
+    ? await prisma.kpiConfig.findMany({
+        where: { connectionId: { in: recentConnectionIds } },
+        select: { connectionId: true, kpiDefinitionId: true, targetValue: true },
+      })
+    : [];
+  const targetOverrideByKey = new Map(
+    recentTargetOverrides.map((c) => [`${c.connectionId}:${c.kpiDefinitionId}`, c.targetValue]),
+  );
+
   const recentSubmissionRows: RecentSubmissionRow[] = recentSubmissions.map((sub) => ({
     id: sub.id,
     submittedAt: sub.submittedAt.toISOString(),
@@ -139,10 +154,16 @@ export default async function SubmissionsPage(
     departmentName: sub.connection.department.name,
     period: sub.period,
     periodStart: sub.periodStart.toISOString(),
-    valuesLabel: sub.records
-      .map((r) => `${r.kpiDefinition.name}: ${r.noData ? "No data" : r.value}`)
-      .join(", "),
+    values: sub.records.map((r) => ({
+      recordId: r.id,
+      kpiDefinitionId: r.kpiDefinitionId,
+      kpiName: r.kpiDefinition.name,
+      value: r.value,
+      noData: r.noData,
+      targetValue: targetOverrideByKey.get(`${sub.connectionId}:${r.kpiDefinitionId}`) ?? r.kpiDefinition.targetValue,
+    })),
   }));
+  const recentSubmissionsCutoff = hoursAgo(1).toISOString();
 
   const trackerRows: SubmissionTrackerRow[] = trackedConnections.map((c) => {
     const submitted = trackerStatus(c.id);
@@ -230,7 +251,11 @@ export default async function SubmissionsPage(
               {recentSubmissions.length === 0 ? (
                 <ComingSoon note="No submissions yet — they'll show up here once VAs start using the form at /submit." />
               ) : (
-                <RecentSubmissionsTable rows={recentSubmissionRows} canEdit={canEditSubmissions} />
+                <RecentSubmissionsTable
+                  rows={recentSubmissionRows}
+                  canEdit={canEditSubmissions}
+                  cutoffIso={recentSubmissionsCutoff}
+                />
               )}
             </div>
 

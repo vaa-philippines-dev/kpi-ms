@@ -152,7 +152,7 @@ export async function loadInapplicableKpiPairs(
  * updates it to NO_DATA, same as if nothing had ever been submitted.
  *
  * Callers: createSubmission (original write), and — for correcting a
- * wrongly-dated submission — updateSubmissionPeriod/deleteSubmission in
+ * wrongly-dated submission — updateSubmission/deleteSubmission in
  * dashboard/submissions/actions.ts, which call this once for the OLD
  * periodStart (to drop the moved/removed values from that period's
  * aggregate) and, when moving, once more for the NEW periodStart.

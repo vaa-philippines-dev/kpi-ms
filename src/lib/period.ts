@@ -32,6 +32,11 @@ export function startOfToday(now = new Date()): Date {
   );
 }
 
+/** `now` shifted back by `hours` (may be negative to shift forward). */
+export function hoursAgo(hours: number, now = new Date()): Date {
+  return new Date(now.getTime() - hours * 60 * 60 * 1000);
+}
+
 /** Whole days between `date` and now. */
 export function daysSince(date: Date, now = new Date()): number {
   return Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));

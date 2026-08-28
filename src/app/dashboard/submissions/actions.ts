@@ -45,7 +45,7 @@ export type SubmissionRow = {
   period: KpiPeriod;
   periodStart: string;
   submittedAt: string;
-  values: { kpiName: string; value: number | null; noData: boolean }[];
+  values: { recordId: string; kpiDefinitionId: string; kpiName: string; value: number | null; noData: boolean }[];
 };
 
 /** Read-only, scope-checked — mirrors getConnectionPerformance's pattern in
@@ -69,6 +69,8 @@ export async function getSubmissionsForConnection(
     periodStart: s.periodStart.toISOString(),
     submittedAt: s.submittedAt.toISOString(),
     values: s.records.map((r) => ({
+      recordId: r.id,
+      kpiDefinitionId: r.kpiDefinitionId,
       kpiName: r.kpiDefinition.name,
       value: r.value,
       noData: r.noData,
@@ -208,6 +210,8 @@ export async function getConnectionPeriodDetail(
       periodStart: s.periodStart.toISOString(),
       submittedAt: s.submittedAt.toISOString(),
       values: s.records.map((r) => ({
+        recordId: r.id,
+        kpiDefinitionId: r.kpiDefinitionId,
         kpiName: r.kpiDefinition.name,
         value: r.value,
         noData: r.noData,
@@ -216,24 +220,21 @@ export async function getConnectionPeriodDetail(
   };
 }
 
-/** Moves a submission to a different period/date — e.g. a VA submitted
- * against the wrong week. Recomputes the aggregate for both the period it's
- * leaving and the one it's landing on, since PerformanceSummary is a sum
- * over every submission in a period, not just this one. */
-export async function updateSubmissionPeriod(formData: FormData) {
+export type SubmissionRecordEdit = { recordId: string; value: number | null; noData: boolean };
+
+/** Moves a submission to a different period/date (e.g. a VA submitted
+ * against the wrong week) and/or corrects the actual value(s) a VA
+ * submitted for one or more of its KPIs — e.g. a typo'd number. Both are
+ * optional and independent; either can be applied alone. Recomputes the
+ * aggregate for whichever period(s) end up holding this submission's
+ * values, since PerformanceSummary is a sum over every submission in a
+ * period, not just this one. */
+export async function updateSubmission(formData: FormData) {
   const session = await requireSubmissionEditor();
   const submissionId = String(formData.get("submissionId") ?? "");
-  const periodRaw = String(formData.get("period") ?? "");
-  const dateRaw = String(formData.get("date") ?? "");
-
-  if (
-    !submissionId ||
-    !Object.values(KpiPeriod).includes(periodRaw as KpiPeriod) ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)
-  ) {
-    throw new Error("Missing submission, period, or date.");
+  if (!submissionId) {
+    throw new Error("Missing submission id.");
   }
-  const period = periodRaw as KpiPeriod;
 
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
@@ -244,42 +245,104 @@ export async function updateSubmissionPeriod(formData: FormData) {
   }
   const connection = await assertConnectionInScope(submission.connectionId, session);
 
-  const weekStartDay = await getWeekStartDay();
-  const newPeriodStart = currentPeriodStart(period, parseAnchorDate(dateRaw), weekStartDay);
-  const kpiDefinitionIds = submission.records.map((r) => r.kpiDefinitionId);
+  const periodRaw = formData.get("period");
+  const dateRaw = formData.get("date");
+  let newPeriod = submission.period;
+  let newPeriodStart = submission.periodStart;
+  if (typeof periodRaw === "string" && periodRaw && typeof dateRaw === "string" && dateRaw) {
+    if (!Object.values(KpiPeriod).includes(periodRaw as KpiPeriod) || !/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+      throw new Error("Invalid period or date.");
+    }
+    const weekStartDay = await getWeekStartDay();
+    newPeriod = periodRaw as KpiPeriod;
+    newPeriodStart = currentPeriodStart(newPeriod, parseAnchorDate(dateRaw), weekStartDay);
+  }
+
+  const recordsRaw = formData.get("records");
+  let recordEdits: SubmissionRecordEdit[] = [];
+  if (typeof recordsRaw === "string" && recordsRaw) {
+    try {
+      recordEdits = JSON.parse(recordsRaw);
+    } catch {
+      throw new Error("Invalid record edits.");
+    }
+    const validRecordIds = new Set(submission.records.map((r) => r.id));
+    for (const edit of recordEdits) {
+      if (!validRecordIds.has(edit.recordId)) {
+        throw new Error("Record does not belong to this submission.");
+      }
+    }
+  }
+
+  const periodChanged =
+    newPeriod !== submission.period || newPeriodStart.getTime() !== submission.periodStart.getTime();
+  if (!periodChanged && recordEdits.length === 0) {
+    return;
+  }
+
   const { connectionId, period: oldPeriod, periodStart: oldPeriodStart } = submission;
+  const kpiDefinitionIds = submission.records.map((r) => r.kpiDefinitionId);
 
   await prisma.$transaction(async (tx) => {
-    await tx.submission.update({
-      where: { id: submissionId },
-      data: { period, periodStart: newPeriodStart },
-    });
+    if (periodChanged) {
+      await tx.submission.update({
+        where: { id: submissionId },
+        data: { period: newPeriod, periodStart: newPeriodStart },
+      });
+    }
+    for (const edit of recordEdits) {
+      await tx.submissionRecord.update({
+        where: { id: edit.recordId },
+        data: { value: edit.noData ? null : edit.value, noData: edit.noData },
+      });
+    }
 
-    // Old period's aggregate loses this submission's values...
+    if (periodChanged) {
+      // Old period's aggregate loses this submission's values...
+      await recomputePerformanceSummary(tx, {
+        connectionId,
+        period: oldPeriod,
+        periodStart: oldPeriodStart,
+        kpiDefinitionIds,
+      });
+    }
+    // ...the (possibly same) period's aggregate picks up the current values.
     await recomputePerformanceSummary(tx, {
       connectionId,
-      period: oldPeriod,
-      periodStart: oldPeriodStart,
-      kpiDefinitionIds,
-    });
-    // ...the new period's aggregate picks them up (no-op if unchanged).
-    await recomputePerformanceSummary(tx, {
-      connectionId,
-      period,
+      period: newPeriod,
       periodStart: newPeriodStart,
       kpiDefinitionIds,
     });
+
+    const changes: { field: string; oldValue: string | null; newValue: string | null }[] = [];
+    if (periodChanged) {
+      changes.push({ field: "period", oldValue: oldPeriod, newValue: newPeriod });
+      changes.push({
+        field: "periodStart",
+        oldValue: oldPeriodStart.toISOString(),
+        newValue: newPeriodStart.toISOString(),
+      });
+    }
+    if (recordEdits.length > 0) {
+      changes.push({ field: "records", oldValue: null, newValue: JSON.stringify(recordEdits) });
+    }
+    const summaryParts: string[] = [];
+    if (periodChanged) {
+      summaryParts.push(
+        `moved from ${oldPeriodStart.toISOString().slice(0, 10)} (${oldPeriod}) to ${newPeriodStart.toISOString().slice(0, 10)} (${newPeriod})`,
+      );
+    }
+    if (recordEdits.length > 0) {
+      summaryParts.push(`edited ${recordEdits.length} KPI value${recordEdits.length === 1 ? "" : "s"}`);
+    }
     await logActivity(tx, {
       actor: session,
       action: "UPDATE",
       entityType: "Submission",
       entityId: submissionId,
       entityLabel: connection.clientName,
-      summary: `Moved a submission for "${connection.clientName}" from ${oldPeriodStart.toISOString().slice(0, 10)} (${oldPeriod}) to ${newPeriodStart.toISOString().slice(0, 10)} (${period})`,
-      changes: [
-        { field: "period", oldValue: oldPeriod, newValue: period },
-        { field: "periodStart", oldValue: oldPeriodStart.toISOString(), newValue: newPeriodStart.toISOString() },
-      ],
+      summary: `Updated a submission for "${connection.clientName}" — ${summaryParts.join(", ")}`,
+      changes,
       departmentId: connection.departmentId,
     });
   });
