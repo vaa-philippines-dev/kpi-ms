@@ -32,10 +32,16 @@ export async function CsOverview({
   const connections = await prisma.connection.findMany({
     where: scope,
     include: {
-      vaUser: true,
+      vaUser: { select: { name: true, email: true } },
       performanceSummaries: {
         where: { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
-        include: { kpiDefinition: true },
+        select: {
+          kpiDefinitionId: true,
+          status: true,
+          targetValue: true,
+          actualValue: true,
+          kpiDefinition: { select: { name: true } },
+        },
       },
       // Not-applicable KPIs can still have a PerformanceSummary row left
       // over from before they were marked N/A — excluded below so a stale

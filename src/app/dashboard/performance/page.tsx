@@ -128,10 +128,21 @@ export default async function PerformancePage(
           periodStart: selectedPeriodStart,
         },
         include: {
+          // kpiDefinition dropped — every consumer below groups purely by
+          // connectionId/status, never reads the KPI definition itself, so
+          // pulling the full related row for every summary was pure waste.
           connection: {
-            include: { department: true, vaUser: { include: { team: true } } },
+            select: {
+              id: true,
+              clientName: true,
+              connectionType: true,
+              startDate: true,
+              createdAt: true,
+              isFlagged: true,
+              department: { select: { name: true } },
+              vaUser: { select: { name: true, email: true, team: { select: { name: true } } } },
+            },
           },
-          kpiDefinition: true,
         },
       }),
       // Options for the filter bar — every department/team with at least one

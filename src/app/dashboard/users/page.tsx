@@ -174,10 +174,10 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
     where,
     orderBy: [{ name: "asc" }, { email: "asc" }],
     include: {
-      department: true,
-      service: true,
-      team: true,
-      additionalDepartments: { include: { department: true } },
+      department: { select: { name: true } },
+      service: { select: { name: true } },
+      team: { select: { name: true } },
+      additionalDepartments: { select: { departmentId: true, department: { select: { name: true } } } },
     },
   });
 

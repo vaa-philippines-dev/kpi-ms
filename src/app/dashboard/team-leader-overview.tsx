@@ -39,12 +39,19 @@ export async function TeamLeaderOverview({
       // doesn't read as "Total Accounts: 43" here.
       where: { ...scope, status: ConnectionStatus.ACTIVE },
       include: {
-        vaUser: true,
-        department: true,
-        service: true,
+        vaUser: { select: { name: true, email: true } },
+        // department/service are never read here — only the scalar
+        // departmentId/serviceId FK columns are (already present without an
+        // include), so fetching the full related rows was pure waste.
         performanceSummaries: {
           where: { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
-          include: { kpiDefinition: true },
+          select: {
+            kpiDefinitionId: true,
+            status: true,
+            targetValue: true,
+            actualValue: true,
+            kpiDefinition: { select: { name: true } },
+          },
         },
         // Not-applicable KPIs can still have a PerformanceSummary row left
         // over from before they were marked N/A — excluded below so a stale

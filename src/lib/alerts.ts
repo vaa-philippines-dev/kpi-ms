@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
@@ -47,12 +48,19 @@ async function countMissingKpiConfig(scope: Prisma.ConnectionWhereInput) {
 
 /**
  * The handful of "something needs your attention" counts surfaced in the
- * topbar bell. Mostly plain `count` queries, since this runs on every
- * dashboard render — the one exception is `countMissingKpiConfig`, which
- * needs each connection's configured-KPI ids to detect partial
- * configuration, not just a zero-config connection.
+ * topbar bell. Mostly plain `count` queries — the one exception is
+ * `countMissingKpiConfig`, which needs each connection's configured-KPI ids
+ * to detect partial configuration, not just a zero-config connection, and
+ * ends up pulling every KpiConfig row for every active connection in scope
+ * to do it. That's cheap once, but this whole function used to re-run on
+ * every dashboard navigation (DashboardTopbar renders it in the layout, on
+ * every page) — for a system with ~800+ active connections that meant
+ * ~10,000 rows re-fetched per click, which showed up as the single largest
+ * contributor to this project's Supabase egress. Wrapped in a 5-minute
+ * cache below since a "needs attention" badge doesn't need to be
+ * second-fresh — see getAlerts.
  */
-export async function getAlerts(
+async function computeAlerts(
   scope: Prisma.ConnectionWhereInput,
   role: string,
 ): Promise<Alert[]> {
@@ -142,3 +150,13 @@ export async function getAlerts(
 
   return alerts.filter((a) => a.count > 0);
 }
+
+/**
+ * Cached wrapper around computeAlerts — see its doc for why. Keyed on
+ * `scope`/`role` (unstable_cache includes its arguments in the cache key
+ * automatically), so each distinct department/team/role combination gets
+ * its own 5-minute-fresh count rather than sharing one global value.
+ */
+export const getAlerts = unstable_cache(computeAlerts, ["dashboard-alerts"], {
+  revalidate: 300,
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
 import type { TicketNotification } from "@/lib/realtime";
@@ -29,10 +29,16 @@ function describeTicketEvent(payload: TicketNotification): { title: string; mess
  * ticket-live-bus.ts), that thread appends it directly instead — otherwise
  * this pops a toast and refreshes the current route so Inbox/Tickets list
  * rows and counts go live.
+ *
+ * The refresh is debounced: a burst of events (e.g. several messages landing
+ * within a second or two) collapses into a single router.refresh() instead
+ * of one per event, since each refresh re-runs every server component on
+ * the current route (see the dashboard overview queries this feeds into).
  */
 export function TicketNotificationListener() {
   const router = useRouter();
   const { toast } = useToast();
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const source = new EventSource("/api/notifications/tickets/stream");
@@ -46,10 +52,14 @@ export function TicketNotificationListener() {
         payload.kind === "status" && payload.status === "CLOSED" ? "success" : "info",
         { title, onClick: () => router.push(`/dashboard/dev/tickets/${payload.ticketId}`) },
       );
-      router.refresh();
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => router.refresh(), 1500);
     };
 
-    return () => source.close();
+    return () => {
+      source.close();
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

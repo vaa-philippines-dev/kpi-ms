@@ -25,7 +25,10 @@ export default async function ClientDetailPage(
 
   const connections = await prisma.connection.findMany({
     where: scope,
-    include: { vaUser: true, department: true },
+    include: {
+      vaUser: { select: { name: true, email: true } },
+      department: { select: { name: true } },
+    },
     orderBy: { clientName: "asc" },
   });
 
@@ -47,14 +50,18 @@ export default async function ClientDetailPage(
     ? await prisma.connection.findFirst({
         where: { id: connectionId, ...scope },
         include: {
-          vaUser: true,
-          department: true,
-          statusEvents: { orderBy: { changedAt: "desc" }, include: { changedBy: true } },
+          vaUser: { select: { name: true, email: true } },
+          department: { select: { name: true } },
+          statusEvents: {
+            orderBy: { changedAt: "desc" },
+            include: { changedBy: { select: { name: true, email: true } } },
+          },
           performanceSummaries: {
             orderBy: { periodStart: "desc" },
-            include: { kpiDefinition: true },
+            include: { kpiDefinition: { select: { name: true } } },
           },
-          interventions: { orderBy: { createdAt: "desc" }, include: { createdBy: true } },
+          // createdBy is never read below — dropped entirely.
+          interventions: { orderBy: { createdAt: "desc" } },
         },
       })
     : null;

@@ -49,7 +49,7 @@ export default async function LifetimeValuePage(
   const connections = await prisma.connection.findMany({
     where: scope,
     include: {
-      department: true,
+      department: { select: { name: true } },
       performanceSummaries: {
         orderBy: { periodStart: "desc" },
         take: 1,

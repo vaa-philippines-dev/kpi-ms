@@ -122,7 +122,15 @@ export default async function DashboardOverviewPage(
         period: selectedPeriod,
         periodStart: selectedPeriodStart,
       },
-      include: { connection: { include: { department: true, vaUser: true } } },
+      include: {
+        connection: {
+          select: {
+            clientName: true,
+            department: { select: { name: true } },
+            vaUser: { select: { name: true, email: true } },
+          },
+        },
+      },
     }),
     getPerformanceTrend(scope, selectedPeriod, weekStartDay, 6, anchor),
     getLongRunningConnections(scope),

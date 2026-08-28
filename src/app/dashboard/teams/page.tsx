@@ -44,18 +44,22 @@ export default async function TeamsPage() {
       where: { isActive: true, ...departmentFilter },
       orderBy: { name: "asc" },
       include: {
-        department: true,
-        teamLeader: true,
-        tempLeader1: true,
-        tempLeader2: true,
-        members: true,
+        department: { select: { name: true } },
+        teamLeader: { select: { id: true, name: true, email: true } },
+        tempLeader1: { select: { id: true, name: true, email: true } },
+        tempLeader2: { select: { id: true, name: true, email: true } },
+        members: { select: { id: true, name: true, email: true, role: true } },
       },
     }),
     prisma.department.findMany({
       where: isDeptScopedManager && session?.departmentId ? { id: session.departmentId } : {},
       orderBy: { name: "asc" },
     }),
-    prisma.user.findMany({ where: userDepartmentFilter, orderBy: { email: "asc" } }),
+    prisma.user.findMany({
+      where: userDepartmentFilter,
+      orderBy: { email: "asc" },
+      select: { id: true, name: true, email: true, role: true, teamId: true },
+    }),
   ]);
 
   return (

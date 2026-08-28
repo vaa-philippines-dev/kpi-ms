@@ -114,16 +114,26 @@ export default async function ConnectionsPage(
     // amongst themselves by createdAt as the next-best "recency" proxy.
     orderBy: [{ startDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     include: {
-      department: true,
-      service: true,
+      department: { select: { name: true } },
+      service: { select: { name: true } },
       // team.teamLeader nested here (not on Connection.team) — Connection's
       // own teamId is written once at creation/import and goes stale the
       // moment a VA transfers teams (never set at all for CMS-synced
       // connections), same reason Team Summary/Team Report were switched to
       // vaUser.teamId in 93dca9f/df6c0a3. The VA's own team is the only
       // trusted membership pointer.
-      vaUser: { include: { team: { include: { teamLeader: true } } } },
-      statusEvents: { orderBy: { changedAt: "desc" }, take: 5, include: { changedBy: true } },
+      vaUser: {
+        select: {
+          name: true,
+          email: true,
+          team: { select: { teamLeader: { select: { name: true, email: true } } } },
+        },
+      },
+      statusEvents: {
+        orderBy: { changedAt: "desc" },
+        take: 5,
+        include: { changedBy: { select: { name: true, email: true } } },
+      },
       interventions: { orderBy: { createdAt: "desc" }, take: 5 },
       _count: { select: { kpiConfigs: true, interventions: true } },
     },

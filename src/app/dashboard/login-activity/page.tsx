@@ -24,7 +24,7 @@ export default async function LoginActivityPage() {
         ? { departmentId: session.departmentId }
         : {},
     orderBy: { lastLogin: "desc" },
-    include: { department: true },
+    include: { department: { select: { name: true } } },
   });
 
   const rows: LoginActivityRow[] = users.map((u) => ({

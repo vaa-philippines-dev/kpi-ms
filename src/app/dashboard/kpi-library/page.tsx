@@ -31,7 +31,7 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     prisma.kpiDefinition.findMany({
       where: { period: selectedPeriod, ...scope },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
-      include: { department: true, service: true },
+      include: { department: { select: { name: true } }, service: { select: { name: true } } },
     }),
     prisma.department.findMany({
       where: isUnrestricted ? {} : { id: session.departmentId ?? "__none__" },
@@ -40,7 +40,7 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     prisma.service.findMany({
       where: isUnrestricted ? {} : { departmentId: session.departmentId ?? "__none__" },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
-      include: { department: true },
+      include: { department: { select: { name: true } } },
     }),
   ]);
   const canManage = MANAGER_ROLES.has(session.role);

@@ -32,12 +32,17 @@ export default async function InterventionsPage() {
     prisma.intervention.findMany({
       where: { connection: scope },
       orderBy: { createdAt: "desc" },
-      include: { connection: { include: { vaUser: true } }, createdBy: true },
+      // createdBy is never read below — dropped entirely rather than narrowed.
+      include: {
+        connection: {
+          select: { clientName: true, vaUser: { select: { name: true, email: true } } },
+        },
+      },
     }),
     isManager
       ? prisma.connection.findMany({
           where: scope,
-          include: { vaUser: true },
+          include: { vaUser: { select: { name: true, email: true } } },
           orderBy: { clientName: "asc" },
         })
       : Promise.resolve([]),

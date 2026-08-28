@@ -57,7 +57,10 @@ export default async function SubmissionsPage(
     await Promise.all([
       prisma.connection.findMany({
         where: scope,
-        include: { vaUser: { include: { team: true } }, department: true },
+        include: {
+          vaUser: { select: { name: true, email: true, team: { select: { name: true } } } },
+          department: { select: { name: true } },
+        },
         orderBy: { clientName: "asc" },
       }),
       prisma.submission.findMany({
@@ -73,8 +76,14 @@ export default async function SubmissionsPage(
         orderBy: { submittedAt: "desc" },
         take: 50,
         include: {
-          connection: { include: { department: true, vaUser: true } },
-          records: { include: { kpiDefinition: true } },
+          connection: {
+            select: {
+              clientName: true,
+              department: { select: { name: true } },
+              vaUser: { select: { name: true, email: true } },
+            },
+          },
+          records: { include: { kpiDefinition: { select: { name: true } } } },
         },
       }),
       prisma.submission.findMany({
