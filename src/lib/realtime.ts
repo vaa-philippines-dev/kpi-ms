@@ -1,14 +1,5 @@
 import type { TicketStatus } from "@/generated/prisma/enums";
 
-export type SubmissionNotification = {
-  connectionId: string;
-  clientName: string;
-  departmentName: string;
-  period: string;
-  cluster?: string;
-  submittedAt: string;
-};
-
 export type TicketNotification = {
   ticketId: string;
   subject: string;

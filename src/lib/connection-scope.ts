@@ -107,13 +107,6 @@ export function departmentScopeWhere(
 }
 
 /**
- * Roles the submission poll endpoint can ever return anything for — shared
- * so the route and the client listener that polls it agree on who it's
- * worth polling for, without duplicating the role list.
- */
-export const SUBMISSION_WATCHER_ROLES = [UserRole.DM, UserRole.OPS_MANAGER, UserRole.OM];
-
-/**
  * Single-record counterpart to departmentScopeWhere, for server actions
  * validating one write instead of filtering a list — same role semantics.
  */

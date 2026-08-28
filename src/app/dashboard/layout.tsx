@@ -1,7 +1,6 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
 import { HelpHintListener } from "@/components/help-hint-listener";
-import { SubmissionNotificationListener } from "@/components/submission-notification-listener";
 import { SystemMessageListener } from "@/components/system-message-listener";
 import { TicketNotificationListener } from "@/components/ticket-notification-listener";
 import { ToastProvider } from "@/components/ui/toast";
@@ -11,7 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { startOfToday } from "@/lib/period";
 import { getAppName, getSystemMessage } from "@/lib/settings";
 import { getEffectiveSession } from "@/lib/view-as";
-import { connectionScopeWhere, SUBMISSION_WATCHER_ROLES } from "@/lib/connection-scope";
+import { connectionScopeWhere } from "@/lib/connection-scope";
 
 export default async function DashboardLayout({
   children,
@@ -36,10 +35,6 @@ export default async function DashboardLayout({
     getSystemMessage(),
   ]);
 
-  const isSubmissionWatcher = session
-    ? SUBMISSION_WATCHER_ROLES.includes(session.role as (typeof SUBMISSION_WATCHER_ROLES)[number])
-    : false;
-
   return (
     <ToastProvider>
       <div className="flex h-screen bg-background">
@@ -58,7 +53,6 @@ export default async function DashboardLayout({
       {authSession?.user && (
         <WelcomeNoticeModal loginCount={authSession.user.loginCount} />
       )}
-      {isSubmissionWatcher && <SubmissionNotificationListener />}
       {session && <TicketNotificationListener />}
       {session && <SystemMessageListener message={systemMessage} />}
       {authSession?.user && <HelpHintListener loginCount={authSession.user.loginCount} />}
