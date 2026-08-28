@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { UserRole } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { getEffectiveSession } from "@/lib/view-as";
-import { prisma } from "@/lib/prisma";
 
 export type ScopingSession = {
   id: string;
@@ -108,47 +107,11 @@ export function departmentScopeWhere(
 }
 
 /**
- * Roles getSubmissionWatcherIds can ever return — shared so the SSE route
- * and the client listener that opens it agree on who it's worth connecting
- * for, without duplicating the role list.
+ * Roles the submission poll endpoint can ever return anything for — shared
+ * so the route and the client listener that polls it agree on who it's
+ * worth polling for, without duplicating the role list.
  */
 export const SUBMISSION_WATCHER_ROLES = [UserRole.DM, UserRole.OPS_MANAGER, UserRole.OM];
-
-/**
- * User ids of the managers who should be notified about a new submission
- * for `vaTeamId`/`departmentId`: DM/OPS_MANAGER of that department, plus OM
- * (Team Leader) of that VA's team (owner or either temp leader) — the same
- * department/team semantics as connectionScopeWhere's DM/OPS_MANAGER/OM
- * branches, minus ADMIN/SERVICE_MANAGER (by design: real-time submission
- * pings are a department/team-manager tool, not a global admin feed).
- */
-export async function getSubmissionWatcherIds(
-  departmentId: string,
-  vaTeamId: string | null,
-): Promise<string[]> {
-  const watchers = await prisma.user.findMany({
-    where: {
-      isActive: true,
-      OR: [
-        { role: { in: [UserRole.DM, UserRole.OPS_MANAGER] }, departmentId },
-        ...(vaTeamId
-          ? [
-              {
-                role: UserRole.OM,
-                OR: [
-                  { ledTeams: { some: { id: vaTeamId } } },
-                  { tempLedTeams1: { some: { id: vaTeamId } } },
-                  { tempLedTeams2: { some: { id: vaTeamId } } },
-                ],
-              },
-            ]
-          : []),
-      ],
-    },
-    select: { id: true },
-  });
-  return watchers.map((w) => w.id);
-}
 
 /**
  * Single-record counterpart to departmentScopeWhere, for server actions

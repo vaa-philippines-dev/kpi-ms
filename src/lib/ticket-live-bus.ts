@@ -4,12 +4,11 @@ import type { TicketNotification } from "@/lib/realtime";
 
 type Handler = (event: TicketNotification) => void;
 
-// Per-tab, in-memory fan-out from TicketNotificationListener's single SSE
-// connection to whichever TicketThread (if any) currently has that ticket
-// open — lets an open thread append live instead of a jarring
-// toast+router.refresh() while someone's mid-conversation. Not React state;
-// a plain module-level map is enough since there's at most one thread open
-// per tab at a time.
+// Per-tab, in-memory fan-out from TicketNotificationListener's poll loop to
+// whichever TicketThread (if any) currently has that ticket open — lets an
+// open thread append live instead of a jarring toast+router.refresh() while
+// someone's mid-conversation. Not React state; a plain module-level map is
+// enough since there's at most one thread open per tab at a time.
 const handlers = new Map<string, Set<Handler>>();
 
 export function subscribeToTicketLive(ticketId: string, handler: Handler): () => void {

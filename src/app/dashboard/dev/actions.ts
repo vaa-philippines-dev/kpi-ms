@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { TicketCategory, TicketPriority, TicketStatus, UserRole } from "@/generated/prisma/enums";
 import { requireSession, type ScopingSession } from "@/lib/connection-scope";
-import { ticketScopeWhere, getTicketWatcherIds } from "@/lib/ticket-scope";
-import { emitTicketNotification } from "@/lib/realtime";
+import { ticketScopeWhere } from "@/lib/ticket-scope";
 import { logActivity } from "@/lib/activity-log";
 
 async function requireAdmin(): Promise<ScopingSession> {
@@ -44,12 +43,7 @@ export async function createTicket(formData: FormData) {
     ? (priorityRaw as TicketPriority)
     : TicketPriority.NORMAL;
 
-  const creator = await prisma.user.findUniqueOrThrow({
-    where: { id: session.id },
-    select: { name: true, email: true },
-  });
-
-  const ticket = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     const created = await tx.ticket.create({
       data: {
         subject,
@@ -70,22 +64,6 @@ export async function createTicket(formData: FormData) {
     return created;
   });
 
-  // Self excluded — the creator doesn't need a toast about a ticket they
-  // just submitted themselves.
-  const watcherIds = await getTicketWatcherIds(session.id, session.departmentId, session.teamId);
-  const recipients = watcherIds.filter((id) => id !== session.id);
-  if (recipients.length > 0) {
-    emitTicketNotification({
-      ticketId: ticket.id,
-      subject,
-      kind: "created",
-      status: ticket.status,
-      actorName: creator.name ?? creator.email,
-      createdAt: ticket.createdAt.toISOString(),
-      recipientIds: recipients,
-    });
-  }
-
   revalidatePath("/dashboard/dev/inbox");
   revalidatePath("/dashboard/dev/tickets");
 }
@@ -103,12 +81,7 @@ export async function sendTicketMessage(
 
   const ticket = await prisma.ticket.findFirst({
     where: { id: ticketId, ...ticketScopeWhere(session) },
-    select: {
-      subject: true,
-      status: true,
-      createdById: true,
-      createdBy: { select: { departmentId: true, teamId: true } },
-    },
+    select: { subject: true, status: true },
   });
   if (!ticket) {
     throw new Error("Ticket not found.");
@@ -153,31 +126,6 @@ export async function sendTicketMessage(
     return created;
   });
 
-  const watcherIds = await getTicketWatcherIds(
-    ticket.createdById,
-    ticket.createdBy.departmentId,
-    ticket.createdBy.teamId,
-  );
-  const recipients = watcherIds.filter((id) => id !== session.id);
-  if (recipients.length > 0) {
-    emitTicketNotification({
-      ticketId,
-      subject: ticket.subject,
-      kind: "message",
-      status: reopening ? TicketStatus.IN_PROGRESS : ticket.status,
-      actorName: senderName,
-      createdAt: message.createdAt.toISOString(),
-      message: {
-        id: message.id,
-        senderId: session.id,
-        senderName,
-        body: trimmedBody,
-        attachmentUrl: cleanAttachmentUrl,
-      },
-      recipientIds: recipients,
-    });
-  }
-
   revalidatePath(`/dashboard/dev/tickets/${ticketId}`);
   revalidatePath("/dashboard/dev/inbox");
   revalidatePath("/dashboard/dev/tickets");
@@ -196,12 +144,7 @@ export async function updateTicketStatus(ticketId: string, status: TicketStatus)
   const session = await requireAdmin();
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketId },
-    select: {
-      subject: true,
-      status: true,
-      createdById: true,
-      createdBy: { select: { departmentId: true, teamId: true } },
-    },
+    select: { subject: true, status: true },
   });
   if (!ticket) {
     throw new Error("Ticket not found.");
@@ -226,28 +169,6 @@ export async function updateTicketStatus(ticketId: string, status: TicketStatus)
       summary: `Set ticket "${ticket.subject}" to ${status}`,
     });
   });
-
-  const admin = await prisma.user.findUniqueOrThrow({
-    where: { id: session.id },
-    select: { name: true, email: true },
-  });
-  const watcherIds = await getTicketWatcherIds(
-    ticket.createdById,
-    ticket.createdBy.departmentId,
-    ticket.createdBy.teamId,
-  );
-  const recipients = watcherIds.filter((id) => id !== session.id);
-  if (recipients.length > 0) {
-    emitTicketNotification({
-      ticketId,
-      subject: ticket.subject,
-      kind: "status",
-      status,
-      actorName: admin.name ?? admin.email,
-      createdAt: new Date().toISOString(),
-      recipientIds: recipients,
-    });
-  }
 
   revalidatePath(`/dashboard/dev/tickets/${ticketId}`);
   revalidatePath("/dashboard/dev/inbox");

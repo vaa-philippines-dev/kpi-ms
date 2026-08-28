@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity-log";
-import { SYSTEM_MESSAGE_KEYS, getSystemMessage } from "@/lib/settings";
-import { emitSystemMessageNotification } from "@/lib/realtime";
+import { SYSTEM_MESSAGE_KEYS } from "@/lib/settings";
 
 async function requireAdmin() {
   const session = await auth();
@@ -82,9 +81,6 @@ export async function updateSystemMessage(formData: FormData) {
       summary: "Changed the system message banner",
       changes,
     });
-    // Pushes to every already-open tab via SSE (see system-message-listener),
-    // so users see it immediately instead of only on their next page load.
-    emitSystemMessageNotification(await getSystemMessage());
   }
   revalidatePath("/dashboard/settings");
 }
