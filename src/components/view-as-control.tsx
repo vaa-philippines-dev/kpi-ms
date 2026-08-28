@@ -9,10 +9,17 @@ export type ViewingAs = {
   role: string;
   departmentId?: string | null;
   departmentName?: string | null;
+  teamId?: string | null;
   teamName?: string | null;
 };
 
 export type ViewAsDepartment = { id: string; name: string };
+export type ViewAsTeam = { id: string; name: string; departmentId: string; departmentName: string };
+
+// The only roles actually scoped by team (see connection-scope.ts) — every
+// other role is department-wide or unscoped, so a team picker would just be
+// noise for them.
+const TEAM_SCOPED_ROLES = new Set(["OM", "VA"]);
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "EXECUTIVE", label: "Executive" },
@@ -42,9 +49,11 @@ const ROLE_LABELS: Record<string, string> = {
 export function ViewAsControl({
   viewingAs,
   departments,
+  teams,
 }: {
   viewingAs: ViewingAs | null;
   departments: ViewAsDepartment[];
+  teams: ViewAsTeam[];
 }) {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
@@ -54,6 +63,20 @@ export function ViewAsControl({
     const formData = new FormData();
     formData.set("role", viewingAs.role);
     if (departmentId) formData.set("departmentId", departmentId);
+    startTransition(async () => {
+      try {
+        await setViewAsRole(formData);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Something went wrong.", "error");
+      }
+    });
+  }
+
+  function changeTeam(teamId: string) {
+    if (!viewingAs) return;
+    const formData = new FormData();
+    formData.set("role", viewingAs.role);
+    if (teamId) formData.set("teamId", teamId);
     startTransition(async () => {
       try {
         await setViewAsRole(formData);
@@ -86,9 +109,29 @@ export function ViewAsControl({
             ))}
           </select>
         )}
-        {viewingAs.teamName && (
-          <span className="text-muted">· {viewingAs.teamName}</span>
-        )}
+        {TEAM_SCOPED_ROLES.has(viewingAs.role) &&
+          (() => {
+            const teamOptions = viewingAs.departmentId
+              ? teams.filter((t) => t.departmentId === viewingAs.departmentId)
+              : teams;
+            if (teamOptions.length === 0) return null;
+            return (
+              <select
+                value={viewingAs.teamId ?? ""}
+                disabled={isPending}
+                onChange={(e) => changeTeam(e.target.value)}
+                title="Narrow the preview to a specific team"
+                className="rounded border-none bg-transparent py-0 pr-5 text-xs text-accent outline-none disabled:opacity-50"
+              >
+                <option value="">Any team</option>
+                {teamOptions.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {viewingAs.departmentId ? t.name : `${t.name} — ${t.departmentName}`}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
         <button
           type="button"
           disabled={isPending}

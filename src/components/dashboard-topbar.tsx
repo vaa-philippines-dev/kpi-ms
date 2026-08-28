@@ -17,13 +17,14 @@ export async function DashboardTopbar() {
   const isRealAdmin = realSession?.user?.role === "ADMIN";
   const realId = realSession?.user?.id;
 
-  const [user, alerts, weekStartDay, viewAsDepartments] = await Promise.all([
+  const [user, alerts, weekStartDay, viewAsDepartments, viewAsTeams] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.id },
       select: {
         name: true,
         email: true,
         departmentId: true,
+        teamId: true,
         department: { select: { name: true } },
         team: { select: { name: true } },
       },
@@ -31,9 +32,19 @@ export async function DashboardTopbar() {
     getAlerts(scope, session.role),
     getWeekStartDay(),
     // Only fetched for real admins — the one audience that can ever see the
-    // View As control that uses this list.
+    // View As control that uses these lists.
     isRealAdmin
       ? prisma.department.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    // Team names aren't unique across departments (e.g. an Amazon "Team 02"
+    // and an unrelated Executive Assistant "Team 02" can both exist), so the
+    // department name comes along for the picker to disambiguate them.
+    isRealAdmin
+      ? prisma.team.findMany({
+          where: { isActive: true },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, departmentId: true, department: { select: { name: true } } },
+        })
       : Promise.resolve([]),
   ]);
 
@@ -43,6 +54,7 @@ export async function DashboardTopbar() {
           role: session.role,
           departmentId: user.departmentId,
           departmentName: user.department?.name,
+          teamId: user.teamId,
           teamName: user.team?.name,
         }
       : null;
@@ -59,7 +71,16 @@ export async function DashboardTopbar() {
 
       <div className="flex shrink-0 items-center justify-end gap-2">
         {isRealAdmin && (
-          <ViewAsControl viewingAs={viewingAs} departments={viewAsDepartments} />
+          <ViewAsControl
+            viewingAs={viewingAs}
+            departments={viewAsDepartments}
+            teams={viewAsTeams.map((t) => ({
+              id: t.id,
+              name: t.name,
+              departmentId: t.departmentId,
+              departmentName: t.department.name,
+            }))}
+          />
         )}
         <CommandPalette role={session.role} />
         <NotificationBell alerts={alerts} />
