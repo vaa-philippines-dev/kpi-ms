@@ -17,7 +17,7 @@ import {
   resetKpiConfig,
   type KpiConfigGroupRow,
 } from "@/app/dashboard/connections/kpi-config/actions";
-import { KpiDirection } from "@/generated/prisma/enums";
+import { KpiDirection, ThresholdUnit } from "@/generated/prisma/enums";
 
 const DIRECTION_LABELS: Record<KpiDirection, string> = {
   HIGHER_IS_BETTER: "Higher is better",
@@ -152,8 +152,14 @@ export function KpiConfigPanel({
                 </Td>
                 <Td>{r.weekly ? r.weekly.targetValue : "—"}</Td>
                 <Td>{r.monthly ? r.monthly.targetValue : "—"}</Td>
-                <Td className="font-semibold text-warning">{r.deviationThresholdPct}</Td>
-                <Td className="font-semibold text-danger">{r.criticalThresholdPct}</Td>
+                <Td className="font-semibold text-warning">
+                  {r.deviationThresholdPct}
+                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                </Td>
+                <Td className="font-semibold text-danger">
+                  {r.criticalThresholdPct}
+                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                </Td>
                 <Td>
                   {r.isApplicable ? (
                     <Badge tone="success">Yes</Badge>
@@ -260,6 +266,30 @@ function KpiEditForm({
   onSaved: () => void;
 }) {
   const { toast } = useToast();
+  const isValueMode = row.thresholdUnit === ThresholdUnit.VALUE;
+  const [weeklyTarget, setWeeklyTarget] = useState<string>(
+    row.weekly ? String(row.weekly.targetValue) : "",
+  );
+  const [monthlyTarget, setMonthlyTarget] = useState<string>(
+    row.monthly ? String(row.monthly.targetValue) : "",
+  );
+  const [deviationThresholdPct, setDeviationThresholdPct] = useState<string>(
+    String(row.deviationThresholdPct),
+  );
+  const [criticalThresholdPct, setCriticalThresholdPct] = useState<string>(
+    String(row.criticalThresholdPct),
+  );
+  const pctHint = (raw: string) => {
+    if (!isValueMode) return null;
+    const n = parseFloat(raw);
+    const wt = parseFloat(weeklyTarget);
+    const mt = parseFloat(monthlyTarget);
+    if (Number.isNaN(n)) return null;
+    const parts: string[] = [];
+    if (!Number.isNaN(wt) && wt !== 0) parts.push(`${((n / wt) * 100).toFixed(1)}% of weekly`);
+    if (!Number.isNaN(mt) && mt !== 0 && mt !== wt) parts.push(`${((n / mt) * 100).toFixed(1)}% of monthly`);
+    return parts.length ? `≈ ${parts.join(" / ")} target` : null;
+  };
   const directionLabel = DIRECTION_LABELS[row.direction];
   const defaultWeekly = row.weekly?.defaultTargetValue;
   const defaultMonthly = row.monthly?.defaultTargetValue;
@@ -277,8 +307,14 @@ function KpiEditForm({
         <div className="grid grid-cols-2 gap-4">
           <ReadOnlyField label="Weekly Target" value={row.weekly ? row.weekly.targetValue : "—"} />
           <ReadOnlyField label="Monthly Target" value={row.monthly ? row.monthly.targetValue : "—"} />
-          <ReadOnlyField label="Deviation (%)" value={row.deviationThresholdPct} />
-          <ReadOnlyField label="At Risk Max (%)" value={row.criticalThresholdPct} />
+          <ReadOnlyField
+            label={row.thresholdUnit === ThresholdUnit.VALUE ? "Deviation (value)" : "Deviation (%)"}
+            value={row.deviationThresholdPct}
+          />
+          <ReadOnlyField
+            label={row.thresholdUnit === ThresholdUnit.VALUE ? "At Risk Max (value)" : "At Risk Max (%)"}
+            value={row.criticalThresholdPct}
+          />
         </div>
         <ReadOnlyField label="Applicable to this connection" value={row.isApplicable ? "Yes" : "No"} />
         <ReadOnlyField label="Notes" value={row.notes || "—"} />
@@ -320,7 +356,8 @@ function KpiEditForm({
             name="weeklyTargetValue"
             type="number"
             step="any"
-            defaultValue={row.weekly?.targetValue}
+            value={weeklyTarget}
+            onChange={(e) => setWeeklyTarget(e.target.value)}
             disabled={!row.weekly}
             className="w-full"
           />
@@ -330,30 +367,45 @@ function KpiEditForm({
             name="monthlyTargetValue"
             type="number"
             step="any"
-            defaultValue={row.monthly?.targetValue}
+            value={monthlyTarget}
+            onChange={(e) => setMonthlyTarget(e.target.value)}
             disabled={!row.monthly}
             className="w-full"
           />
         </Field>
-        <Field label="Deviation (%)">
+        <Field label={isValueMode ? "Deviation (value)" : "Deviation (%)"}>
           <Input
             name="deviationThresholdPct"
             type="number"
             step="any"
-            defaultValue={row.deviationThresholdPct}
+            value={deviationThresholdPct}
+            onChange={(e) => setDeviationThresholdPct(e.target.value)}
             className="w-full"
           />
+          {pctHint(deviationThresholdPct) && (
+            <p className="mt-1 text-xs text-muted">{pctHint(deviationThresholdPct)}</p>
+          )}
         </Field>
-        <Field label="At Risk Max (%)">
+        <Field label={isValueMode ? "At Risk Max (value)" : "At Risk Max (%)"}>
           <Input
             name="criticalThresholdPct"
             type="number"
             step="any"
-            defaultValue={row.criticalThresholdPct}
+            value={criticalThresholdPct}
+            onChange={(e) => setCriticalThresholdPct(e.target.value)}
             className="w-full"
           />
+          {pctHint(criticalThresholdPct) && (
+            <p className="mt-1 text-xs text-muted">{pctHint(criticalThresholdPct)}</p>
+          )}
         </Field>
       </div>
+      {isValueMode && (
+        <p className="text-xs text-muted">
+          This KPI uses raw-value thresholds (set in the KPI Library) — enter actual numbers on
+          the same scale as the target, not percentages.
+        </p>
+      )}
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="isApplicable" defaultChecked={row.isApplicable} />

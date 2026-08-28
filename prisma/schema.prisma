@@ -20,6 +20,18 @@ enum KpiPeriod {
   MONTHLY
 }
 
+// Whether a KpiDefinition's deviationThresholdPct/criticalThresholdPct hold
+// percentage-of-target deviation (the historical, only-supported meaning) or
+// a raw value on the same scale as the target itself (a floor for
+// higher-is-better, a ceiling for lower-is-better) — see computeStatus in
+// lib/performance.ts for how each is evaluated. Lives on KpiDefinition only:
+// a KPI's threshold semantics don't vary per connection, same as direction/
+// unit/period.
+enum ThresholdUnit {
+  PERCENT
+  VALUE
+}
+
 enum PerformanceStatus {
   ON_TARGET
   AT_RISK
@@ -163,9 +175,14 @@ model KpiDefinition {
   // field existed; UI should fall back to "—" rather than assuming "%".
   unit                  String?
   // On-Target boundary: |actual-target|/target <= this % (legacy default 10%).
+  // When thresholdUnit is VALUE, holds a raw floor/ceiling on the target's
+  // own scale instead — see computeStatus in lib/performance.ts.
   deviationThresholdPct Float                @default(10)
   // At-Risk/Critical boundary: above this %, status is Critical (legacy default 25%).
+  // Same VALUE-mode reinterpretation as deviationThresholdPct above.
   criticalThresholdPct  Float                @default(25)
+  // PERCENT (default) or VALUE — see the ThresholdUnit enum doc above.
+  thresholdUnit         ThresholdUnit        @default(PERCENT)
   submissionRecords     SubmissionRecord[]
   performanceSummaries  PerformanceSummary[]
   submissionDrafts      SubmissionDraft[]

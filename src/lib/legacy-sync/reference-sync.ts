@@ -8,6 +8,7 @@ import {
   ConnectionType,
   KpiDirection,
   KpiPeriod,
+  ThresholdUnit,
 } from "@/generated/prisma/enums";
 
 export type PhaseResult = { created: number; updated: number; skipped: number; errors: string[] };
@@ -379,6 +380,11 @@ export async function runReferenceSync(
     const criticalThresholdPct = numOrNull(row.AtRiskThreshold) ?? 25;
     const cluster = row.Cluster || row.KPIName;
     const unit = row.Unit || null;
+    // Mirrors the legacy KPI Master editor's own isPercent = unit === '%'
+    // rule (AppKPI.html) — a non-percent unit like ROAS's "number" means
+    // DeviationThreshold/AtRiskThreshold were entered as raw values, not
+    // percentages.
+    const thresholdUnit = unit === "%" ? ThresholdUnit.PERCENT : ThresholdUnit.VALUE;
 
     const variants: { period: KpiPeriod; targetValue: number | null }[] = [
       { period: KpiPeriod.WEEKLY, targetValue: numOrNull(row.WeeklyTarget) },
@@ -402,6 +408,7 @@ export async function runReferenceSync(
             unit,
             deviationThresholdPct,
             criticalThresholdPct,
+            thresholdUnit,
           },
           update: {
             name: row.KPIName,
@@ -411,6 +418,7 @@ export async function runReferenceSync(
             direction,
             targetValue,
             unit,
+            thresholdUnit,
             deviationThresholdPct,
             criticalThresholdPct,
           },

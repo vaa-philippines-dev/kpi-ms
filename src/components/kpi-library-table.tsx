@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
 import { formatKpiValue } from "@/lib/kpi-format";
-import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, ThresholdUnit } from "@/generated/prisma/enums";
 import {
   createKpiDefinition,
   updateKpiDefinition,
@@ -43,6 +43,10 @@ export type KpiRow = {
   targetValue: number;
   deviationThresholdPct: number;
   criticalThresholdPct: number;
+  // PERCENT: deviationThresholdPct/criticalThresholdPct are %-of-target
+  // deviation. VALUE: they're raw floor/ceiling values on the target's own
+  // scale (e.g. "actual must stay at or above 3.8") — see computeStatus.
+  thresholdUnit: ThresholdUnit;
 };
 
 const DIRECTION_LABELS: Record<KpiDirection, string> = {
@@ -136,17 +140,17 @@ function getColumns(onClusterClick: (cluster: string) => void): DataTableColumn<
     },
     {
       key: "deviationThresholdPct",
-      label: "At Risk %",
+      label: "At Risk",
       sortable: true,
       className: "text-muted",
-      render: (v) => `${v}%`,
+      render: (v, row) => (row.thresholdUnit === ThresholdUnit.VALUE ? `${v}` : `${v}%`),
     },
     {
       key: "criticalThresholdPct",
-      label: "Critical %",
+      label: "Critical",
       sortable: true,
       className: "text-muted",
-      render: (v) => `${v}%`,
+      render: (v, row) => (row.thresholdUnit === ThresholdUnit.VALUE ? `${v}` : `${v}%`),
     },
   ];
 }
@@ -316,8 +320,14 @@ function ClusterView({
                       <Td className="text-muted">{DIRECTION_LABELS[k.direction]}</Td>
                       <Td className="text-muted">{k.unit ?? "—"}</Td>
                       <Td className="text-muted">{formatKpiValue(k.targetValue, k.unit)}</Td>
-                      <Td className="text-muted">{k.deviationThresholdPct}%</Td>
-                      <Td className="text-muted">{k.criticalThresholdPct}%</Td>
+                      <Td className="text-muted">
+                        {k.deviationThresholdPct}
+                        {k.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                      </Td>
+                      <Td className="text-muted">
+                        {k.criticalThresholdPct}
+                        {k.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                      </Td>
                     </Tr>
                   ))}
                 </tbody>
@@ -473,6 +483,11 @@ function UnitField({ initialUnit }: { initialUnit?: string | null }) {
   );
 }
 
+const THRESHOLD_UNIT_LABELS: Record<ThresholdUnit, string> = {
+  [ThresholdUnit.PERCENT]: "Percentage of target",
+  [ThresholdUnit.VALUE]: "Raw value (same scale as target)",
+};
+
 function KpiForm({
   kpi,
   departments,
@@ -492,6 +507,27 @@ function KpiForm({
 }) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  const [thresholdUnit, setThresholdUnit] = useState<ThresholdUnit>(
+    kpi?.thresholdUnit ?? ThresholdUnit.PERCENT,
+  );
+  const [targetValue, setTargetValue] = useState<string>(
+    kpi?.targetValue !== undefined ? String(kpi.targetValue) : "",
+  );
+  const [deviationThresholdPct, setDeviationThresholdPct] = useState<string>(
+    kpi?.deviationThresholdPct !== undefined ? String(kpi.deviationThresholdPct) : "",
+  );
+  const [criticalThresholdPct, setCriticalThresholdPct] = useState<string>(
+    kpi?.criticalThresholdPct !== undefined ? String(kpi.criticalThresholdPct) : "",
+  );
+
+  const target = parseFloat(targetValue);
+  const isValueMode = thresholdUnit === ThresholdUnit.VALUE;
+  const pctHint = (raw: string) => {
+    if (!isValueMode || !target) return null;
+    const n = parseFloat(raw);
+    if (Number.isNaN(n)) return null;
+    return `≈ ${((n / target) * 100).toFixed(1)}% of target`;
+  };
 
   function handleSubmit(formData: FormData) {
     setSaving(true);
@@ -571,7 +607,8 @@ function KpiForm({
             type="number"
             step="any"
             placeholder="Target value"
-            defaultValue={kpi?.targetValue}
+            value={targetValue}
+            onChange={(e) => setTargetValue(e.target.value)}
             required
           />
         </div>
@@ -581,22 +618,53 @@ function KpiForm({
         <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
           Alert thresholds
         </h3>
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            name="deviationThresholdPct"
-            type="number"
-            step="any"
-            placeholder="At Risk % (default 10)"
-            defaultValue={kpi?.deviationThresholdPct}
-          />
-          <Input
-            name="criticalThresholdPct"
-            type="number"
-            step="any"
-            placeholder="Critical % (default 25)"
-            defaultValue={kpi?.criticalThresholdPct}
-          />
+        <div className="mb-3">
+          <Select
+            name="thresholdUnit"
+            value={thresholdUnit}
+            onChange={(e) => setThresholdUnit(e.target.value as ThresholdUnit)}
+          >
+            {Object.values(ThresholdUnit).map((u) => (
+              <option key={u} value={u}>
+                {THRESHOLD_UNIT_LABELS[u]}
+              </option>
+            ))}
+          </Select>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Input
+              name="deviationThresholdPct"
+              type="number"
+              step="any"
+              placeholder={isValueMode ? "At Risk floor value" : "At Risk % (default 10)"}
+              value={deviationThresholdPct}
+              onChange={(e) => setDeviationThresholdPct(e.target.value)}
+            />
+            {pctHint(deviationThresholdPct) && (
+              <p className="mt-1 text-xs text-muted">{pctHint(deviationThresholdPct)}</p>
+            )}
+          </div>
+          <div>
+            <Input
+              name="criticalThresholdPct"
+              type="number"
+              step="any"
+              placeholder={isValueMode ? "Critical floor value" : "Critical % (default 25)"}
+              value={criticalThresholdPct}
+              onChange={(e) => setCriticalThresholdPct(e.target.value)}
+            />
+            {pctHint(criticalThresholdPct) && (
+              <p className="mt-1 text-xs text-muted">{pctHint(criticalThresholdPct)}</p>
+            )}
+          </div>
+        </div>
+        {isValueMode && (
+          <p className="mt-2 text-xs text-muted">
+            Enter both thresholds as raw values on the same scale as the target (e.g. an actual
+            ROAS number), not percentages — the percentage above is just a reference.
+          </p>
+        )}
       </div>
 
       <Button type="submit" loading={saving} className="w-full">

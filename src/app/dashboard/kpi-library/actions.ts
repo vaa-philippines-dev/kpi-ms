@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canAccessDepartment, type ScopingSession } from "@/lib/connection-scope";
 import { logActivity, diffFields } from "@/lib/activity-log";
-import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, ThresholdUnit } from "@/generated/prisma/enums";
 
 async function requireManager(): Promise<ScopingSession> {
   const session = await auth();
@@ -73,6 +73,8 @@ function parseKpiForm(formData: FormData) {
     "criticalThresholdPct",
     25,
   );
+  const thresholdUnit = (String(formData.get("thresholdUnit") ?? "") ||
+    ThresholdUnit.PERCENT) as ThresholdUnit;
 
   if (
     !name ||
@@ -80,6 +82,7 @@ function parseKpiForm(formData: FormData) {
     !departmentId ||
     !Object.values(KpiDirection).includes(direction) ||
     !Object.values(KpiPeriod).includes(period) ||
+    !Object.values(ThresholdUnit).includes(thresholdUnit) ||
     Number.isNaN(targetValue) ||
     Number.isNaN(deviationThresholdPct) ||
     Number.isNaN(criticalThresholdPct)
@@ -98,6 +101,7 @@ function parseKpiForm(formData: FormData) {
     targetValue,
     deviationThresholdPct,
     criticalThresholdPct,
+    thresholdUnit,
   };
 }
 
@@ -140,6 +144,7 @@ export async function updateKpiDefinition(formData: FormData) {
     "targetValue",
     "deviationThresholdPct",
     "criticalThresholdPct",
+    "thresholdUnit",
   ]);
   if (changes.length > 0) {
     await logActivity(prisma, {

@@ -7,7 +7,7 @@ import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
 import type { ConnectionWeekDetail } from "@/app/dashboard/performance/actions";
 import type { KpiConfigGroupRow } from "@/app/dashboard/connections/kpi-config/actions";
-import { KpiDirection } from "@/generated/prisma/enums";
+import { KpiDirection, ThresholdUnit } from "@/generated/prisma/enums";
 
 export type MyKpiCard = {
   connectionId: string;
@@ -128,8 +128,14 @@ function ConfigTable({ rows, onlyApplicable }: { rows: KpiConfigGroupRow[]; only
                 </Td>
                 <Td>{r.weekly ? r.weekly.targetValue : "—"}</Td>
                 <Td>{r.monthly ? r.monthly.targetValue : "—"}</Td>
-                <Td className="text-warning">{r.deviationThresholdPct}%</Td>
-                <Td className="text-danger">{r.criticalThresholdPct}%</Td>
+                <Td className="text-warning">
+                  {r.deviationThresholdPct}
+                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                </Td>
+                <Td className="text-danger">
+                  {r.criticalThresholdPct}
+                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                </Td>
                 <Td>
                   {r.hasOverride ? (
                     <span className="text-xs font-medium text-success">Custom</span>

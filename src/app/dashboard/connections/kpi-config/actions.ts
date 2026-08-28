@@ -5,7 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
 import { logActivity } from "@/lib/activity-log";
-import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, ThresholdUnit } from "@/generated/prisma/enums";
 
 // Editing KPI config is open to ADMIN, DM (Manager), the DM-equivalent
 // OPS_MANAGER, and OM (Team Leader) — matching the KPI Library's editor
@@ -60,6 +60,9 @@ export type KpiConfigGroupRow = {
   monthly: KpiConfigPeriodInfo | null;
   deviationThresholdPct: number;
   criticalThresholdPct: number;
+  // Follows the master KpiDefinition — not overridable per connection, same
+  // as direction/unit/period.
+  thresholdUnit: ThresholdUnit;
   isApplicable: boolean;
   notes: string | null;
   hasOverride: boolean;
@@ -127,6 +130,7 @@ export async function getKpiConfigDetail(connectionId: string) {
         monthly: null,
         deviationThresholdPct: config?.deviationThresholdPct ?? def.deviationThresholdPct,
         criticalThresholdPct: config?.criticalThresholdPct ?? def.criticalThresholdPct,
+        thresholdUnit: def.thresholdUnit,
         isApplicable: config?.isApplicable ?? true,
         notes: config?.notes ?? null,
         hasOverride: false,

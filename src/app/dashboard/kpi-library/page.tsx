@@ -59,6 +59,7 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     targetValue: k.targetValue,
     deviationThresholdPct: k.deviationThresholdPct,
     criticalThresholdPct: k.criticalThresholdPct,
+    thresholdUnit: k.thresholdUnit,
   }));
 
   const serviceOptions = services.map((s) => ({

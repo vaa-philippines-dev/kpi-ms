@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { KpiDirection, KpiPeriod, PerformanceStatus, ThresholdUnit } from "@/generated/prisma/enums";
 
 /**
  * Absolute deviation of actual from target, as a percentage. Null when the
@@ -29,6 +29,14 @@ export function computeDeviationPct(
  * that's actually being met (or exceeded, in the good direction) reports
  * ON_TARGET; only an unmet zero target falls back to CRITICAL instead of
  * a percentage it can't compute.
+ *
+ * `thresholdUnit` PERCENT (the historical, only-supported mode) evaluates
+ * deviationThresholdPct/criticalThresholdPct as %-of-target deviation, as
+ * above. VALUE instead treats them as raw floor/ceiling values on the
+ * target's own scale — e.g. for a higher-is-better KPI, "actual must stay
+ * at or above this number" — which is what admins actually want to type for
+ * a non-percent-unit KPI like ROAS, rather than mentally converting to a
+ * deviation percentage themselves.
  */
 export function computeStatus(
   direction: KpiDirection,
@@ -36,6 +44,7 @@ export function computeStatus(
   actualValue: number | null,
   deviationThresholdPct: number,
   criticalThresholdPct: number,
+  thresholdUnit: ThresholdUnit = ThresholdUnit.PERCENT,
 ): PerformanceStatus {
   if (actualValue === null) return PerformanceStatus.NO_DATA;
 
@@ -45,6 +54,19 @@ export function computeStatus(
       : actualValue > targetValue;
 
   if (!underperforming) return PerformanceStatus.ON_TARGET;
+
+  if (thresholdUnit === ThresholdUnit.VALUE) {
+    const meetsDeviationFloor =
+      direction === KpiDirection.HIGHER_IS_BETTER
+        ? actualValue >= deviationThresholdPct
+        : actualValue <= deviationThresholdPct;
+    if (meetsDeviationFloor) return PerformanceStatus.ON_TARGET;
+    const meetsCriticalFloor =
+      direction === KpiDirection.HIGHER_IS_BETTER
+        ? actualValue >= criticalThresholdPct
+        : actualValue <= criticalThresholdPct;
+    return meetsCriticalFloor ? PerformanceStatus.AT_RISK : PerformanceStatus.CRITICAL;
+  }
 
   const dev = computeDeviationPct(targetValue, actualValue);
   if (dev === null) return PerformanceStatus.CRITICAL;
@@ -188,6 +210,7 @@ export async function recomputePerformanceSummary(
       actualValue,
       deviationThresholdPct,
       criticalThresholdPct,
+      kpi.thresholdUnit,
     );
     const pct =
       actualValue !== null && targetValue !== 0 ? (actualValue / targetValue) * 100 : null;
