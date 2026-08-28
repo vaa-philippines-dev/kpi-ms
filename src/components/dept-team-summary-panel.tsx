@@ -48,7 +48,7 @@ export function DeptTeamSummaryPanel({
       ) : (
         <div>
           <div className="flex items-center justify-between border-b border-surface-border pb-2 text-[10px] font-semibold tracking-wide text-muted uppercase">
-            <span>Dept</span>
+            <span>Name</span>
             <span>Submitted</span>
           </div>
           <ul className="divide-y divide-surface-border">

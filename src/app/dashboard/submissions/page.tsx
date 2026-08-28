@@ -17,6 +17,7 @@ import { currentPeriodStart, hoursAgo, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import {
   getDepartmentSubmissionSummary,
+  getTeamMemberSubmissionSummary,
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
 import { ConnectionStatus, KpiPeriod, UserRole } from "@/generated/prisma/enums";
@@ -97,7 +98,9 @@ export default async function SubmissionsPage(
       }),
       isUnrestrictedViewer
         ? getDepartmentSubmissionSummary(KpiPeriod.WEEKLY, weeklyStart)
-        : getTeamSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart),
+        : session.role === UserRole.OM
+          ? getTeamMemberSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart)
+          : getTeamSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart),
     ]);
 
   // Submission volume per week, oldest-first, zero-filled for weeks with no
@@ -355,7 +358,13 @@ export default async function SubmissionsPage(
           </div>
 
           <DeptTeamSummaryPanel
-            title={isUnrestrictedViewer ? "Department Summary" : "Team Summary"}
+            title={
+              isUnrestrictedViewer
+                ? "Department Summary"
+                : session.role === UserRole.OM
+                  ? "Team Members"
+                  : "Team Summary"
+            }
             rows={sideRows}
           />
         </div>

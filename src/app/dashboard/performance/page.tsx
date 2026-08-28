@@ -17,6 +17,7 @@ import { getPerformanceTrend } from "@/lib/trend";
 import { getSubmissionTrend } from "@/lib/submission-trend";
 import {
   getDepartmentSubmissionSummary,
+  getTeamMemberSubmissionSummary,
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
 import { getInterventionTypes } from "@/lib/settings";
@@ -262,7 +263,9 @@ export default async function PerformancePage(
           deptSummaryExtraScope,
           deptFilter ? [deptFilter] : undefined,
         )
-      : getTeamSubmissionSummary(finalScope, selectedPeriod, selectedPeriodStart),
+      : session.role === "OM"
+        ? getTeamMemberSubmissionSummary(finalScope, selectedPeriod, selectedPeriodStart)
+        : getTeamSubmissionSummary(finalScope, selectedPeriod, selectedPeriodStart),
   ]);
 
   const latestSubmission = submissionTrend[submissionTrend.length - 1];
@@ -365,7 +368,13 @@ export default async function PerformancePage(
           </div>
 
           <DeptTeamSummaryPanel
-            title={isUnrestrictedViewer ? "Department Summary" : "Team Summary"}
+            title={
+              isUnrestrictedViewer
+                ? "Department Summary"
+                : session.role === "OM"
+                  ? "Team Members"
+                  : "Team Summary"
+            }
             rows={sideRows}
             // Team Report (now /dashboard/reports/team-submissions) is
             // Admin/Manager-only, same as legacy's button — DM and the

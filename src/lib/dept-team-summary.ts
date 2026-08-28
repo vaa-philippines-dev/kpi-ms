@@ -179,3 +179,56 @@ export async function getTeamSubmissionSummary(
 
   return noTeamRow.total > 0 ? [noTeamRow, ...teamRows] : teamRows;
 }
+
+/**
+ * One row per VA visible within `scope`, for a Team Leader's side panel —
+ * unlike getTeamSubmissionSummary (one row per team, meant for a DM who
+ * oversees several), an OM's `scope` is already narrowed to their own team,
+ * so a single rolled-up row ("28/31") hides exactly the thing a team leader
+ * needs: which of their people still haven't submitted. Reuses the same
+ * ACTIVE-only, PerformanceSummary-backed "submitted" definition as buildRow.
+ */
+export async function getTeamMemberSubmissionSummary(
+  scope: Prisma.ConnectionWhereInput,
+  period: KpiPeriod,
+  periodStart: Date,
+): Promise<GroupSubmissionRow[]> {
+  const connections = await prisma.connection.findMany({
+    where: { ...scope, status: ConnectionStatus.ACTIVE },
+    select: { id: true, vaUserId: true, vaUser: { select: { name: true, email: true } } },
+  });
+  if (connections.length === 0) return [];
+
+  const submittedGroups = await prisma.performanceSummary.groupBy({
+    by: ["connectionId"],
+    where: {
+      period,
+      periodStart,
+      connectionId: { in: connections.map((c) => c.id) },
+    },
+  });
+  const submittedIds = new Set(submittedGroups.map((g) => g.connectionId));
+
+  const byVa = new Map<string, { name: string; total: number; submitted: number }>();
+  for (const c of connections) {
+    const entry = byVa.get(c.vaUserId) ?? {
+      name: c.vaUser.name ?? c.vaUser.email,
+      total: 0,
+      submitted: 0,
+    };
+    entry.total++;
+    if (submittedIds.has(c.id)) entry.submitted++;
+    byVa.set(c.vaUserId, entry);
+  }
+
+  return [...byVa.entries()]
+    .map(([vaUserId, v]) => ({
+      id: vaUserId,
+      name: v.name,
+      leaderName: null,
+      submitted: v.submitted,
+      total: v.total,
+      ratePct: Math.round((v.submitted / v.total) * 100),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
