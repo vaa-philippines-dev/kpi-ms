@@ -31,8 +31,8 @@ export async function requireSession(): Promise<ScopingSession> {
 
 /**
  * Server-side authoritative connection visibility, by role:
- * VA -> own connections only; OM (Team Leader equivalent) -> connections of
- * users on teams they lead; DM (Manager equivalent) and OPS_MANAGER
+ * VA -> own connections only; OM (Team Leader equivalent) -> connections
+ * assigned to a team they lead; DM (Manager equivalent) and OPS_MANAGER
  * (Operations Manager, same department-wide scope as DM) -> connections in
  * their department; ADMIN, EXECUTIVE (read-only admin — see UserRole), and
  * SERVICE_MANAGER (CS Specialist equivalent) -> everything. Unlike the
@@ -46,6 +46,16 @@ export async function requireSession(): Promise<ScopingSession> {
  * role (Administrator, CS Specialist) falls through unfiltered. DM keeps
  * its own case here for exactly that reason — it is NOT unscoped in
  * legacy, so it must not share ADMIN/SERVICE_MANAGER's fallthrough.
+ *
+ * OM scopes by the *connection's own* team (Connection.teamId), the same
+ * way DM/OPS_MANAGER scope by the connection's own department — not by the
+ * VA's team. A VA can carry connections across multiple teams/departments
+ * (see User.additionalDepartments), so filtering by the VA's single team
+ * assignment leaked every connection that VA touches — including ones in a
+ * different department entirely — to whoever leads that VA's primary team.
+ * A connection with no team assigned yet (rare; e.g. freshly CMS-synced —
+ * see cms-sync/connection-sync.ts) still falls back to the VA's team so it
+ * doesn't disappear from every team leader's view until someone assigns it.
  */
 export function connectionScopeWhere(
   session: ScopingSession,
@@ -58,23 +68,22 @@ export function connectionScopeWhere(
     case UserRole.DM:
     case UserRole.OPS_MANAGER:
       return session.departmentId ? { departmentId: session.departmentId } : { id: "__none__" };
-    case UserRole.OM:
+    case UserRole.OM: {
+      const leadsTeam = {
+        OR: [
+          { teamLeaderId: session.id },
+          { tempLeader1Id: session.id },
+          { tempLeader2Id: session.id },
+        ],
+      };
       return {
         OR: [
           { vaUserId: session.id },
-          {
-            vaUser: {
-              team: {
-                OR: [
-                  { teamLeaderId: session.id },
-                  { tempLeader1Id: session.id },
-                  { tempLeader2Id: session.id },
-                ],
-              },
-            },
-          },
+          { team: leadsTeam },
+          { teamId: null, vaUser: { team: leadsTeam } },
         ],
       };
+    }
     case UserRole.VA:
     default:
       return { vaUserId: session.id };
