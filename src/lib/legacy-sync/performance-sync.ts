@@ -1,4 +1,6 @@
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { readLegacySheet } from "./sheets-client";
 import { mapWithConcurrency } from "./concurrency";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -149,7 +151,11 @@ export async function runPerformanceSync(
       status: PerformanceStatus;
       willUpdate: boolean;
     };
-    const jobs: Job[] = [];
+    // Keyed by (connectionId, kpiDefinitionId, periodStart) — the bulk
+    // upsert's ON CONFLICT target — so a duplicate summary row for the same
+    // KPI/period collapses to one job instead of erroring the whole batch
+    // with "ON CONFLICT DO UPDATE command cannot affect row a second time".
+    const jobsByKey = new Map<string, Job>();
 
     type SubmissionJob = {
       summaryId: string;
@@ -218,7 +224,7 @@ export async function runPerformanceSync(
             : null;
         const key = `${connectionId}:${kpiDefinitionId}:${periodStart.toISOString()}`;
 
-        jobs.push({
+        jobsByKey.set(key, {
           summaryId: row.SummaryID ?? "",
           kpiId: entry.kpiId,
           connectionId,
@@ -254,41 +260,78 @@ export async function runPerformanceSync(
       }
     }
 
-    await mapWithConcurrency(jobs, 10, async (job) => {
+    // Bulk multi-row upsert instead of one upsert() per row — with ~10.7k
+    // summary rows across both sheets, one round trip per row was this
+    // app's single largest source of Supabase query volume (280k+ calls to
+    // this exact upsert, per Query Performance — the sheets get re-synced
+    // occasionally, so that's several runs' worth). Chunked to stay well
+    // under Postgres's per-statement bind-parameter limit; each chunk falls
+    // back to the original one-row-at-a-time upsert on failure, so one bad
+    // row doesn't lose the rest of that chunk's writes or its error detail.
+    const jobList = Array.from(jobsByKey.values());
+    const PERF_CHUNK_SIZE = 500;
+    for (let i = 0; i < jobList.length; i += PERF_CHUNK_SIZE) {
+      const chunk = jobList.slice(i, i + PERF_CHUNK_SIZE);
       try {
         if (!dryRun) {
-          await prisma.performanceSummary.upsert({
-            where: {
-              connectionId_kpiDefinitionId_periodStart: {
-                connectionId: job.connectionId,
-                kpiDefinitionId: job.kpiDefinitionId,
-                periodStart: job.periodStart,
-              },
-            },
-            create: {
-              connectionId: job.connectionId,
-              kpiDefinitionId: job.kpiDefinitionId,
-              period,
-              periodStart: job.periodStart,
-              actualValue: job.actualValue,
-              targetValue: job.targetValue,
-              pct: job.pct,
-              status: job.status,
-            },
-            update: {
-              actualValue: job.actualValue,
-              targetValue: job.targetValue,
-              pct: job.pct,
-              status: job.status,
-            },
-          });
+          const values = chunk.map(
+            (job) => Prisma.sql`(${randomUUID()}, ${job.connectionId}, ${job.kpiDefinitionId}, ${period}::"KpiPeriod", ${job.periodStart}, ${job.actualValue}, ${job.targetValue}, ${job.pct}, ${job.status}::"PerformanceStatus", now())`,
+          );
+          await prisma.$executeRaw`
+            INSERT INTO "PerformanceSummary"
+              (id, "connectionId", "kpiDefinitionId", period, "periodStart", "actualValue", "targetValue", pct, status, "updatedAt")
+            VALUES ${Prisma.join(values)}
+            ON CONFLICT ("connectionId", "kpiDefinitionId", "periodStart") DO UPDATE SET
+              "actualValue" = EXCLUDED."actualValue",
+              "targetValue" = EXCLUDED."targetValue",
+              pct = EXCLUDED.pct,
+              status = EXCLUDED.status,
+              "updatedAt" = EXCLUDED."updatedAt"
+          `;
         }
-        if (job.willUpdate) result.updated++;
-        else result.created++;
-      } catch (e) {
-        result.errors.push(`${job.summaryId}/${job.kpiId}: ${(e as Error).message}`);
+        for (const job of chunk) {
+          if (job.willUpdate) result.updated++;
+          else result.created++;
+        }
+      } catch {
+        for (const job of chunk) {
+          try {
+            if (!dryRun) {
+              await prisma.performanceSummary.upsert({
+                where: {
+                  connectionId_kpiDefinitionId_periodStart: {
+                    connectionId: job.connectionId,
+                    kpiDefinitionId: job.kpiDefinitionId,
+                    periodStart: job.periodStart,
+                  },
+                },
+                create: {
+                  connectionId: job.connectionId,
+                  kpiDefinitionId: job.kpiDefinitionId,
+                  period,
+                  periodStart: job.periodStart,
+                  actualValue: job.actualValue,
+                  targetValue: job.targetValue,
+                  pct: job.pct,
+                  status: job.status,
+                },
+                update: {
+                  actualValue: job.actualValue,
+                  targetValue: job.targetValue,
+                  pct: job.pct,
+                  status: job.status,
+                },
+              });
+            }
+            if (job.willUpdate) result.updated++;
+            else result.created++;
+          } catch (e) {
+            result.errors.push(`${job.summaryId}/${job.kpiId}: ${(e as Error).message}`);
+          }
+        }
       }
-    }, (done, total) => onProgress?.(sheetName, done, total));
+      onProgress?.(sheetName, Math.min(i + PERF_CHUNK_SIZE, jobList.length), jobList.length);
+    }
 
     report[sheetName] = result;
 

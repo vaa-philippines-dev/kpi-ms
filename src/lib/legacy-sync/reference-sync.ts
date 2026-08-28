@@ -1,4 +1,6 @@
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { readLegacySheet } from "./sheets-client";
 import { mapWithConcurrency } from "./concurrency";
 import { dateOrNull } from "./dates";
@@ -454,7 +456,15 @@ export async function runReferenceSync(
     isApplicable: boolean;
     updatedById: string;
   };
-  const cfgJobs: CfgJob[] = [];
+  // Keyed by (connectionId, kpiDefinitionId) — the same pair a bulk upsert's
+  // ON CONFLICT target is — so a duplicate KPI_Config row (weekly/monthly
+  // variants of the same KPI never collide, but a dirty legacy export could
+  // still repeat a ConfigID) collapses to one job instead of erroring the
+  // whole batch with "ON CONFLICT DO UPDATE command cannot affect row a
+  // second time". Last row in sheet order wins, same as the old
+  // one-upsert-per-row loop where a later row's upsert simply overwrote an
+  // earlier one's.
+  const cfgJobsByKey = new Map<string, CfgJob>();
   for (const row of legacyConfigs) {
     const connectionId = connMap.get(row.ConnectionID ?? "");
     if (!row.ConfigID || !connectionId || !row.KPIID) {
@@ -476,7 +486,7 @@ export async function runReferenceSync(
     for (const { period, targetValue } of variants) {
       const kpiDefinitionId = kpiDefMap.get(`${row.KPIID}:${period}`);
       if (!kpiDefinitionId) continue;
-      cfgJobs.push({
+      cfgJobsByKey.set(`${connectionId}:${kpiDefinitionId}`, {
         configId: row.ConfigID,
         connectionId,
         kpiDefinitionId,
@@ -489,46 +499,77 @@ export async function runReferenceSync(
       });
     }
   }
-  await mapWithConcurrency(cfgJobs, 10, async (job) => {
-    const {
-      configId,
-      connectionId,
-      kpiDefinitionId,
-      period,
-      targetValue,
-      deviationThresholdPct,
-      criticalThresholdPct,
-      isApplicable,
-      updatedById,
-    } = job;
+  const cfgJobs = Array.from(cfgJobsByKey.values());
+
+  // Bulk multi-row upsert instead of one upsert() per row — a full KPI_Config
+  // sync carries tens of thousands of rows, and one round trip per row was
+  // this app's single largest source of Supabase query volume (130k+ calls
+  // to this exact upsert, per Query Performance). Chunked to stay well
+  // under Postgres's per-statement bind-parameter limit; each chunk falls
+  // back to the original one-row-at-a-time upsert on failure, so one bad
+  // row doesn't lose the rest of that chunk's writes or its error detail.
+  const CFG_CHUNK_SIZE = 500;
+  for (let i = 0; i < cfgJobs.length; i += CFG_CHUNK_SIZE) {
+    const chunk = cfgJobs.slice(i, i + CFG_CHUNK_SIZE);
     try {
-      const willUpdate = existingCfgKeys.has(`${connectionId}:${kpiDefinitionId}`);
-        await prisma.kpiConfig.upsert({
-          where: { connectionId_kpiDefinitionId: { connectionId, kpiDefinitionId } },
-          create: {
-            connectionId,
-            kpiDefinitionId,
-            targetValue,
-            deviationThresholdPct,
-            criticalThresholdPct,
-            isApplicable,
-            updatedById,
-          },
-          update: {
-            targetValue,
-            deviationThresholdPct,
-            criticalThresholdPct,
-            isApplicable,
-            updatedById,
-            version: { increment: 1 },
-          },
-        });
-        if (willUpdate) cfgResult.updated++;
+      const values = chunk.map(
+        (job) => Prisma.sql`(${randomUUID()}, ${job.connectionId}, ${job.kpiDefinitionId}, ${job.targetValue}, ${job.deviationThresholdPct}, ${job.criticalThresholdPct}, ${job.isApplicable}, ${job.updatedById}, now())`,
+      );
+      await prisma.$executeRaw`
+        INSERT INTO "KpiConfig"
+          (id, "connectionId", "kpiDefinitionId", "targetValue", "deviationThresholdPct", "criticalThresholdPct", "isApplicable", "updatedById", "updatedAt")
+        VALUES ${Prisma.join(values)}
+        ON CONFLICT ("connectionId", "kpiDefinitionId") DO UPDATE SET
+          "targetValue" = EXCLUDED."targetValue",
+          "deviationThresholdPct" = EXCLUDED."deviationThresholdPct",
+          "criticalThresholdPct" = EXCLUDED."criticalThresholdPct",
+          "isApplicable" = EXCLUDED."isApplicable",
+          "updatedById" = EXCLUDED."updatedById",
+          "updatedAt" = EXCLUDED."updatedAt",
+          version = "KpiConfig".version + 1
+      `;
+      for (const job of chunk) {
+        if (existingCfgKeys.has(`${job.connectionId}:${job.kpiDefinitionId}`)) cfgResult.updated++;
         else cfgResult.created++;
-    } catch (e) {
-      cfgResult.errors.push(`${configId}:${period}: ${(e as Error).message}`);
+      }
+    } catch {
+      for (const job of chunk) {
+        try {
+          const willUpdate = existingCfgKeys.has(`${job.connectionId}:${job.kpiDefinitionId}`);
+          await prisma.kpiConfig.upsert({
+            where: {
+              connectionId_kpiDefinitionId: {
+                connectionId: job.connectionId,
+                kpiDefinitionId: job.kpiDefinitionId,
+              },
+            },
+            create: {
+              connectionId: job.connectionId,
+              kpiDefinitionId: job.kpiDefinitionId,
+              targetValue: job.targetValue,
+              deviationThresholdPct: job.deviationThresholdPct,
+              criticalThresholdPct: job.criticalThresholdPct,
+              isApplicable: job.isApplicable,
+              updatedById: job.updatedById,
+            },
+            update: {
+              targetValue: job.targetValue,
+              deviationThresholdPct: job.deviationThresholdPct,
+              criticalThresholdPct: job.criticalThresholdPct,
+              isApplicable: job.isApplicable,
+              updatedById: job.updatedById,
+              version: { increment: 1 },
+            },
+          });
+          if (willUpdate) cfgResult.updated++;
+          else cfgResult.created++;
+        } catch (e) {
+          cfgResult.errors.push(`${job.configId}:${job.period}: ${(e as Error).message}`);
+        }
+      }
     }
-  }, (done, total) => onProgress?.("kpiConfigs", done, total));
+    onProgress?.("kpiConfigs", Math.min(i + CFG_CHUNK_SIZE, cfgJobs.length), cfgJobs.length);
+  }
   report.kpiConfigs = cfgResult;
 
   // --- Interventions ---

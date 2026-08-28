@@ -16,7 +16,10 @@ export const dynamic = "force-dynamic";
  * Reads straight off Ticket/TicketMessage rows instead of an in-memory
  * pub/sub — replaced an SSE stream that held a Vercel function invocation
  * open for as long as a dashboard tab stayed open (billed as continuous
- * compute time). Three DB-derived event kinds:
+ * compute time). Two round trips (not three — "created" and "status" used
+ * to be separate Ticket queries, collapsed into one OR'd query and
+ * classified in JS, since every open dashboard tab pays this poll's query
+ * count every interval):
  * - "created": a new ticket in scope, not authored by this session.
  * - "message": a new reply in scope, not sent by this session.
  * - "status": an existing ticket touched (Ticket.updatedAt bumped) with no
@@ -32,18 +35,22 @@ export async function GET(request: NextRequest) {
   const since = sinceParam && !Number.isNaN(Date.parse(sinceParam)) ? new Date(sinceParam) : new Date(now.getTime() - 60_000);
   const scope = ticketScopeWhere(session);
 
-  const [newTickets, newMessages, touchedTickets] = await Promise.all([
+  const [tickets, newMessages] = await Promise.all([
     prisma.ticket.findMany({
-      where: { ...scope, createdAt: { gt: since }, createdById: { not: session.id } },
+      where: { ...scope, OR: [{ createdAt: { gt: since } }, { updatedAt: { gt: since } }] },
       select: {
         id: true,
         subject: true,
         status: true,
         createdAt: true,
+        createdById: true,
         createdBy: { select: { name: true, email: true } },
+        updatedAt: true,
+        closedById: true,
+        closedBy: { select: { name: true, email: true } },
       },
-      orderBy: { createdAt: "asc" },
-      take: 20,
+      orderBy: { updatedAt: "asc" },
+      take: 40,
     }),
     prisma.ticketMessage.findMany({
       where: { ticket: scope, createdAt: { gt: since }, senderId: { not: session.id } },
@@ -60,33 +67,36 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: "asc" },
       take: 20,
     }),
-    prisma.ticket.findMany({
-      where: { ...scope, updatedAt: { gt: since }, createdAt: { lte: since } },
-      select: {
-        id: true,
-        subject: true,
-        status: true,
-        updatedAt: true,
-        closedById: true,
-        closedBy: { select: { name: true, email: true } },
-      },
-    }),
   ]);
 
   const events: TicketNotification[] = [];
+  const messageTicketIds = new Set(newMessages.map((m) => m.ticketId));
 
-  for (const t of newTickets) {
+  for (const t of tickets) {
+    if (t.createdAt.getTime() > since.getTime()) {
+      if (t.createdById === session.id) continue;
+      events.push({
+        ticketId: t.id,
+        subject: t.subject,
+        kind: "created",
+        status: t.status,
+        actorName: t.createdBy.name ?? t.createdBy.email,
+        createdAt: t.createdAt.toISOString(),
+      });
+      continue;
+    }
+    if (messageTicketIds.has(t.id)) continue;
+    if (t.closedById === session.id) continue;
     events.push({
       ticketId: t.id,
       subject: t.subject,
-      kind: "created",
+      kind: "status",
       status: t.status,
-      actorName: t.createdBy.name ?? t.createdBy.email,
-      createdAt: t.createdAt.toISOString(),
+      actorName: t.closedBy ? (t.closedBy.name ?? t.closedBy.email) : "Admin",
+      createdAt: t.updatedAt.toISOString(),
     });
   }
 
-  const messageTicketIds = new Set(newMessages.map((m) => m.ticketId));
   for (const m of newMessages) {
     events.push({
       ticketId: m.ticketId,
@@ -102,19 +112,6 @@ export async function GET(request: NextRequest) {
         body: m.body,
         attachmentUrl: m.attachmentUrl,
       },
-    });
-  }
-
-  for (const t of touchedTickets) {
-    if (messageTicketIds.has(t.id)) continue;
-    if (t.closedById === session.id) continue;
-    events.push({
-      ticketId: t.id,
-      subject: t.subject,
-      kind: "status",
-      status: t.status,
-      actorName: t.closedBy ? (t.closedBy.name ?? t.closedBy.email) : "Admin",
-      createdAt: t.updatedAt.toISOString(),
     });
   }
 

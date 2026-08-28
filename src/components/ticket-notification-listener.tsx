@@ -7,7 +7,7 @@ import type { TicketNotification } from "@/lib/realtime";
 import { dispatchTicketLive } from "@/lib/ticket-live-bus";
 import { TICKET_STATUS_LABELS } from "@/lib/ticket-labels";
 
-const POLL_INTERVAL_MS = 20_000;
+const POLL_INTERVAL_MS = 45_000;
 
 function describeTicketEvent(payload: TicketNotification): { title: string; message: string } {
   switch (payload.kind) {
