@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VAA KPI Ms",
+  title: "VAA KPI Management System",
   description: "Track team performance and key KPIs in real time.",
 };
 
