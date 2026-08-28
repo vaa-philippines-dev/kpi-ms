@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import type { TicketStatus } from "@/generated/prisma/enums";
+import type { SystemMessage } from "@/lib/settings";
 
 export type SubmissionNotification = {
   connectionId: string;
@@ -87,4 +88,29 @@ export function emitTicketNotification(payload: TicketNotification) {
 export function onTicketNotification(listener: (payload: TicketNotification) => void) {
   ticketEmitter.on(TICKET_EVENT, listener);
   return () => ticketEmitter.off(TICKET_EVENT, listener);
+}
+
+// Broadcast to every signed-in user — unlike submissions/tickets there's no
+// recipient scoping, so no recipientIds field is needed here.
+const globalForSystemMessageEvents = globalThis as unknown as {
+  systemMessageEmitter: EventEmitter | undefined;
+};
+
+export const systemMessageEmitter =
+  globalForSystemMessageEvents.systemMessageEmitter ?? new EventEmitter();
+systemMessageEmitter.setMaxListeners(0);
+
+if (process.env.NODE_ENV !== "production") {
+  globalForSystemMessageEvents.systemMessageEmitter = systemMessageEmitter;
+}
+
+const SYSTEM_MESSAGE_EVENT = "system-message";
+
+export function emitSystemMessageNotification(payload: SystemMessage) {
+  systemMessageEmitter.emit(SYSTEM_MESSAGE_EVENT, payload);
+}
+
+export function onSystemMessageNotification(listener: (payload: SystemMessage) => void) {
+  systemMessageEmitter.on(SYSTEM_MESSAGE_EVENT, listener);
+  return () => systemMessageEmitter.off(SYSTEM_MESSAGE_EVENT, listener);
 }

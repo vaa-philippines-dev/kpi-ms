@@ -1,11 +1,23 @@
 import { PageHeader, ComingSoon } from "@/components/page-header";
-import { Input, Select } from "@/components/ui/input";
+import { Input, Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { getInterventionTypes, getAppName, getWeekStartDay } from "@/lib/settings";
+import {
+  getInterventionTypes,
+  getAppName,
+  getWeekStartDay,
+  getSystemMessage,
+  type SystemMessageTone,
+} from "@/lib/settings";
 import { LegacySyncPanel } from "@/components/legacy-sync-panel";
 import { SyncButton } from "@/components/sync-button";
 import { getEffectiveSession } from "@/lib/view-as";
-import { updateSetting } from "./actions";
+import { updateSetting, updateSystemMessage } from "./actions";
+
+const SYSTEM_MESSAGE_TONES: { value: SystemMessageTone; label: string }[] = [
+  { value: "update", label: "Update" },
+  { value: "notice", label: "Notice" },
+  { value: "caution", label: "Caution" },
+];
 
 const WEEKDAYS = [
   "Sunday",
@@ -31,10 +43,11 @@ export default async function SettingsPage() {
     );
   }
 
-  const [interventionTypes, appName, weekStartDay] = await Promise.all([
+  const [interventionTypes, appName, weekStartDay, systemMessage] = await Promise.all([
     getInterventionTypes(),
     getAppName(),
     getWeekStartDay(),
+    getSystemMessage(),
   ]);
 
   return (
@@ -102,6 +115,45 @@ export default async function SettingsPage() {
               <Button type="submit">Save</Button>
             </form>
 
+            <form
+              action={updateSystemMessage}
+              className="space-y-2 rounded-lg border border-surface-border p-4"
+            >
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  name="enabled"
+                  defaultChecked={systemMessage.enabled}
+                  className="size-4 rounded border-surface-border accent-accent"
+                />
+                System Message
+                <span className="ml-1 text-xs font-normal text-muted">
+                  shown as a toast in the bottom-right corner for every signed-in user
+                </span>
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Select
+                  name="tone"
+                  defaultValue={systemMessage.tone}
+                  className="sm:w-40"
+                >
+                  {SYSTEM_MESSAGE_TONES.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+                <Textarea
+                  name="text"
+                  defaultValue={systemMessage.text}
+                  placeholder="Message to show users…"
+                  rows={2}
+                  className="w-full"
+                />
+              </div>
+              <Button type="submit">Save</Button>
+            </form>
+
             <div>
               <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
                 Sync Connection IDs
@@ -162,6 +214,20 @@ export default async function SettingsPage() {
                 </span>
               </p>
               <p className="text-sm text-muted">{interventionTypes.join(", ")}</p>
+            </div>
+
+            <div className="space-y-1 rounded-lg border border-surface-border p-4">
+              <p className="text-sm font-medium">
+                System Message
+                <span className="ml-2 text-xs text-muted">
+                  shown as a toast in the bottom-right corner for every signed-in user
+                </span>
+              </p>
+              <p className="text-sm text-muted">
+                {systemMessage.enabled
+                  ? `${SYSTEM_MESSAGE_TONES.find((t) => t.value === systemMessage.tone)?.label} — ${systemMessage.text || "(no message set)"}`
+                  : "Disabled"}
+              </p>
             </div>
           </>
         )}

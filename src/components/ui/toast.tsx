@@ -1,15 +1,17 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { CheckCircle2, XCircle, Info, X } from "lucide-react";
+import { CheckCircle2, XCircle, Info, Megaphone, AlertTriangle, X } from "lucide-react";
 
-type ToastTone = "success" | "error" | "info";
+export type ToastTone = "success" | "error" | "info" | "update" | "notice" | "caution";
 
 type ToastOptions = {
   /** Bold lead line above the message — e.g. an event name or actor. */
   title?: string;
   /** Makes the whole card clickable (e.g. open the thing the toast is about); closes the toast on click. */
   onClick?: () => void;
+  /** Skips the auto-dismiss timer — stays until the reader clicks the X. */
+  sticky?: boolean;
 };
 
 type ToastItem = {
@@ -18,6 +20,7 @@ type ToastItem = {
   tone: ToastTone;
   title?: string;
   onClick?: () => void;
+  sticky?: boolean;
 };
 
 type ToastContextValue = {
@@ -30,18 +33,27 @@ const TONE_ICON = {
   success: CheckCircle2,
   error: XCircle,
   info: Info,
+  update: Megaphone,
+  notice: Info,
+  caution: AlertTriangle,
 } as const;
 
 const TONE_BADGE = {
   success: "bg-success/10 text-success",
   error: "bg-danger/10 text-danger",
   info: "bg-accent/10 text-accent",
+  update: "bg-accent/10 text-accent",
+  notice: "bg-foreground/10 text-foreground",
+  caution: "bg-warning/10 text-warning",
 } as const;
 
 const TONE_BAR = {
   success: "bg-success",
   error: "bg-danger",
   info: "bg-accent",
+  update: "bg-accent",
+  notice: "bg-foreground",
+  caution: "bg-warning",
 } as const;
 
 const AUTO_DISMISS_MS = 5000;
@@ -68,7 +80,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       const id = nextId.current++;
       setItems((prev) => [
         ...prev,
-        { id, message, tone, title: options?.title, onClick: options?.onClick },
+        {
+          id,
+          message,
+          tone,
+          title: options?.title,
+          onClick: options?.onClick,
+          sticky: options?.sticky,
+        },
       ]);
     },
     [],
@@ -104,14 +123,14 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: numbe
   }, [item.id, onDismiss]);
 
   useEffect(() => {
-    if (hovered || leaving) return;
+    if (hovered || leaving || item.sticky) return;
     deadlineRef.current = Date.now() + remainingRef.current;
     const timer = setTimeout(close, remainingRef.current);
     return () => {
       clearTimeout(timer);
       remainingRef.current = Math.max(deadlineRef.current - Date.now(), 0);
     };
-  }, [hovered, leaving, close]);
+  }, [hovered, leaving, item.sticky, close]);
 
   const Icon = TONE_ICON[item.tone];
   const clickable = Boolean(item.onClick);
@@ -151,12 +170,14 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: numbe
       >
         <X className="size-3.5" />
       </button>
-      <div
-        className={`absolute inset-x-0 bottom-0 h-0.5 origin-left ${TONE_BAR[item.tone]} opacity-40 ${
-          leaving ? "" : "animate-toast-progress"
-        }`}
-        style={{ animationPlayState: hovered ? "paused" : "running" }}
-      />
+      {!item.sticky && (
+        <div
+          className={`absolute inset-x-0 bottom-0 h-0.5 origin-left ${TONE_BAR[item.tone]} opacity-40 ${
+            leaving ? "" : "animate-toast-progress"
+          }`}
+          style={{ animationPlayState: hovered ? "paused" : "running" }}
+        />
+      )}
     </div>
   );
 }
