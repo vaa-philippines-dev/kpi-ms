@@ -47,15 +47,22 @@ export async function requireSession(): Promise<ScopingSession> {
  * its own case here for exactly that reason — it is NOT unscoped in
  * legacy, so it must not share ADMIN/SERVICE_MANAGER's fallthrough.
  *
- * OM scopes by the *connection's own* team (Connection.teamId), the same
- * way DM/OPS_MANAGER scope by the connection's own department — not by the
- * VA's team. A VA can carry connections across multiple teams/departments
- * (see User.additionalDepartments), so filtering by the VA's single team
- * assignment leaked every connection that VA touches — including ones in a
- * different department entirely — to whoever leads that VA's primary team.
- * A connection with no team assigned yet (rare; e.g. freshly CMS-synced —
- * see cms-sync/connection-sync.ts) still falls back to the VA's team so it
- * doesn't disappear from every team leader's view until someone assigns it.
+ * OM scopes by the VA's *current* team (User.teamId via vaUser.team) plus a
+ * department match against the connection itself — never by the
+ * connection's own teamId. Connection.teamId is written once at
+ * creation/import and goes stale the moment a VA transfers teams (only
+ * User.teamId is kept current — see teams/actions.ts's addTeamMember/
+ * removeTeamMember/transferTeamMember, and the matching comment in
+ * dept-team-summary.ts's getTeamSubmissionSummary); scoping by it here
+ * previously let a team leader see connections that actually belonged to a
+ * VA who had since transferred to a different team, which then surfaced
+ * under that other (wrong) team in the Team Summary panel. The department
+ * match (relying on the invariant that a team leader's own department
+ * always equals the department of every team they lead) is what actually
+ * fixes the original leak this replaced: a VA who carries connections
+ * across multiple departments (see User.additionalDepartments) still only
+ * exposes to this team leader the connections in the team leader's own
+ * department, not every connection that VA touches everywhere.
  */
 export function connectionScopeWhere(
   session: ScopingSession,
@@ -68,22 +75,24 @@ export function connectionScopeWhere(
     case UserRole.DM:
     case UserRole.OPS_MANAGER:
       return session.departmentId ? { departmentId: session.departmentId } : { id: "__none__" };
-    case UserRole.OM: {
-      const leadsTeam = {
-        OR: [
-          { teamLeaderId: session.id },
-          { tempLeader1Id: session.id },
-          { tempLeader2Id: session.id },
-        ],
-      };
+    case UserRole.OM:
       return {
         OR: [
           { vaUserId: session.id },
-          { team: leadsTeam },
-          { teamId: null, vaUser: { team: leadsTeam } },
+          {
+            departmentId: session.departmentId ?? "__none__",
+            vaUser: {
+              team: {
+                OR: [
+                  { teamLeaderId: session.id },
+                  { tempLeader1Id: session.id },
+                  { tempLeader2Id: session.id },
+                ],
+              },
+            },
+          },
         ],
       };
-    }
     case UserRole.VA:
     default:
       return { vaUserId: session.id };
