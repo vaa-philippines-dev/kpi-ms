@@ -11,6 +11,7 @@ import {
   RecentSubmissionsTable,
   type RecentSubmissionRow,
 } from "@/components/recent-submissions-table";
+import { SubmitForVaModal, type SubmitForVaOption } from "@/components/submit-for-va-modal";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { currentPeriodStart, hoursAgo, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
@@ -18,7 +19,7 @@ import {
   getDepartmentSubmissionSummary,
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
-import { KpiPeriod, UserRole } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiPeriod, UserRole } from "@/generated/prisma/enums";
 
 const TREND_WEEKS = 8;
 
@@ -212,6 +213,43 @@ export default async function SubmissionsPage(
     session.role === UserRole.OPS_MANAGER ||
     session.role === UserRole.OM;
 
+  // "Submit KPI for VA" — lets a TL submit for their own team, a DM/Ops
+  // Manager for their own department, and an Admin for anyone, reusing the
+  // connections this page already fetched (connectionScopeWhere has already
+  // narrowed `connections` to exactly what each of these roles can see).
+  // EXECUTIVE is deliberately excluded — it's read-only (see
+  // connection-scope.ts) — and SERVICE_MANAGER isn't in scope for this yet.
+  const canSubmitForVa =
+    session.role === UserRole.OM ||
+    session.role === UserRole.DM ||
+    session.role === UserRole.OPS_MANAGER ||
+    session.role === UserRole.ADMIN;
+  const submitForVaOptions: SubmitForVaOption[] = [];
+  if (canSubmitForVa) {
+    const byVaId = new Map<string, SubmitForVaOption>();
+    for (const c of connections) {
+      if (c.status !== ConnectionStatus.ACTIVE) continue;
+      let entry = byVaId.get(c.vaUserId);
+      if (!entry) {
+        entry = {
+          vaUserId: c.vaUserId,
+          vaName: c.vaUser.name ?? c.vaUser.email,
+          vaEmail: c.vaUser.email,
+          departmentId: c.departmentId,
+          departmentName: c.department.name,
+          connections: [],
+        };
+        byVaId.set(c.vaUserId, entry);
+      }
+      entry.connections.push({
+        id: c.id,
+        clientName: c.clientName,
+        secondaryName: c.secondaryName,
+      });
+    }
+    submitForVaOptions.push(...byVaId.values());
+  }
+
   return (
     <>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
@@ -228,6 +266,12 @@ export default async function SubmissionsPage(
             >
               Team Report
             </Link>
+          )}
+          {canSubmitForVa && submitForVaOptions.length > 0 && (
+            <SubmitForVaModal
+              options={submitForVaOptions}
+              showDepartmentFilter={session.role === UserRole.ADMIN}
+            />
           )}
         </div>
       </div>
