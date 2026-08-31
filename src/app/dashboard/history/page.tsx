@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { getEffectiveSession } from "@/lib/view-as";
 import { connectionScopeWhere } from "@/lib/connection-scope";
-import { getConnectionTrend } from "@/lib/connection-trend";
+import { getConnectionTrendBatch } from "@/lib/connection-trend";
 import { getWeekStartDay } from "@/lib/settings";
 import { HistoryConnectionList } from "@/components/history-connection-list";
 import { parseAnchorDate } from "@/lib/period";
@@ -65,12 +65,18 @@ export default async function HistoryPage(props: PageProps<"/dashboard/history">
     );
   }
 
-  const cards = await Promise.all(
-    connections.map(async (c) => ({
-      connection: c,
-      points: await getConnectionTrend(c.id, selectedPeriod, weekStartDay, PERIODS_SHOWN, anchor),
-    })),
+  // Batched — three queries total rather than three per connection.
+  const trends = await getConnectionTrendBatch(
+    connections.map((c) => c.id),
+    selectedPeriod,
+    weekStartDay,
+    PERIODS_SHOWN,
+    anchor,
   );
+  const cards = connections.map((c) => ({
+    connection: c,
+    points: trends.get(c.id) ?? [],
+  }));
 
   return (
     <>

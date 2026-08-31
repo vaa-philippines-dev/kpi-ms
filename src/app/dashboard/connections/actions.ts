@@ -464,6 +464,15 @@ export async function updateConnectionAssignment(formData: FormData) {
   revalidatePath("/dashboard/connections");
 }
 
+/** Same columns as ConnectionPerformanceRow, but straight off the driver —
+ *  `periodStart` is still a Date here, not the ISO string the caller gets. */
+type RawPerformanceRow = Omit<ConnectionPerformanceRow, "periodStart"> & {
+  periodStart: Date;
+};
+
+/** Periods kept per KPI — the same "recent periods" window legacy's chart used. */
+const PERIODS_PER_KPI = 4;
+
 export type ConnectionPerformanceRow = {
   kpiDefinitionId: string;
   kpiName: string;
@@ -492,30 +501,39 @@ export async function getConnectionPerformance(
   });
   if (!connection) throw new Error("Connection not found.");
 
-  const summaries = await prisma.performanceSummary.findMany({
-    where: { connectionId },
-    include: { kpiDefinition: true },
-    orderBy: [{ kpiDefinition: { name: "asc" } }, { periodStart: "desc" }],
-  });
+  // Window function rather than the query builder: "the newest N rows per
+  // group" isn't expressible as a single findMany. This used to fetch the
+  // connection's ENTIRE PerformanceSummary history — every KPI, every period
+  // ever recorded — and then throw all but the newest PERIODS_PER_KPI rows
+  // per KPI away in the loop below, so the work grew with the connection's
+  // age for a panel that never shows more than a fixed window. A plain
+  // `take` can't fix that: the ordering groups by KPI first, so a cap would
+  // be exhausted by the oldest KPI's backlog before reaching the rest.
+  const summaries = await prisma.$queryRaw<RawPerformanceRow[]>`
+    SELECT ps."kpiDefinitionId", kd.name AS "kpiName", ps.period, ps."periodStart",
+           ps."actualValue", ps."targetValue", ps.pct, ps.status
+    FROM (
+      SELECT *, ROW_NUMBER() OVER (
+               PARTITION BY "kpiDefinitionId" ORDER BY "periodStart" DESC
+             ) AS rn
+      FROM "PerformanceSummary"
+      WHERE "connectionId" = ${connectionId}
+    ) ps
+    JOIN "KpiDefinition" kd ON kd.id = ps."kpiDefinitionId"
+    WHERE ps.rn <= ${PERIODS_PER_KPI}
+    ORDER BY kd.name ASC, ps."periodStart" DESC
+  `;
 
-  const perKpiCount = new Map<string, number>();
-  const rows: ConnectionPerformanceRow[] = [];
-  for (const s of summaries) {
-    const count = perKpiCount.get(s.kpiDefinitionId) ?? 0;
-    if (count >= 4) continue;
-    perKpiCount.set(s.kpiDefinitionId, count + 1);
-    rows.push({
-      kpiDefinitionId: s.kpiDefinitionId,
-      kpiName: s.kpiDefinition.name,
-      period: s.period,
-      periodStart: s.periodStart.toISOString(),
-      actualValue: s.actualValue,
-      targetValue: s.targetValue,
-      pct: s.pct,
-      status: s.status,
-    });
-  }
-  return rows;
+  return summaries.map((s) => ({
+    kpiDefinitionId: s.kpiDefinitionId,
+    kpiName: s.kpiName,
+    period: s.period,
+    periodStart: s.periodStart.toISOString(),
+    actualValue: s.actualValue,
+    targetValue: s.targetValue,
+    pct: s.pct,
+    status: s.status,
+  }));
 }
 
 export async function updateConnectionNotes(formData: FormData) {

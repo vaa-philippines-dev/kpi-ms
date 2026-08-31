@@ -5,7 +5,7 @@ import { ComingSoon } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HistorySummaryCard } from "@/components/history-summary-card";
-import { getConnectionTrend } from "@/lib/connection-trend";
+import { getConnectionTrendBatch } from "@/lib/connection-trend";
 import { ConnectionStatus, KpiPeriod } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -60,13 +60,20 @@ export async function VaOverview({
   const submittedIds = new Set(submittedRows.map((s) => s.connectionId));
   const submittedCount = activeConns.filter((c) => submittedIds.has(c.id)).length;
 
-  const historyPreview = await Promise.all(
-    activeConns.map(async (c) => ({
-      connectionId: c.id,
-      clientName: c.clientName,
-      points: await getConnectionTrend(c.id, KpiPeriod.WEEKLY, weekStartDay, HISTORY_TEASER_PERIODS),
-    })),
+  // Batched — one set of queries for every connection, not three per
+  // connection. This is the page every VA lands on at sign-in, so the
+  // per-connection fan-out this replaces was the most-run query in the app.
+  const trends = await getConnectionTrendBatch(
+    activeConns.map((c) => c.id),
+    KpiPeriod.WEEKLY,
+    weekStartDay,
+    HISTORY_TEASER_PERIODS,
   );
+  const historyPreview = activeConns.map((c) => ({
+    connectionId: c.id,
+    clientName: c.clientName,
+    points: trends.get(c.id) ?? [],
+  }));
 
   return (
     <div className="space-y-8">
