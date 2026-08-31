@@ -234,6 +234,12 @@ model Connection {
   // field existed); callers should fall back to createdAt when null, same
   // as legacy's behavior of defaulting it to "now" on creation.
   startDate            DateTime?               @db.Timestamptz(3)
+  // The date the connection actually ended (End of Contract/Project),
+  // distinct from ConnectionStatusEvent.changedAt for that transition —
+  // changedAt is always "when the system was updated," which is often days
+  // after the real end date, so this is user-settable/backdatable like
+  // startDate above. Null until the connection reaches a terminal status.
+  eocDate              DateTime?               @db.Timestamptz(3)
   connectionType       ConnectionType          @default(REGULAR)
   // Legacy IsFlagged — manager-raised attention flag, independent of status.
   isFlagged            Boolean                 @default(false)

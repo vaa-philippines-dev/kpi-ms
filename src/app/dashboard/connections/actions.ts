@@ -130,8 +130,20 @@ export async function updateConnectionStatus(formData: FormData) {
   }
   if (connection.status === status) return;
 
+  // Moving into a terminal status (End of Contract/Project) captures the
+  // real end date the caller entered — separate from the
+  // ConnectionStatusEvent's changedAt below, which is just "when the
+  // system was updated" and is often days after the actual end date.
+  // Defaults to today, mirroring startDate's default-to-now on create.
+  const eocDateRaw = String(formData.get("eocDate") ?? "");
+  const eocDate = TERMINAL_STATUSES.includes(status)
+    ? eocDateRaw
+      ? new Date(`${eocDateRaw}T00:00:00.000Z`)
+      : new Date()
+    : undefined;
+
   await prisma.$transaction(async (tx) => {
-    await tx.connection.update({ where: { id }, data: { status } });
+    await tx.connection.update({ where: { id }, data: { status, ...(eocDate ? { eocDate } : {}) } });
     await tx.connectionStatusEvent.create({
       data: { connectionId: id, status, changedById: session.id },
     });
@@ -142,7 +154,10 @@ export async function updateConnectionStatus(formData: FormData) {
       entityId: id,
       entityLabel: connection.clientName,
       summary: `Changed status of "${connection.clientName}" from ${connection.status} to ${status}`,
-      changes: [{ field: "status", oldValue: connection.status, newValue: status }],
+      changes: [
+        { field: "status", oldValue: connection.status, newValue: status },
+        ...(eocDate ? [{ field: "eocDate", oldValue: null, newValue: eocDate.toISOString() }] : []),
+      ],
       departmentId: connection.departmentId,
     });
   });

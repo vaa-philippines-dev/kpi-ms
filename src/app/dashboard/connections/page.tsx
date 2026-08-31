@@ -169,6 +169,7 @@ export default async function ConnectionsPage(
     notes: c.notes,
     hasKpiConfig: c._count.kpiConfigs > 0,
     startDate: c.startDate ? c.startDate.toISOString() : null,
+    eocDate: c.eocDate ? c.eocDate.toISOString() : null,
     createdAt: c.createdAt.toISOString(),
     sinceDate: (c.startDate ?? c.createdAt).toISOString(),
     statusEvents: c.statusEvents.map((e) => ({

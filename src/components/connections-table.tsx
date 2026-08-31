@@ -81,6 +81,7 @@ export type ConnectionRow = {
   // distinct from `sinceDate` below, which already has the createdAt
   // fallback baked in for display/sort.
   startDate: string | null;
+  eocDate: string | null;
   createdAt: string;
   sinceDate: string;
   statusEvents: ConnectionStatusEventRow[];
@@ -198,6 +199,58 @@ function getColumns(canEditConnection: boolean): DataTableColumn<ConnectionRow>[
       },
     },
   ];
+}
+
+// Status-change form for the detail modal — a separate component (not
+// inline JSX) so it can hold its own "which status is selected right now"
+// state, needed to show the End Date field only while a terminal status
+// (End of Contract/Project) is picked, before the form is even submitted.
+function StatusForm({
+  connection,
+  action,
+}: {
+  connection: ConnectionRow;
+  action: (formData: FormData) => void | Promise<void>;
+}) {
+  const [status, setStatus] = useState<ConnectionStatus>(connection.status);
+  const showEocDate = TERMINAL_CONNECTION_STATUSES.has(status);
+  const todayInputValue = toDateInputValue(new Date().toISOString());
+
+  return (
+    <form action={action} className="space-y-1.5">
+      <input type="hidden" name="id" value={connection.id} />
+      <div className="flex gap-1.5">
+        <Select
+          name="status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as ConnectionStatus)}
+          className="py-1.5"
+        >
+          {Object.values(ConnectionStatus).map((s) => (
+            <option key={s} value={s}>
+              {CONNECTION_STATUS_LABELS[s]}
+            </option>
+          ))}
+        </Select>
+        <Button type="submit" className="shrink-0 px-3 py-1.5 text-xs">
+          Save
+        </Button>
+      </div>
+      {showEocDate && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted uppercase">
+            End Date
+          </label>
+          <Input
+            name="eocDate"
+            type="date"
+            defaultValue={toDateInputValue(connection.eocDate) || todayInputValue}
+            className="w-full"
+          />
+        </div>
+      )}
+    </form>
+  );
 }
 
 function InfoItem({ label, children }: { label: string; children: React.ReactNode }) {
@@ -498,7 +551,13 @@ export function ConnectionsTable({
     };
   }
 
-  const pausedOrEndedSince = openConn ? currentStatusSince(openConn) : null;
+  // Prefer the real, user-set eocDate for terminal statuses — falls back
+  // to the status-event timestamp (currentStatusSince) for Paused, and for
+  // pre-existing terminal connections from before eocDate was introduced.
+  const pausedOrEndedSince = openConn
+    ? (TERMINAL_CONNECTION_STATUSES.has(openConn.status) ? openConn.eocDate : null) ??
+      currentStatusSince(openConn)
+    : null;
 
   return (
     <>
@@ -621,19 +680,11 @@ export function ConnectionsTable({
               <div>
                 <p className="mb-1.5 text-xs font-medium text-muted uppercase">Status</p>
                 {canEditConnection && !TERMINAL_CONNECTION_STATUSES.has(openConn.status) ? (
-                  <form action={closeAnd(updateConnectionStatus)} className="flex gap-1.5">
-                    <input type="hidden" name="id" value={openConn.id} />
-                    <Select name="status" defaultValue={openConn.status} className="py-1.5">
-                      {Object.values(ConnectionStatus).map((s) => (
-                        <option key={s} value={s}>
-                          {CONNECTION_STATUS_LABELS[s]}
-                        </option>
-                      ))}
-                    </Select>
-                    <Button type="submit" className="shrink-0 px-3 py-1.5 text-xs">
-                      Save
-                    </Button>
-                  </form>
+                  <StatusForm
+                    key={openConn.id}
+                    connection={openConn}
+                    action={closeAnd(updateConnectionStatus)}
+                  />
                 ) : (
                   <Badge tone={CONNECTION_STATUS_TONE[openConn.status]}>
                     {CONNECTION_STATUS_LABELS[openConn.status]}
