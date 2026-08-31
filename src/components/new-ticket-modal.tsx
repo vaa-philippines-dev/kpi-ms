@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
@@ -27,6 +27,7 @@ export function NewTicketModal({
 } = {}) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const { toast } = useToast();
 
   function close() {
@@ -48,6 +49,11 @@ export function NewTicketModal({
         <form
           className="space-y-3"
           action={async (formData) => {
+            // Guards against a fast double-click/double-Enter firing this action
+            // twice before React commits the `saving` state and disables the
+            // button — `setSaving` alone isn't synchronous enough for that race.
+            if (savingRef.current) return;
+            savingRef.current = true;
             setSaving(true);
             try {
               await createTicket(formData);
@@ -56,6 +62,7 @@ export function NewTicketModal({
             } catch (e) {
               toast(e instanceof Error ? e.message : "Failed to create ticket.", "error");
             } finally {
+              savingRef.current = false;
               setSaving(false);
             }
           }}

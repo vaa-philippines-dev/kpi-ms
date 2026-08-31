@@ -43,6 +43,23 @@ export async function createTicket(formData: FormData) {
     ? (priorityRaw as TicketPriority)
     : TicketPriority.NORMAL;
 
+  // Idempotency safety net: a retried/double-fired submission (the client-side
+  // lock only guards against re-entrant clicks, not a slow first request plus
+  // a second attempt) shouldn't create a second row. Ticket has no @@unique
+  // constraint to enforce this at the DB level, so treat an identical subject
+  // from the same user in the last few seconds as the same submission.
+  const recentDuplicate = await prisma.ticket.findFirst({
+    where: {
+      createdById: session.id,
+      subject,
+      createdAt: { gte: new Date(Date.now() - 10_000) },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (recentDuplicate) {
+    return;
+  }
+
   await prisma.$transaction(async (tx) => {
     const created = await tx.ticket.create({
       data: {
