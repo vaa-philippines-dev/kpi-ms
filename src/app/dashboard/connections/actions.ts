@@ -501,6 +501,15 @@ export async function getConnectionPerformance(
   });
   if (!connection) throw new Error("Connection not found.");
 
+  // The kpiDefinitionId tiebreak is load-bearing: two KPI definitions can
+  // share a name (e.g. a weekly and a monthly "Efficiency Rate", or the same
+  // KPI defined for two services), and name+periodStart alone doesn't
+  // separate them — so their rows interleaved in whatever order Postgres
+  // happened to return, differing between loads. Ordering by definition id
+  // in between makes each KPI's recent-period series one contiguous,
+  // stable block, which is what this panel is meant to show. No effect at
+  // all where names are unique.
+  //
   // Window function rather than the query builder: "the newest N rows per
   // group" isn't expressible as a single findMany. This used to fetch the
   // connection's ENTIRE PerformanceSummary history — every KPI, every period
@@ -521,7 +530,7 @@ export async function getConnectionPerformance(
     ) ps
     JOIN "KpiDefinition" kd ON kd.id = ps."kpiDefinitionId"
     WHERE ps.rn <= ${PERIODS_PER_KPI}
-    ORDER BY kd.name ASC, ps."periodStart" DESC
+    ORDER BY kd.name ASC, ps."kpiDefinitionId" ASC, ps."periodStart" DESC
   `;
 
   return summaries.map((s) => ({
