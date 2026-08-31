@@ -198,7 +198,13 @@ export async function getConnectionPeriodDetail(
     clientName: connection.clientName,
     vaName: connection.vaUser.name ?? connection.vaUser.email,
     departmentName: connection.department.name,
-    teamName: connection.vaUser.team?.name ?? null,
+    // Blank when the VA's home team is outside this connection's own
+    // department (hybrid VA) — see submissions/page.tsx's trackerRows for
+    // the same rule applied to the tracker table this modal opens from.
+    teamName:
+      connection.vaUser.team?.departmentId === connection.departmentId
+        ? (connection.vaUser.team?.name ?? null)
+        : null,
     period,
     periodStart: periodStartDate.toISOString(),
     kpiRows,

@@ -60,7 +60,9 @@ export default async function SubmissionsPage(
       prisma.connection.findMany({
         where: scope,
         include: {
-          vaUser: { select: { name: true, email: true, team: { select: { name: true } } } },
+          vaUser: {
+            select: { name: true, email: true, team: { select: { departmentId: true, name: true } } },
+          },
           department: { select: { name: true } },
         },
         orderBy: { clientName: "asc" },
@@ -174,7 +176,11 @@ export default async function SubmissionsPage(
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
-      teamName: c.vaUser.team?.name ?? null,
+      // Blank when the VA's home team is in a different department than
+      // this connection (a hybrid VA) — same rule as the Connections and
+      // Performance pages; e.g. this must never show an Amazon team name
+      // on a Walmart client row.
+      teamName: c.vaUser.team?.departmentId === c.departmentId ? (c.vaUser.team?.name ?? null) : null,
       clientName: c.clientName,
       departmentName: c.department.name,
       submitted,

@@ -140,8 +140,15 @@ export default async function PerformancePage(
               startDate: true,
               createdAt: true,
               isFlagged: true,
+              departmentId: true,
               department: { select: { name: true } },
-              vaUser: { select: { name: true, email: true, team: { select: { name: true } } } },
+              vaUser: {
+                select: {
+                  name: true,
+                  email: true,
+                  team: { select: { departmentId: true, name: true } },
+                },
+              },
             },
           },
         },
@@ -191,7 +198,15 @@ export default async function PerformancePage(
       clientName: connection.clientName,
       vaName: connection.vaUser.name ?? connection.vaUser.email,
       departmentName: connection.department.name,
-      teamName: connection.vaUser.team?.name ?? null,
+      // Blank (not the VA's home team) when that team belongs to a
+      // different department than this connection — same hybrid-VA case
+      // handled in the Connections page and in dept-team-summary.ts's "No
+      // Team" bucket; a Walmart client row showing an Amazon team name
+      // reads as a data bug to a Walmart-scoped viewer.
+      teamName:
+        connection.vaUser.team?.departmentId === connection.departmentId
+          ? (connection.vaUser.team?.name ?? null)
+          : null,
       connectionType: connection.connectionType,
       status: rollupStatus(statuses),
       durationDays: daysSince(connection.startDate ?? connection.createdAt),
