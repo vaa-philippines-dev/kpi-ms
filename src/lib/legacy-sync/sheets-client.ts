@@ -1,7 +1,5 @@
 import { google } from "googleapis";
 
-const LEGACY_SHEET_ID = "1uAr7WKpgtbmLz02ZOtC3uM487l8QvERQqE7-OSQEeQ0";
-
 // The real Customer Management System's sheet — separate spreadsheet, same
 // service account (shared with Viewer access), used by src/lib/cms-sync.
 const CMS_SHEET_ID = "1Kar3bK16OdVYcIjpXRC_ty85P9b55m97SU9YkxW4lSo";
@@ -53,10 +51,6 @@ async function readSheet(spreadsheetId: string, tabName: string): Promise<Record
     });
     return obj;
   });
-}
-
-export async function readLegacySheet(tabName: string): Promise<Record<string, string>[]> {
-  return readSheet(LEGACY_SHEET_ID, tabName);
 }
 
 export async function readCmsSheet(tabName: string): Promise<Record<string, string>[]> {

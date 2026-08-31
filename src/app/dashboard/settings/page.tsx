@@ -8,7 +8,6 @@ import {
   getSystemMessage,
   type SystemMessageTone,
 } from "@/lib/settings";
-import { LegacySyncPanel } from "@/components/legacy-sync-panel";
 import { SyncButton } from "@/components/sync-button";
 import { getEffectiveSession } from "@/lib/view-as";
 import { updateSetting, updateSystemMessage } from "./actions";
@@ -167,18 +166,6 @@ export default async function SettingsPage() {
                 Manager.
               </p>
               <SyncButton label="Sync Connection IDs" endpoint="/api/cms-sync/connections" />
-            </div>
-
-            <div>
-              <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
-                Legacy Sync
-              </h2>
-              <p className="mb-3 text-xs text-muted">
-                Pulls from the legacy Google Sheet on demand — no cron job. Safe
-                to re-run: every row is upserted by its legacy ID, so nothing
-                gets duplicated.
-              </p>
-              <LegacySyncPanel />
             </div>
           </>
         ) : (
