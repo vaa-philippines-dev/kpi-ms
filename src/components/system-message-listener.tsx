@@ -5,7 +5,6 @@ import { useToast } from "@/components/ui/toast";
 import type { SystemMessage } from "@/lib/settings";
 
 const STORAGE_KEY = "kpi-ms:system-message-seen";
-const POLL_INTERVAL_MS = 60_000;
 
 const TONE_TITLE: Record<SystemMessage["tone"], string> = {
   update: "Update",
@@ -16,16 +15,18 @@ const TONE_TITLE: Record<SystemMessage["tone"], string> = {
 /**
  * Pops the admin-configured system message (System Settings) as a toast.
  * Keyed off `updatedAt` in localStorage, so it shows once per edit instead
- * of nagging on every navigation or reload. Two delivery paths feed the same
- * check: the `message` prop (server-rendered, for a tab that was opened or
- * reloaded after the edit) and a poll (for a tab that was already open when
- * an admin saved) — see /api/notifications/system-message/poll.
+ * of nagging on every navigation or reload.
  *
- * Polling (not an SSE push) so each check is a millisecond-scale request
- * instead of a connection held open for the life of the tab — the latter is
- * billed as continuous compute time on Vercel and was burning the plan's
- * function-duration quota with tabs left open all day. This banner changes
- * rarely, so a minute between checks is plenty.
+ * Delivery is entirely server-rendered: the dashboard layout reads
+ * getSystemMessage() and passes it down as `message`, so every navigation
+ * and every reload already carries the current banner. There used to be a
+ * 60s poll alongside it (/api/notifications/system-message/poll, since
+ * deleted) covering the one case the prop misses — a tab sitting idle, not
+ * navigating, at the moment an admin saves an edit. That bought seconds of
+ * freshness for a banner that changes maybe monthly, and cost a function
+ * invocation per minute per open tab around the clock, which was ~40% of
+ * the project's entire Vercel invocation quota. An idle tab now picks the
+ * banner up on its next navigation instead.
  */
 export function SystemMessageListener({ message }: { message: SystemMessage }) {
   const { toast } = useToast();
@@ -34,26 +35,6 @@ export function SystemMessageListener({ message }: { message: SystemMessage }) {
     showIfUnseen(message, toast);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message.enabled, message.text, message.tone, message.updatedAt]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/notifications/system-message/poll");
-        if (!res.ok || cancelled) return;
-        const payload = (await res.json()) as SystemMessage;
-        if (!cancelled) showIfUnseen(payload, toast);
-      } catch {
-        // Ignore — next interval tries again.
-      }
-    };
-    const interval = setInterval(poll, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return null;
 }
