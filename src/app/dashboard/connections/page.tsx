@@ -126,7 +126,9 @@ export default async function ConnectionsPage(
         select: {
           name: true,
           email: true,
-          team: { select: { teamLeader: { select: { name: true, email: true } } } },
+          team: {
+            select: { departmentId: true, teamLeader: { select: { name: true, email: true } } },
+          },
         },
       },
       statusEvents: {
@@ -151,9 +153,16 @@ export default async function ConnectionsPage(
     departmentName: c.department.name,
     serviceId: c.serviceId,
     serviceName: c.service?.name ?? null,
-    teamLeaderName: c.vaUser.team?.teamLeader
-      ? c.vaUser.team.teamLeader.name ?? c.vaUser.team.teamLeader.email
-      : null,
+    // Hidden (not just "shown but wrong") when the VA's team belongs to a
+    // different department than this connection — e.g. a hybrid VA whose
+    // home team is Amazon showing up on a Walmart connection. Surfacing an
+    // out-of-department leader here reads as a bug to whoever's scoped to
+    // this connection's own department, since they have no way to know
+    // that name belongs to a team outside it.
+    teamLeaderName:
+      c.vaUser.team?.teamLeader && c.vaUser.team.departmentId === c.departmentId
+        ? c.vaUser.team.teamLeader.name ?? c.vaUser.team.teamLeader.email
+        : null,
     status: c.status,
     connectionType: c.connectionType,
     isFlagged: c.isFlagged,
