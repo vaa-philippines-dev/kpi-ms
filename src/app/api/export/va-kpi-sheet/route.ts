@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { csvResponse } from "@/lib/csv";
 import { KpiPeriod } from "@/generated/prisma/enums";
@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
   const isUnrestricted = session.role === "ADMIN" || session.role === "EXECUTIVE";
   const scope = connectionScopeWhere(session);
   const requestedDepartmentId = request.nextUrl.searchParams.get("departmentId") || undefined;
+  const anchor = parseAnchorDate(request.nextUrl.searchParams.get("date") || undefined);
 
   // KPI columns are department-specific, so Admin/Executive always export
   // exactly one department (defaulting to the first alphabetically) — same
@@ -26,8 +27,8 @@ export async function GET(request: NextRequest) {
   }
 
   const weekStartDay = await getWeekStartDay();
-  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, undefined, weekStartDay);
-  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY);
+  const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
+  const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
 
   const connections = await prisma.connection.findMany({
     where: effectiveScope,

@@ -173,7 +173,10 @@ export default async function VaKpiSheetPage(
         )}
         {rows.length > 0 && clusters.length > 0 && (
           <a
-            href={`/api/export/va-kpi-sheet${selectedDepartmentId ? `?departmentId=${selectedDepartmentId}` : ""}`}
+            href={`/api/export/va-kpi-sheet?${new URLSearchParams({
+              ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}),
+              ...(anchor ? { date: toDateParam(anchor) } : {}),
+            }).toString()}`}
             className="text-xs text-accent hover:underline"
           >
             Export CSV →

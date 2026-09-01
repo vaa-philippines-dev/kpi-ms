@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { KpiValueField } from "@/components/kpi-value-field";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { getEffectiveSession } from "@/lib/view-as";
-import { currentPeriodStart, parseAnchorDate, toDateParam } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate, toDateParam, formatWeekRange } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { rollupStatus, excludeInapplicable } from "@/lib/performance";
@@ -223,9 +223,21 @@ export default async function SubmitKpiPage(props: PageProps<"/dashboard/submit-
       new Date(),
     );
 
+  // Which specific week/month this is, not just the cadence — so a manager
+  // backfilling an earlier period (see PeriodForm) can tell at a glance
+  // whether they landed on the period they meant to submit for.
+  const periodLabel =
+    period === KpiPeriod.WEEKLY
+      ? formatWeekRange(periodStart)
+      : periodStart.toLocaleDateString(undefined, {
+          month: "long",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+
   const headerDescription = `${connection.clientName} · ${connection.department.name} · ${
     period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly"
-  }`;
+  } (${periodLabel})`;
 
   const clusterStepHref = `/dashboard/submit-kpi?${new URLSearchParams({
     connectionId: connection.id,
