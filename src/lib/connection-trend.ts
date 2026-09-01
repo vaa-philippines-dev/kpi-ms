@@ -134,7 +134,17 @@ export async function getConnectionTrendBatch(
                 actualValue: r.actualValue,
                 status: r.status,
               }))
-              .sort((a, b) => a.name.localeCompare(b.name))
+              // Tiebreak on id, not name alone: KPI names are not unique
+              // (the same name can exist for two services, or as a weekly
+              // and a monthly definition), localeCompare returns 0 for the
+              // duplicates, and Array.sort is stable — so without this the
+              // order of same-named rows just inherits whatever order the
+              // query returned them in, and shuffles between loads.
+              .sort(
+                (a, b) =>
+                  a.name.localeCompare(b.name) ||
+                  a.kpiDefinitionId.localeCompare(b.kpiDefinitionId),
+              )
           : [];
         return { periodStart, status, kpiRows };
       }),
