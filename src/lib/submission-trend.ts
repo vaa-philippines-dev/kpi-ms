@@ -11,6 +11,14 @@ export type SubmissionTrendPoint = {
   ratePct: number;
 };
 
+export type PendingSubmissionRow = {
+  connectionId: string;
+  clientName: string;
+  vaName: string;
+  departmentName: string;
+  teamName: string | null;
+};
+
 /** One week/month back from `periodStart`, for stepping the trend window. */
 function stepBack(periodStart: Date, period: KpiPeriod): Date {
   if (period === KpiPeriod.WEEKLY) {
@@ -109,4 +117,68 @@ export async function getSubmissionTrend(
       };
     }),
   );
+}
+
+/**
+ * The actual connections behind a period's "No Submissions" count above —
+ * ACTIVE, already-started connections with no PerformanceSummary row yet
+ * for `period`/`periodStart`. Powers the Submission Trend card's detail
+ * modal so any role can see who hasn't submitted, not just the count.
+ */
+export async function getPendingSubmissionRows(
+  scope: Prisma.ConnectionWhereInput,
+  period: KpiPeriod,
+  periodStart: Date,
+): Promise<PendingSubmissionRow[]> {
+  const countable = await prisma.connection.findMany({
+    where: {
+      AND: [
+        scope,
+        { status: ConnectionStatus.ACTIVE },
+        {
+          OR: [
+            { startDate: { lte: periodStart } },
+            { startDate: null, createdAt: { lte: periodStart } },
+          ],
+        },
+      ],
+    },
+    select: {
+      id: true,
+      clientName: true,
+      departmentId: true,
+      department: { select: { name: true } },
+      vaUser: {
+        select: {
+          name: true,
+          email: true,
+          team: { select: { departmentId: true, name: true } },
+        },
+      },
+    },
+  });
+  if (countable.length === 0) return [];
+
+  const submittedGroups = await prisma.performanceSummary.groupBy({
+    by: ["connectionId"],
+    where: {
+      period,
+      periodStart,
+      connectionId: { in: countable.map((c) => c.id) },
+    },
+  });
+  const submittedIds = new Set(submittedGroups.map((g) => g.connectionId));
+
+  return countable
+    .filter((c) => !submittedIds.has(c.id))
+    .map((c) => ({
+      connectionId: c.id,
+      clientName: c.clientName,
+      vaName: c.vaUser.name ?? c.vaUser.email,
+      // Same hybrid-VA "not this department's team" blanking as
+      // performance/page.tsx's connectionRows mapping.
+      teamName:
+        c.vaUser.team?.departmentId === c.departmentId ? (c.vaUser.team?.name ?? null) : null,
+      departmentName: c.department.name,
+    }));
 }

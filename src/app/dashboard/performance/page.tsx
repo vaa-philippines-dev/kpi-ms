@@ -14,7 +14,8 @@ import {
 import { currentPeriodStart, parseAnchorDate, daysSince } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { getPerformanceTrend } from "@/lib/trend";
-import { getSubmissionTrend } from "@/lib/submission-trend";
+import { getSubmissionTrend, getPendingSubmissionRows } from "@/lib/submission-trend";
+import { PendingSubmissionsCard } from "@/components/pending-submissions-card";
 import {
   getDepartmentSubmissionSummary,
   getTeamMemberSubmissionSummary,
@@ -264,13 +265,16 @@ export default async function PerformancePage(
     ],
   };
 
-  const [performanceTrend, submissionTrend, sideRows] = await Promise.all([
+  const [performanceTrend, submissionTrend, pendingSubmissionRows, sideRows] = await Promise.all([
     // Both trend charts now follow the same Weekly/Monthly toggle as
     // everything else on this page (previously always weekly, matching
     // /dashboard's pre-fix behavior — see lib/trend.ts / lib/submission-trend.ts,
     // both already support either period).
     getPerformanceTrend(finalScope, selectedPeriod, weekStartDay, 6, anchor),
     getSubmissionTrend(finalScope, selectedPeriod, weekStartDay, 6, anchor),
+    // Same scope/period/periodStart as submissionTrend's latest point, so its
+    // "No Submissions" count and this list always agree.
+    getPendingSubmissionRows(finalScope, selectedPeriod, selectedPeriodStart),
     isUnrestrictedViewer
       ? getDepartmentSubmissionSummary(
           selectedPeriod,
@@ -332,10 +336,7 @@ export default async function PerformancePage(
                     <div className="text-2xl font-semibold">{latestSubmission.ratePct}%</div>
                     <div className="mt-0.5 text-xs">Submission Rate</div>
                   </div>
-                  <div className="rounded-lg border border-surface-border p-3">
-                    <div className="text-2xl font-semibold">{latestSubmission.pending}</div>
-                    <div className="mt-0.5 text-xs text-muted">No Submissions</div>
-                  </div>
+                  <PendingSubmissionsCard rows={pendingSubmissionRows} />
                 </div>
                 <SubmissionTrendChart points={submissionTrend} />
               </div>
