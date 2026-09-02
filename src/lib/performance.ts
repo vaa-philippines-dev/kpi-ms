@@ -156,6 +156,15 @@ export async function loadInapplicableKpiPairs(
  * dashboard/submissions/actions.ts, which call this once for the OLD
  * periodStart (to drop the moved/removed values from that period's
  * aggregate) and, when moving, once more for the NEW periodStart.
+ *
+ * targetValue is frozen the first time a period is evaluated: once a
+ * PerformanceSummary row exists for a connection/KPI/periodStart, later
+ * recomputes (e.g. correcting that period's submitted value) reuse its
+ * stored targetValue instead of re-reading the current KpiConfig/
+ * KpiDefinition target. Otherwise, retargeting a VA today would silently
+ * rewrite the pass/fail history of past periods the next time any of their
+ * old submissions got touched. Only a period with no existing row yet (a
+ * brand-new submission) picks up the live target.
  */
 export async function recomputePerformanceSummary(
   tx: Prisma.TransactionClient,
@@ -174,7 +183,7 @@ export async function recomputePerformanceSummary(
   // Submitting every area at once (the "view all clusters" form) can pass
   // 50+ KPI ids here; doing that many sequential round trips inside one
   // transaction risked blowing Prisma's 5s interactive-transaction timeout.
-  const [kpis, sums] = await Promise.all([
+  const [kpis, sums, existing] = await Promise.all([
     tx.kpiDefinition.findMany({
       where: { id: { in: kpiDefinitionIds } },
       include: { kpiConfigs: { where: { connectionId } } },
@@ -188,8 +197,13 @@ export async function recomputePerformanceSummary(
       },
       _sum: { value: true },
     }),
+    tx.performanceSummary.findMany({
+      where: { connectionId, periodStart, kpiDefinitionId: { in: kpiDefinitionIds } },
+      select: { kpiDefinitionId: true, targetValue: true },
+    }),
   ]);
   const actualByKpiId = new Map(sums.map((s) => [s.kpiDefinitionId, s._sum.value ?? null]));
+  const frozenTargetByKpiId = new Map(existing.map((s) => [s.kpiDefinitionId, s.targetValue]));
 
   // Firing one upsert per KPI — even concurrently via Promise.all — still
   // serializes on the transaction's single DB connection, so it doesn't
@@ -201,7 +215,7 @@ export async function recomputePerformanceSummary(
   const rows = kpis.map((kpi) => {
     const config = kpi.kpiConfigs[0];
     const actualValue = actualByKpiId.get(kpi.id) ?? null;
-    const targetValue = config?.targetValue ?? kpi.targetValue;
+    const targetValue = frozenTargetByKpiId.get(kpi.id) ?? config?.targetValue ?? kpi.targetValue;
     const deviationThresholdPct = config?.deviationThresholdPct ?? kpi.deviationThresholdPct;
     const criticalThresholdPct = config?.criticalThresholdPct ?? kpi.criticalThresholdPct;
     const status = computeStatus(
