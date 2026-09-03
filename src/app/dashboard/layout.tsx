@@ -1,14 +1,12 @@
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard-topbar";
 import { HelpHintListener } from "@/components/help-hint-listener";
-import { SystemMessageListener } from "@/components/system-message-listener";
-import { TicketNotificationListener } from "@/components/ticket-notification-listener";
 import { ToastProvider } from "@/components/ui/toast";
 import { WelcomeNoticeModal } from "@/components/welcome-notice-modal";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { startOfToday } from "@/lib/period";
-import { getAppName, getSystemMessage } from "@/lib/settings";
+import { getAppName } from "@/lib/settings";
 import { getEffectiveSession } from "@/lib/view-as";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 
@@ -27,12 +25,11 @@ export default async function DashboardLayout({
   // or OM must only see today's count for connections in their own
   // scope, not every department's submissions.
   const scope = session ? connectionScopeWhere(session) : { id: "__none__" };
-  const [submissionsToday, appName, systemMessage] = await Promise.all([
+  const [submissionsToday, appName] = await Promise.all([
     prisma.submission.count({
       where: { submittedAt: { gte: startOfToday() }, connection: scope },
     }),
     getAppName(),
-    getSystemMessage(),
   ]);
 
   return (
@@ -53,8 +50,27 @@ export default async function DashboardLayout({
       {authSession?.user && (
         <WelcomeNoticeModal loginCount={authSession.user.loginCount} />
       )}
-      {session && <TicketNotificationListener />}
-      {session && <SystemMessageListener message={systemMessage} />}
+      {/*
+        * Both dashboard pollers are unmounted deliberately — see the note at
+        * the top of components/ticket-notification-listener.tsx. Between them
+        * they were issuing a function invocation per tab per interval, around
+        * the clock, which was the bulk of this project's Vercel invocation and
+        * Active CPU usage while both quotas were already blown.
+        *
+        * Everything they fed still works, just not live: the Inbox, ticket
+        * threads and the system message banner all render current data on
+        * load and on navigation. What is gone is the push — no toast when a
+        * ticket arrives, and an open thread or Inbox no longer appends new
+        * messages without a refresh (ticket-live-bus has no producer while
+        * this is unmounted).
+        *
+        * To restore, re-add these two lines and the getSystemMessage() call
+        * feeding the `message` prop; the components and the
+        * /api/notifications/tickets/poll route are all still in the tree.
+        *
+        * {session && <TicketNotificationListener />}
+        * {session && <SystemMessageListener message={systemMessage} />}
+        */}
       {authSession?.user && <HelpHintListener loginCount={authSession.user.loginCount} />}
     </ToastProvider>
   );

@@ -43,6 +43,17 @@ function describeTicketEvent(payload: TicketNotification): { title: string; mess
 }
 
 /**
+ * NOT CURRENTLY MOUNTED. Unmounted from the dashboard layout (see the note
+ * there) while Vercel's Function Invocation and Fluid Active CPU quotas are
+ * both over their limit: with a poll per tab per interval across every
+ * signed-in user, this and the system message poll together accounted for
+ * most of both. The visibility gating and 90s interval below already cut
+ * that several-fold, but the quotas were blown badly enough to want the
+ * traffic at zero while the graphs are watched.
+ *
+ * Nothing here is stale or broken — re-mounting the component in
+ * dashboard/layout.tsx is all it takes to turn notifications back on.
+ *
  * Polls /api/notifications/tickets/poll. Every signed-in role can be a
  * ticket participant (unlike submissions, which only managers watch), so
  * this is mounted unconditionally in the dashboard layout. If the event's
