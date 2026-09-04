@@ -45,7 +45,10 @@ export type KpiRow = {
   criticalThresholdPct: number;
   // PERCENT: deviationThresholdPct/criticalThresholdPct are %-of-target
   // deviation. VALUE: they're raw floor/ceiling values on the target's own
-  // scale (e.g. "actual must stay at or above 3.8") — see computeStatus.
+  // scale (e.g. "actual must stay at or above 3.8") — clearing the floor
+  // still counts as On Target. DIRECT: same raw-value comparison, but On
+  // Target requires actually meeting the real target — the floors only
+  // decide At Risk vs Critical below it. See computeStatus.
   thresholdUnit: ThresholdUnit;
 };
 
@@ -322,11 +325,11 @@ function ClusterView({
                       <Td className="text-muted">{formatKpiValue(k.targetValue, k.unit)}</Td>
                       <Td className="text-muted">
                         {k.deviationThresholdPct}
-                        {k.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                        {k.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
                       </Td>
                       <Td className="text-muted">
                         {k.criticalThresholdPct}
-                        {k.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                        {k.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
                       </Td>
                     </Tr>
                   ))}
@@ -486,6 +489,7 @@ function UnitField({ initialUnit }: { initialUnit?: string | null }) {
 const THRESHOLD_UNIT_LABELS: Record<ThresholdUnit, string> = {
   [ThresholdUnit.PERCENT]: "Percentage of target",
   [ThresholdUnit.VALUE]: "Raw value (same scale as target)",
+  [ThresholdUnit.DIRECT]: "Direct threshold (literal At Risk/Critical values)",
 };
 
 function KpiForm({
@@ -522,6 +526,7 @@ function KpiForm({
 
   const target = parseFloat(targetValue);
   const isValueMode = thresholdUnit === ThresholdUnit.VALUE;
+  const isDirectMode = thresholdUnit === ThresholdUnit.DIRECT;
   const pctHint = (raw: string) => {
     if (!isValueMode || !target) return null;
     const n = parseFloat(raw);
@@ -637,7 +642,13 @@ function KpiForm({
               name="deviationThresholdPct"
               type="number"
               step="any"
-              placeholder={isValueMode ? "At Risk floor value" : "At Risk % (default 10)"}
+              placeholder={
+                isDirectMode
+                  ? "At Risk threshold (literal %)"
+                  : isValueMode
+                    ? "At Risk floor value"
+                    : "At Risk % (default 10)"
+              }
               value={deviationThresholdPct}
               onChange={(e) => setDeviationThresholdPct(e.target.value)}
             />
@@ -650,7 +661,13 @@ function KpiForm({
               name="criticalThresholdPct"
               type="number"
               step="any"
-              placeholder={isValueMode ? "Critical floor value" : "Critical % (default 25)"}
+              placeholder={
+                isDirectMode
+                  ? "Critical threshold (literal %)"
+                  : isValueMode
+                    ? "Critical floor value"
+                    : "Critical % (default 25)"
+              }
               value={criticalThresholdPct}
               onChange={(e) => setCriticalThresholdPct(e.target.value)}
             />
@@ -663,6 +680,13 @@ function KpiForm({
           <p className="mt-2 text-xs text-muted">
             Enter both thresholds as raw values on the same scale as the target (e.g. an actual
             ROAS number), not percentages — the percentage above is just a reference.
+          </p>
+        )}
+        {isDirectMode && (
+          <p className="mt-2 text-xs text-muted">
+            Enter both thresholds as literal actual values, not a deviation from target — e.g. an
+            At Risk threshold of 9 means &quot;At Risk once actual is 9 or higher, until it
+            reaches target.&quot; On Target still requires meeting the real target above.
           </p>
         )}
       </div>

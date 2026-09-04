@@ -30,13 +30,22 @@ export function computeDeviationPct(
  * ON_TARGET; only an unmet zero target falls back to CRITICAL instead of
  * a percentage it can't compute.
  *
- * `thresholdUnit` PERCENT (the historical, only-supported mode) evaluates
+ * `thresholdUnit` PERCENT (the historical default) evaluates
  * deviationThresholdPct/criticalThresholdPct as %-of-target deviation, as
  * above. VALUE instead treats them as raw floor/ceiling values on the
  * target's own scale — e.g. for a higher-is-better KPI, "actual must stay
  * at or above this number" — which is what admins actually want to type for
  * a non-percent-unit KPI like ROAS, rather than mentally converting to a
- * deviation percentage themselves.
+ * deviation percentage themselves; clearing that floor/ceiling counts as
+ * full ON_TARGET even when the real target isn't met.
+ *
+ * DIRECT is a third interpretation for KPIs whose thresholds are meant to be
+ * compared literally against the actual, on the actual's own scale, rather
+ * than against a derived %-of-target deviation — e.g. CVR's "At Risk once
+ * actual is 9% or higher (but still short of target), Critical below 8%,"
+ * where 9 and 8 are real CVR percentages, not deviation percentages. Unlike
+ * VALUE, clearing the deviationThresholdPct floor is AT_RISK, not ON_TARGET
+ * — only actually meeting/exceeding the target itself earns ON_TARGET here.
  */
 export function computeStatus(
   direction: KpiDirection,
@@ -61,6 +70,19 @@ export function computeStatus(
         ? actualValue >= deviationThresholdPct
         : actualValue <= deviationThresholdPct;
     if (meetsDeviationFloor) return PerformanceStatus.ON_TARGET;
+    const meetsCriticalFloor =
+      direction === KpiDirection.HIGHER_IS_BETTER
+        ? actualValue >= criticalThresholdPct
+        : actualValue <= criticalThresholdPct;
+    return meetsCriticalFloor ? PerformanceStatus.AT_RISK : PerformanceStatus.CRITICAL;
+  }
+
+  if (thresholdUnit === ThresholdUnit.DIRECT) {
+    const meetsAtRiskFloor =
+      direction === KpiDirection.HIGHER_IS_BETTER
+        ? actualValue >= deviationThresholdPct
+        : actualValue <= deviationThresholdPct;
+    if (meetsAtRiskFloor) return PerformanceStatus.AT_RISK;
     const meetsCriticalFloor =
       direction === KpiDirection.HIGHER_IS_BETTER
         ? actualValue >= criticalThresholdPct

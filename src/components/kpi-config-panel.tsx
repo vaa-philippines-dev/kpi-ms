@@ -154,11 +154,11 @@ export function KpiConfigPanel({
                 <Td>{r.monthly ? r.monthly.targetValue : "—"}</Td>
                 <Td className="font-semibold text-warning">
                   {r.deviationThresholdPct}
-                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                  {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
                 </Td>
                 <Td className="font-semibold text-danger">
                   {r.criticalThresholdPct}
-                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                  {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
                 </Td>
                 <Td>
                   {r.isApplicable ? (
@@ -267,6 +267,7 @@ function KpiEditForm({
 }) {
   const { toast } = useToast();
   const isValueMode = row.thresholdUnit === ThresholdUnit.VALUE;
+  const isDirectMode = row.thresholdUnit === ThresholdUnit.DIRECT;
   const [weeklyTarget, setWeeklyTarget] = useState<string>(
     row.weekly ? String(row.weekly.targetValue) : "",
   );
@@ -404,6 +405,13 @@ function KpiEditForm({
         <p className="text-xs text-muted">
           This KPI uses raw-value thresholds (set in the KPI Library) — enter actual numbers on
           the same scale as the target, not percentages.
+        </p>
+      )}
+      {isDirectMode && (
+        <p className="text-xs text-muted">
+          This KPI uses direct thresholds (set in the KPI Library) — Deviation/At Risk Max are
+          literal actual values (e.g. 9 means &quot;At Risk once actual is 9 or higher&quot;), not
+          a deviation from target. On Target still requires meeting the real target above.
         </p>
       )}
 

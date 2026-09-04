@@ -130,11 +130,11 @@ function ConfigTable({ rows, onlyApplicable }: { rows: KpiConfigGroupRow[]; only
                 <Td>{r.monthly ? r.monthly.targetValue : "—"}</Td>
                 <Td className="text-warning">
                   {r.deviationThresholdPct}
-                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                  {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
                 </Td>
                 <Td className="text-danger">
                   {r.criticalThresholdPct}
-                  {r.thresholdUnit === ThresholdUnit.PERCENT ? "%" : ""}
+                  {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
                 </Td>
                 <Td>
                   {r.hasOverride ? (

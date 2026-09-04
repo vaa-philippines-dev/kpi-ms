@@ -21,15 +21,20 @@ enum KpiPeriod {
 }
 
 // Whether a KpiDefinition's deviationThresholdPct/criticalThresholdPct hold
-// percentage-of-target deviation (the historical, only-supported meaning) or
-// a raw value on the same scale as the target itself (a floor for
-// higher-is-better, a ceiling for lower-is-better) — see computeStatus in
+// percentage-of-target deviation (PERCENT, the historical default), a raw
+// value on the same scale as the target itself — a floor for higher-is-
+// better, a ceiling for lower-is-better — with clearing that floor/ceiling
+// counting as full On Target (VALUE), or literal At-Risk/Critical threshold
+// values on the actual's own scale that are compared directly against the
+// actual rather than against a %-of-target deviation, with On Target
+// requiring the real target itself (DIRECT) — see computeStatus in
 // lib/performance.ts for how each is evaluated. Lives on KpiDefinition only:
 // a KPI's threshold semantics don't vary per connection, same as direction/
 // unit/period.
 enum ThresholdUnit {
   PERCENT
   VALUE
+  DIRECT
 }
 
 enum PerformanceStatus {
