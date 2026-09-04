@@ -320,6 +320,48 @@ function ConnectionAssignmentForm({
     ? departments.find((d) => d.id === lockedDepartmentId)
     : undefined;
 
+  // A connection's stored service/VA can drift out of step with the
+  // department currently selected here (the VA was moved to another
+  // department, or lost the "additional department" tag that used to put
+  // them in servicesForDept/vaUsersForDept) — most commonly for a DM/OM
+  // whose department is locked to something other than what the connection
+  // was actually assigned. When that happens the real value is missing from
+  // its own <select>'s options, so — since these are plain uncontrolled
+  // native selects — the browser silently falls back to displaying
+  // whichever option is first in the list (alphabetically "Amazon" for
+  // Department, an arbitrary VA for VA) instead of what's actually saved.
+  // Left alone, hitting Save then submits that silently-substituted value
+  // and overwrites the real assignment with it. Appending the actual
+  // current value as an extra, clearly-labeled option — even when it
+  // wouldn't otherwise qualify under the department filter — keeps the
+  // select's displayed value truthful so nothing gets clobbered by
+  // accident; the person has to deliberately pick something else.
+  const currentServiceOutOfList =
+    serviceId && !servicesForDept.some((s) => s.id === serviceId)
+      ? (services.find((s) => s.id === serviceId) ??
+        (serviceId === connection.serviceId && connection.serviceName
+          ? { id: serviceId, name: connection.serviceName, departmentId }
+          : null))
+      : null;
+  const serviceOptions = currentServiceOutOfList
+    ? [...servicesForDept, currentServiceOutOfList]
+    : servicesForDept;
+
+  const currentVaOutOfList =
+    vaUserId && !vaUsersForDept.some((u) => u.id === vaUserId)
+      ? (vaUsers.find((u) => u.id === vaUserId) ??
+        (vaUserId === connection.vaUserId
+          ? {
+              id: vaUserId,
+              name: connection.vaName,
+              email: connection.vaEmail,
+              departmentId: null,
+              additionalDepartmentIds: [],
+            }
+          : null))
+      : null;
+  const vaOptions = currentVaOutOfList ? [...vaUsersForDept, currentVaOutOfList] : vaUsersForDept;
+
   function handleDepartmentChange(nextDeptId: string) {
     setDepartmentId(nextDeptId);
     if (!services.some((s) => s.id === serviceId && s.departmentId === nextDeptId)) {
@@ -348,6 +390,12 @@ function ConnectionAssignmentForm({
             <p className="rounded-lg border border-surface-border bg-surface-hover/40 px-2.5 py-2 text-sm">
               {lockedDepartment?.name ?? "Your department"}
             </p>
+            {connection.departmentId !== lockedDepartmentId && (
+              <p className="mt-1 text-xs text-warning">
+                Currently filed under {connection.departmentName}. Saving will move it to{" "}
+                {lockedDepartment?.name ?? "your department"}.
+              </p>
+            )}
           </>
         ) : (
           <Select
@@ -373,9 +421,10 @@ function ConnectionAssignmentForm({
           className="w-full"
         >
           <option value="">— None —</option>
-          {servicesForDept.map((s) => (
+          {serviceOptions.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
+              {s === currentServiceOutOfList ? " (current — different department)" : ""}
             </option>
           ))}
         </Select>
@@ -392,9 +441,10 @@ function ConnectionAssignmentForm({
           <option value="" disabled>
             — Select VA —
           </option>
-          {vaUsersForDept.map((u) => (
+          {vaOptions.map((u) => (
             <option key={u.id} value={u.id}>
               {u.name ?? u.email}
+              {u === currentVaOutOfList ? " (current — different department)" : ""}
             </option>
           ))}
         </Select>
