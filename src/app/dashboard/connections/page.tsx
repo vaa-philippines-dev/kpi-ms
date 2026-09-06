@@ -38,27 +38,13 @@ export default async function ConnectionsPage(
   // locked to the connections connectionScopeWhere already lets them see;
   // flagging and deleting a connection stay admin-only (isAdmin above).
   const canEditConnection = isAdmin || session.role === "DM" || session.role === "OM";
-  // DM/Ops Manager can add connections too, but only within their own
-  // department — the modal gets a department-locked, pre-filtered slice
-  // instead of the full org-wide lists Admin sees.
-  const canCreateConnection = isAdmin || isDeptScopedManager;
-  const newConnectionDepartments = isDeptScopedManager
-    ? departments.filter((d) => d.id === session.departmentId)
-    : departments;
-  const newConnectionServices = isDeptScopedManager
-    ? services.filter((s) => s.departmentId === session.departmentId)
-    : services;
-  // A VA can belong to more than one department (User.additionalDepartments)
-  // — a DM/Ops Manager should see them in this dropdown if their own
-  // department is EITHER the VA's primary or one of their additional ones,
-  // not just the primary.
-  const newConnectionVaUsers = isDeptScopedManager
-    ? vaUsers.filter(
-        (u) =>
-          u.departmentId === session.departmentId ||
-          u.additionalDepartments.some((d) => d.departmentId === session.departmentId),
-      )
-    : vaUsers;
+  // Adding a connection manually is admin-only — DM/OPS_MANAGER/OM sync
+  // connections in from the CMS instead (canSyncConnections below), so they
+  // don't need a manual "add connection" form too.
+  const canCreateConnection = isAdmin;
+  // Syncing connection IDs from the CMS stays open to DM and OPS_MANAGER,
+  // the same roles that used to also get a manual "add connection" form.
+  const canSyncConnections = isAdmin || isDeptScopedManager;
   // Assignment (reassign VA/department/service) form on an existing
   // connection is available to OM too (requireConnectionEditor includes it,
   // unlike requireConnectionCreator above) — so its department-locked
@@ -205,16 +191,11 @@ export default async function ConnectionsPage(
             {isAdmin && (
               <ImportConnectionsModal departments={departments} services={services} />
             )}
-            <NewConnectionModal
-              departments={newConnectionDepartments}
-              services={newConnectionServices}
-              vaUsers={newConnectionVaUsers}
-              lockedDepartmentId={isDeptScopedManager ? (session.departmentId ?? undefined) : undefined}
-            />
+            <NewConnectionModal departments={departments} services={services} vaUsers={vaUsers} />
           </div>
         )}
 
-        {canCreateConnection && (
+        {canSyncConnections && (
           <SyncButton label="Sync Connection IDs (from CMS)" endpoint="/api/cms-sync/connections" />
         )}
 

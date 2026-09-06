@@ -36,21 +36,16 @@ async function requireConnectionEditor(): Promise<ScopingSession> {
   };
 }
 
-// Creating a new connection (unlike every other connection mutation below)
-// is also open to DM and the DM-equivalent OPS_MANAGER, each locked to their
-// own department — mirrors the same "ignore the submitted value, lock to
-// session" pattern already used by users/actions.ts's createUser.
-async function requireConnectionCreator(): Promise<{
-  id: string;
-  role: string;
-  departmentId: string | null;
-}> {
+// Creating a new connection is admin-only — DM, OPS_MANAGER, and OM can
+// still sync connection IDs in from the CMS, which covers how connections
+// normally show up, so they don't need a manual "add connection" path too.
+async function requireConnectionCreator(): Promise<{ id: string; role: string }> {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER") {
-    throw new Error("Only admins, DMs, or Ops Managers can create connections.");
+  if (role !== "ADMIN") {
+    throw new Error("Only admins can create connections.");
   }
-  return { id: session!.user.id, role, departmentId: session!.user.departmentId };
+  return { id: session!.user.id, role };
 }
 
 // Terminal states never transition back to anything else — mirrors the
@@ -65,12 +60,7 @@ export async function createConnection(formData: FormData) {
   const vaUserId = String(formData.get("vaUserId") ?? "");
   const clientName = String(formData.get("clientName") ?? "").trim();
   const secondaryName = String(formData.get("secondaryName") ?? "").trim() || null;
-  // DM/Ops Manager can only create connections in their own department,
-  // regardless of what the form submitted.
-  const departmentId =
-    creator.role === "ADMIN"
-      ? String(formData.get("departmentId") ?? "")
-      : (creator.departmentId ?? "");
+  const departmentId = String(formData.get("departmentId") ?? "");
   const serviceId = String(formData.get("serviceId") ?? "") || null;
   const connectionTypeRaw = String(formData.get("connectionType") ?? "REGULAR");
   const connectionType = connectionTypeRaw === "PROJECT_BASED" ? "PROJECT_BASED" : "REGULAR";

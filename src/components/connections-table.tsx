@@ -291,9 +291,8 @@ function ShortCodeItem({ shortCode }: { shortCode: string | null }) {
 // Reassign which VA (and, for admins, which department/service) a
 // connection belongs to — sits next to the Account Info form and follows
 // the same cascading Department -> Service/VA pattern as
-// NewConnectionModal. DM/OM get a locked department (same restriction as
-// connection creation) and can only reassign the VA within it; ADMIN can
-// move a connection to any department.
+// NewConnectionModal. DM/OM get a locked department and can only reassign
+// the VA within it; ADMIN can move a connection to any department.
 function ConnectionAssignmentForm({
   connection,
   departments,
