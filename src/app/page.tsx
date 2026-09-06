@@ -1,11 +1,36 @@
 import Link from "next/link";
-import { ClipboardList } from "lucide-react";
+import { ClipboardList, Wrench } from "lucide-react";
 import { auth } from "@/auth";
 import { HeroBackground } from "@/components/hero-background";
 import { DashboardAccessButton } from "@/components/dashboard-access-button";
 import { BrandMark } from "@/components/brand-mark";
 
+const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === "true";
+
 export default async function Home() {
+  if (MAINTENANCE_MODE) {
+    return (
+      <main className="relative flex flex-1 items-center justify-center overflow-hidden px-6 py-24">
+        <HeroBackground />
+
+        <div className="relative w-full max-w-xl text-center">
+          <BrandMark className="mb-4" />
+          <div className="mx-auto mb-6 flex size-14 items-center justify-center rounded-full border border-surface-border bg-surface/80 backdrop-blur">
+            <Wrench className="size-6 text-muted" />
+          </div>
+          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+            Down for{" "}
+            <span className="text-gradient-animated">maintenance.</span>
+          </h1>
+          <p className="mt-4 text-balance text-muted">
+            We&apos;re making some improvements. The KPI dashboard will be
+            back shortly — thanks for your patience.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   const session = await auth();
 
   return (
