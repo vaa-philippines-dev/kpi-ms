@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
-import { recomputePerformanceSummary } from "@/lib/performance";
+import { recomputePerformanceSummary, overridePerformanceTarget } from "@/lib/performance";
 import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { logActivity } from "@/lib/activity-log";
@@ -349,6 +349,55 @@ export async function updateSubmission(formData: FormData) {
       entityLabel: connection.clientName,
       summary: `Updated a submission for "${connection.clientName}" — ${summaryParts.join(", ")}`,
       changes,
+      departmentId: connection.departmentId,
+    });
+  });
+
+  revalidateAffectedPages();
+}
+
+/** Overrides the target for one KPI on one specific period, for this
+ * connection only — the target counterpart to updateSubmission's actual-value
+ * edits above. Unlike a KpiConfig change (which applies going forward and
+ * never touches history), this rewrites just the one already-evaluated
+ * period, e.g. to account for an agreed one-off exception like a holiday
+ * week or ramp-up period. */
+export async function overrideSubmissionTarget(formData: FormData) {
+  const session = await requireSubmissionEditor();
+  const connectionId = String(formData.get("connectionId") ?? "");
+  const kpiDefinitionId = String(formData.get("kpiDefinitionId") ?? "");
+  const periodStartRaw = String(formData.get("periodStart") ?? "");
+  const targetValueRaw = formData.get("targetValue");
+  if (!connectionId || !kpiDefinitionId || !periodStartRaw) {
+    throw new Error("Missing connection, KPI, or period.");
+  }
+  const targetValue = Number(targetValueRaw);
+  if (!Number.isFinite(targetValue)) {
+    throw new Error("Target must be a number.");
+  }
+
+  const connection = await assertConnectionInScope(connectionId, session);
+  const periodStart = new Date(periodStartRaw);
+
+  await prisma.$transaction(async (tx) => {
+    const kpi = await tx.kpiDefinition.findUniqueOrThrow({ where: { id: kpiDefinitionId } });
+    const { oldTargetValue } = await overridePerformanceTarget(tx, {
+      connectionId,
+      kpiDefinitionId,
+      periodStart,
+      targetValue,
+    });
+
+    await logActivity(tx, {
+      actor: session,
+      action: "UPDATE",
+      entityType: "Submission",
+      entityId: connectionId,
+      entityLabel: connection.clientName,
+      summary: `Overrode the ${kpi.name} target for "${connection.clientName}" (${periodStart.toISOString().slice(0, 10)})`,
+      changes: [
+        { field: "targetValue", oldValue: String(oldTargetValue), newValue: String(targetValue) },
+      ],
       departmentId: connection.departmentId,
     });
   });

@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   getConnectionPeriodDetail,
   updateSubmission,
+  overrideSubmissionTarget,
   deleteSubmission,
   type ConnectionPeriodDetail,
   type SubmissionRow,
@@ -62,6 +63,8 @@ export function SubmissionDetailModal({
   const [isPending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EditState | null>(null);
+  const [editingTargetKpiId, setEditingTargetKpiId] = useState<string | null>(null);
+  const [targetInput, setTargetInput] = useState("");
   // Which submissions have their "No data" KPIs expanded — collapsed by
   // default so a big multi-cluster form (often mostly "No data" for
   // whichever clusters didn't apply that period) doesn't bury the KPIs the
@@ -130,6 +133,30 @@ export function SubmissionDetailModal({
     });
   }
 
+  function startEditTarget(row: ConnectionPeriodDetail["kpiRows"][number]) {
+    setEditingTargetKpiId(row.kpiDefinitionId);
+    setTargetInput(String(row.targetValue));
+  }
+
+  function saveTarget(kpiDefinitionId: string) {
+    if (!detail) return;
+    const formData = new FormData();
+    formData.set("connectionId", detail.connectionId);
+    formData.set("kpiDefinitionId", kpiDefinitionId);
+    formData.set("periodStart", detail.periodStart);
+    formData.set("targetValue", targetInput);
+    startTransition(async () => {
+      try {
+        await overrideSubmissionTarget(formData);
+        toast("Target overridden.", "success");
+        setEditingTargetKpiId(null);
+        load();
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Failed to override target.", "error");
+      }
+    });
+  }
+
   return (
     <Modal
       open={open}
@@ -184,8 +211,50 @@ export function SubmissionDetailModal({
                   <tr key={r.kpiDefinitionId} className="border-t border-surface-border">
                     <td className="px-3 py-2 font-medium">{r.name}</td>
                     <td className="px-3 py-2 text-muted">
-                      {r.targetValue}
-                      {r.unit ? ` ${r.unit}` : ""}
+                      {editingTargetKpiId === r.kpiDefinitionId ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="number"
+                            step="any"
+                            className="w-24"
+                            value={targetInput}
+                            onChange={(e) => setTargetInput(e.target.value)}
+                            autoFocus
+                          />
+                          <Button
+                            type="button"
+                            className="px-2 py-1 text-xs"
+                            disabled={isPending}
+                            onClick={() => saveTarget(r.kpiDefinitionId)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="px-2 py-1 text-xs"
+                            disabled={isPending}
+                            onClick={() => setEditingTargetKpiId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          {r.targetValue}
+                          {r.unit ? ` ${r.unit}` : ""}
+                          {!r.missing && (
+                            <button
+                              type="button"
+                              className="text-muted hover:text-foreground"
+                              title="Override target for this period"
+                              onClick={() => startEditTarget(r)}
+                            >
+                              <Pencil className="size-3" />
+                            </button>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-muted">
                       {r.actualValue ?? "—"}

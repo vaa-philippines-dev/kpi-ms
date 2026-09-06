@@ -166,6 +166,54 @@ export async function loadInapplicableKpiPairs(
 }
 
 /**
+ * Manually overrides the target on one connection/KPI/period's already-
+ * computed PerformanceSummary row — the explicit exception to
+ * recomputePerformanceSummary's frozen-target rule below, for a one-off
+ * situation (a holiday week, an agreed ramp-up) where retargeting just that
+ * period is the point, not something to guard against. Recomputes status/pct
+ * against the row's existing actualValue; never touches actualValue itself.
+ * Throws if no row exists yet — nothing to override before the period has a
+ * submission to evaluate against.
+ */
+export async function overridePerformanceTarget(
+  tx: Prisma.TransactionClient,
+  params: { connectionId: string; kpiDefinitionId: string; periodStart: Date; targetValue: number },
+): Promise<{ oldTargetValue: number }> {
+  const { connectionId, kpiDefinitionId, periodStart, targetValue } = params;
+
+  const [existing, kpi, config] = await Promise.all([
+    tx.performanceSummary.findUnique({
+      where: { connectionId_kpiDefinitionId_periodStart: { connectionId, kpiDefinitionId, periodStart } },
+    }),
+    tx.kpiDefinition.findUniqueOrThrow({ where: { id: kpiDefinitionId } }),
+    tx.kpiConfig.findUnique({ where: { connectionId_kpiDefinitionId: { connectionId, kpiDefinitionId } } }),
+  ]);
+  if (!existing) {
+    throw new Error("No submission recorded for this KPI/period yet — nothing to override.");
+  }
+
+  const deviationThresholdPct = config?.deviationThresholdPct ?? kpi.deviationThresholdPct;
+  const criticalThresholdPct = config?.criticalThresholdPct ?? kpi.criticalThresholdPct;
+  const status = computeStatus(
+    kpi.direction,
+    targetValue,
+    existing.actualValue,
+    deviationThresholdPct,
+    criticalThresholdPct,
+    kpi.thresholdUnit,
+  );
+  const pct =
+    existing.actualValue !== null && targetValue !== 0 ? (existing.actualValue / targetValue) * 100 : null;
+
+  await tx.performanceSummary.update({
+    where: { id: existing.id },
+    data: { targetValue, pct, status },
+  });
+
+  return { oldTargetValue: existing.targetValue };
+}
+
+/**
  * Recomputes and upserts PerformanceSummary for one connection/period/KPI
  * set, by re-summing whatever SubmissionRecords currently exist for that
  * connection+periodStart — the same "actual = sum of every submitted value"
