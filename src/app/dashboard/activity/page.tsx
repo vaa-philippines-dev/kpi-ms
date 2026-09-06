@@ -36,7 +36,7 @@ export default async function ActivityLogPage() {
   const rows: ActivityLogRow[] = logs.map((log) => ({
     id: log.id,
     createdAtMs: log.createdAt.getTime(),
-    createdAtLabel: log.createdAt.toLocaleString(),
+    createdAtLabel: log.createdAt.toLocaleString("en-PH", { timeZone: "Asia/Manila" }),
     actorName: log.actor?.name ?? log.actor?.email ?? "System",
     actorEmail: log.actor?.email ?? null,
     actorRole: log.actorRole,
