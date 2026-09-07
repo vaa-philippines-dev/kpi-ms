@@ -6,7 +6,7 @@ const CMS_SHEET_ID = "1Kar3bK16OdVYcIjpXRC_ty85P9b55m97SU9YkxW4lSo";
 
 let sheetsClient: ReturnType<typeof google.sheets> | null = null;
 
-function loadServiceAccountCredentials() {
+export function loadServiceAccountCredentials() {
   const b64 = process.env.LEGACY_SERVICE_ACCOUNT_JSON_B64;
   if (!b64) {
     throw new Error(

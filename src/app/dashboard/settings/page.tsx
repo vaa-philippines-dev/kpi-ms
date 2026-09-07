@@ -9,6 +9,7 @@ import {
   type SystemMessageTone,
 } from "@/lib/settings";
 import { SyncButton } from "@/components/sync-button";
+import { GenerateSheetButton } from "@/components/generate-sheet-button";
 import { getEffectiveSession } from "@/lib/view-as";
 import { updateSetting, updateSystemMessage } from "./actions";
 
@@ -166,6 +167,21 @@ export default async function SettingsPage() {
                 Manager.
               </p>
               <SyncButton label="Sync Connection IDs" endpoint="/api/cms-sync/connections" />
+            </div>
+
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+                Submissions Sheet
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                Generates a Google Sheet — one row per connection/period on
+                record, with its rolled-up status and any interventions
+                logged that period — and returns a link to it. The sheet is
+                created under the shared service account and set to
+                &quot;anyone with the link can view&quot;: treat the link as
+                public, not access-controlled.
+              </p>
+              <GenerateSheetButton label="Submissions Sheet" endpoint="/api/export/submissions-sheet" />
             </div>
           </>
         ) : (
