@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate, isPlausiblePeriodDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { recomputePerformanceSummary } from "@/lib/performance";
 import { connectionScopeWhere } from "@/lib/connection-scope";
@@ -49,6 +49,13 @@ export async function createSubmission(
 
   if (!connectionId || !Object.values(KpiPeriod).includes(period)) {
     return { error: "Missing connection or period." };
+  }
+  // The page itself already blocks a future date before this action is ever
+  // reachable through the normal UI (see submit/page.tsx's dateIsInFuture),
+  // but this action can be invoked directly — it needs its own check rather
+  // than relying purely on that render-time gate.
+  if (anchorDate && !isPlausiblePeriodDate(anchorDate)) {
+    return { error: "That date doesn't look right — pick today or an earlier date." };
   }
 
   // Two independent limits: per-connection (catches repeated spam against

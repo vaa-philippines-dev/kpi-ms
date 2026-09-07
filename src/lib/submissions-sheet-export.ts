@@ -1,7 +1,9 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { rollupStatus, excludeInapplicablePairs, loadInapplicableKpiPairs } from "@/lib/performance";
-import { addDays, addMonths } from "@/lib/period";
+import { addDays, addMonths, currentPeriodStart, isPlausiblePeriodDate } from "@/lib/period";
+import { getWeekStartDay } from "@/lib/settings";
 
 export const SUBMISSIONS_SHEET_HEADERS = [
   "RecordID",
@@ -41,8 +43,44 @@ function periodWindowEnd(period: KpiPeriod, periodStart: Date): Date {
  * connection within that period's window. Customer ID/Account ID are left
  * blank — no data source for them yet (see dashboard/customers, which is
  * itself still a placeholder).
+ *
+ * `periodFilter` narrows to just WEEKLY or just MONTHLY rows; omitted (or
+ * undefined) includes both, sorted together by date.
+ *
+ * `anchor`, when given, narrows further to one specific week/month instance
+ * — the same "any date in the target week/month" resolution the Submissions
+ * edit modal and every period-nav page already use (currentPeriodStart).
+ * Omitted (the default) includes every period ever recorded, matching this
+ * feature's original "export everything" design.
+ *
+ * A handful of existing PerformanceSummary rows carry a garbage periodStart
+ * (years like 1996, 2002, 2031 — see lib/period.ts's isPlausiblePeriodDate
+ * for how new ones are now prevented) from a since-fixed date-input bug;
+ * those are silently dropped here rather than shown in a sheet meant to be
+ * shared outside the app.
  */
-export async function buildSubmissionsSheetRows(): Promise<(string | number)[][]> {
+export async function buildSubmissionsSheetRows(
+  periodFilter?: KpiPeriod,
+  anchor?: Date,
+): Promise<(string | number)[][]> {
+  let periodWhere: Prisma.PerformanceSummaryWhereInput | undefined = periodFilter
+    ? { period: periodFilter }
+    : undefined;
+
+  if (anchor) {
+    const weekStartDay = await getWeekStartDay();
+    const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
+    const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
+    const instances: Prisma.PerformanceSummaryWhereInput[] = [];
+    if (periodFilter !== KpiPeriod.MONTHLY) {
+      instances.push({ period: KpiPeriod.WEEKLY, periodStart: weeklyStart });
+    }
+    if (periodFilter !== KpiPeriod.WEEKLY) {
+      instances.push({ period: KpiPeriod.MONTHLY, periodStart: monthlyStart });
+    }
+    periodWhere = { OR: instances };
+  }
+
   const [connections, rawSummaries, interventions, inapplicablePairs] = await Promise.all([
     prisma.connection.findMany({
       select: {
@@ -52,6 +90,7 @@ export async function buildSubmissionsSheetRows(): Promise<(string | number)[][]
       },
     }),
     prisma.performanceSummary.findMany({
+      where: periodWhere,
       select: { connectionId: true, kpiDefinitionId: true, period: true, periodStart: true, status: true },
     }),
     prisma.intervention.findMany({
@@ -60,7 +99,9 @@ export async function buildSubmissionsSheetRows(): Promise<(string | number)[][]
     loadInapplicableKpiPairs({}),
   ]);
 
-  const summaries = excludeInapplicablePairs(rawSummaries, inapplicablePairs);
+  const summaries = excludeInapplicablePairs(rawSummaries, inapplicablePairs).filter((s) =>
+    isPlausiblePeriodDate(s.periodStart),
+  );
   const connectionById = new Map(connections.map((c) => [c.id, c]));
 
   const groups = new Map<

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
 import { recomputePerformanceSummary, overridePerformanceTarget } from "@/lib/performance";
-import { currentPeriodStart, parseAnchorDate } from "@/lib/period";
+import { currentPeriodStart, parseAnchorDate, isPlausiblePeriodDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -259,9 +259,18 @@ export async function updateSubmission(formData: FormData) {
     if (!Object.values(KpiPeriod).includes(periodRaw as KpiPeriod) || !/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
       throw new Error("Invalid period or date.");
     }
+    const parsedDate = parseAnchorDate(dateRaw);
+    // Also reject a structurally-valid but implausible date (e.g. a native
+    // date input committing "0226-08-01" from a partially-typed year) — this
+    // must throw here rather than silently fall back to "now", since
+    // silently defaulting an intended date correction to the current period
+    // is its own kind of data corruption.
+    if (!parsedDate || !isPlausiblePeriodDate(parsedDate)) {
+      throw new Error("Invalid period or date.");
+    }
     const weekStartDay = await getWeekStartDay();
     newPeriod = periodRaw as KpiPeriod;
-    newPeriodStart = currentPeriodStart(newPeriod, parseAnchorDate(dateRaw), weekStartDay);
+    newPeriodStart = currentPeriodStart(newPeriod, parsedDate, weekStartDay);
   }
 
   const recordsRaw = formData.get("records");
