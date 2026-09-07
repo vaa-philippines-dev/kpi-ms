@@ -711,6 +711,7 @@ export function KpiLibraryTable({
   services,
   clusters,
   canManage,
+  isAdmin,
   defaultPeriod,
 }: {
   kpis: KpiRow[];
@@ -718,6 +719,7 @@ export function KpiLibraryTable({
   services: ServiceOption[];
   clusters: string[];
   canManage: boolean;
+  isAdmin: boolean;
   defaultPeriod: KpiPeriod;
 }) {
   const { toast } = useToast();
@@ -946,6 +948,7 @@ export function KpiLibraryTable({
               <DeleteKpiControl
                 kpiId={editing.id}
                 kpiName={editing.name}
+                isAdmin={isAdmin}
                 onDeleted={() => setEditing(null)}
               />
             </div>
@@ -963,19 +966,31 @@ export function KpiLibraryTable({
  * delete" option, with its own scarier confirm text, once that's actually
  * been rejected. Keeps the common case (no history yet) a single click
  * while still requiring a second explicit action to destroy real data.
+ * Force-delete itself is Admin-only (see forceDeleteKpiDefinition) — a
+ * DM/Ops Manager/OM hitting the block sees why instead of a button that
+ * would just fail server-side.
  */
 function DeleteKpiControl({
   kpiId,
   kpiName,
+  isAdmin,
   onDeleted,
 }: {
   kpiId: string;
   kpiName: string;
+  isAdmin: boolean;
   onDeleted: () => void;
 }) {
   const [blocked, setBlocked] = useState(false);
 
   if (blocked) {
+    if (!isAdmin) {
+      return (
+        <p className="text-xs text-muted">
+          This KPI has submissions, performance records, or config overrides recorded against it — only an Admin can force-delete it along with that history.
+        </p>
+      );
+    }
     return (
       <ConfirmSubmitButton
         action={forceDeleteKpiDefinition}

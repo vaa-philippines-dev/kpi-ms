@@ -21,6 +21,22 @@ async function requireManager(): Promise<ScopingSession> {
   };
 }
 
+// Stricter than requireManager above — force-delete wipes real submission/
+// performance history irreversibly, so unlike every other KPI Library
+// action (create/edit/safe-delete), DM/Ops Manager/OM don't get it.
+async function requireAdmin(): Promise<ScopingSession> {
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") {
+    throw new Error("Only Admins can force-delete a KPI along with its history.");
+  }
+  return {
+    id: session.user.id,
+    role: session.user.role,
+    departmentId: session.user.departmentId,
+    teamId: session.user.teamId,
+  };
+}
+
 async function assertDepartmentAccess(session: ScopingSession, departmentId: string) {
   if (!canAccessDepartment(session, departmentId)) {
     throw new Error("You can only manage KPIs in your own department.");
@@ -184,16 +200,15 @@ export async function deleteKpiDefinition(formData: FormData) {
   revalidatePath("/dashboard/kpi-library");
 }
 
-// Same access rules as deleteKpiDefinition, but for the case a manager
-// wants the KPI gone regardless of the history attached to it — wipes every
-// SubmissionRecord/SubmissionDraft/PerformanceSummary/KpiConfig(+History)
-// row referencing this KpiDefinition first (none of those relations cascade
-// at the DB level, so the plain delete above always fails once any exist),
-// then the KpiDefinition itself, all in one transaction. Irreversible: the
-// UI only offers this after the safe delete above has already been
-// rejected, and gates it behind retyping the KPI's name.
+// Admin-only (see requireAdmin above) — wipes every SubmissionRecord/
+// SubmissionDraft/PerformanceSummary/KpiConfig(+History) row referencing
+// this KpiDefinition first (none of those relations cascade at the DB
+// level, so the plain delete above always fails once any exist), then the
+// KpiDefinition itself, all in one transaction. Irreversible: the UI only
+// offers this after the safe delete above has already been rejected, and
+// gates it behind retyping the KPI's name.
 export async function forceDeleteKpiDefinition(formData: FormData) {
-  const session = await requireManager();
+  const session = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   const existing = await findAccessibleKpi(session, id);

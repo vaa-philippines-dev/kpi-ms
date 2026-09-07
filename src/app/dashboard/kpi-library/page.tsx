@@ -44,6 +44,7 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     }),
   ]);
   const canManage = MANAGER_ROLES.has(session.role);
+  const isAdmin = session.role === "ADMIN";
 
   const rows: KpiRow[] = kpis.map((k) => ({
     id: k.id,
@@ -88,6 +89,7 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
           services={serviceOptions}
           clusters={clusters}
           canManage={canManage}
+          isAdmin={isAdmin}
           defaultPeriod={selectedPeriod}
         />
       )}
