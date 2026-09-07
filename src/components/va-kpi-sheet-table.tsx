@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Th, Td, Tr } from "@/components/ui/table";
 import { Input, Select } from "@/components/ui/input";
 import { StatusBadge } from "@/components/status-badge";
-import { PerformanceStatus } from "@/generated/prisma/enums";
+import { PerformanceStatus, KpiPeriod } from "@/generated/prisma/enums";
 
 export type VaKpiSheetCell =
   | { kind: "na" }
@@ -21,7 +21,7 @@ export type VaKpiSheetRow = {
 
 export type VaKpiSheetCluster = {
   cluster: string;
-  kpis: { id: string; name: string }[];
+  kpis: { id: string; name: string; period: KpiPeriod }[];
 };
 
 const ALL_CLUSTERS = "__all__";
@@ -115,6 +115,9 @@ export function VaKpiSheetTable({
                     className={`whitespace-nowrap ${ki === 0 ? "border-l border-surface-border" : ""}`}
                   >
                     {kpi.name}
+                    <div className="font-normal normal-case text-[10px] text-muted">
+                      {kpi.period === "WEEKLY" ? "Weekly" : "Monthly"}
+                    </div>
                   </Th>
                 )),
               )}

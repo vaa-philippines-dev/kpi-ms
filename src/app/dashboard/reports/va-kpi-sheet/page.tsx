@@ -95,7 +95,10 @@ export default async function VaKpiSheetPage(
     if (list) list.push(kpi);
     else clusterMap.set(kpi.cluster, [kpi]);
   }
-  const clusters = [...clusterMap.entries()].map(([cluster, kpis]) => ({ cluster, kpis }));
+  const clusters = [...clusterMap.entries()].map(([cluster, kpis]) => ({
+    cluster,
+    kpis: kpis.map((k) => ({ id: k.id, name: k.name, period: k.period })),
+  }));
 
   const rows = connections.map((c) => {
     const summaryByKpi = new Map(c.performanceSummaries.map((s) => [s.kpiDefinitionId, s]));

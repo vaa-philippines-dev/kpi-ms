@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
       Client: c.clientName,
       Department: c.department.name,
       KPI: s.kpiDefinition.name,
+      Period: s.kpiDefinition.period === "WEEKLY" ? "Weekly" : "Monthly",
       Actual: s.actualValue ?? "",
       Target: s.targetValue,
       Status: s.status,
