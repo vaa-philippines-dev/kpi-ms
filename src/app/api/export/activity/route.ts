@@ -3,8 +3,6 @@ import { requireSession } from "@/lib/connection-scope";
 import { csvResponse } from "@/lib/csv";
 
 // Admin-only, mirroring the page itself (src/app/dashboard/activity/page.tsx).
-const RECENT_LIMIT = 2000;
-
 export async function GET() {
   const session = await requireSession();
   if (session.role !== "ADMIN" && session.role !== "EXECUTIVE") {
@@ -14,7 +12,6 @@ export async function GET() {
   const [logs, departments] = await Promise.all([
     prisma.activityLog.findMany({
       orderBy: { createdAt: "desc" },
-      take: RECENT_LIMIT,
       include: { actor: true },
     }),
     prisma.department.findMany({ select: { id: true, name: true } }),

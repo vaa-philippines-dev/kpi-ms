@@ -4,12 +4,6 @@ import { PageHeader, ComingSoon } from "@/components/page-header";
 import { ActivityLogTable, type ActivityLogRow } from "@/components/activity-log-table";
 import { requireSession } from "@/lib/connection-scope";
 
-// Loaded upfront and sliced client-side, same pattern as every other report
-// in the app (DataTable) — capped to the most recent window so the page
-// stays fast even as the log grows unbounded over time (submission creates
-// alone add one row per VA submission).
-const RECENT_LIMIT = 2000;
-
 // Admin-only — this is the one place every mutation across the system
 // (KPI edits, submissions, deletions, connection/team/user changes made by
 // DMs/OMs/Team Leaders, etc.) shows up in one unified trail, so it's kept as
@@ -26,7 +20,6 @@ export default async function ActivityLogPage() {
   const [logs, departments] = await Promise.all([
     prisma.activityLog.findMany({
       orderBy: { createdAt: "desc" },
-      take: RECENT_LIMIT,
       include: { actor: true },
     }),
     prisma.department.findMany({ select: { id: true, name: true } }),
@@ -58,7 +51,7 @@ export default async function ActivityLogPage() {
     <>
       <PageHeader
         title="Activity Log"
-        description={`Every tracked KPI edit, submission, deletion, and change made by DMs, OMs, and Team Leaders across the system. Showing the most recent ${RECENT_LIMIT.toLocaleString()} events.`}
+        description="Every tracked KPI edit, submission, deletion, and change made by DMs, OMs, and Team Leaders across the system, since the log began."
       />
 
       {rows.length === 0 ? (
