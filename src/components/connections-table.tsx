@@ -19,6 +19,7 @@ import {
 import { ConnectionStatus, ConnectionType } from "@/generated/prisma/enums";
 import {
   updateConnectionStatus,
+  adminOverrideConnectionStatus,
   updateConnectionType,
   updateConnectionInfo,
   updateConnectionAssignment,
@@ -208,17 +209,43 @@ function getColumns(canEditConnection: boolean): DataTableColumn<ConnectionRow>[
 function StatusForm({
   connection,
   action,
+  requireReason = false,
 }: {
   connection: ConnectionRow;
   action: (formData: FormData) => void | Promise<void>;
+  // True only for the admin-only override path rendered on terminal
+  // (End of Contract/Project) connections — that path bypasses
+  // updateConnectionStatus's terminal-status guard, so it asks for a
+  // confirm click and a typed reason instead of submitting silently.
+  requireReason?: boolean;
 }) {
   const [status, setStatus] = useState<ConnectionStatus>(connection.status);
   const showEocDate = TERMINAL_CONNECTION_STATUSES.has(status);
   const todayInputValue = toDateInputValue(new Date().toISOString());
 
   return (
-    <form action={action} className="space-y-1.5">
+    <form
+      action={action}
+      onSubmit={(e) => {
+        if (
+          requireReason &&
+          !window.confirm(
+            "This bypasses the terminal-status lock and changes the status directly. Continue?",
+          )
+        ) {
+          e.preventDefault();
+        }
+      }}
+      className={
+        requireReason
+          ? "space-y-1.5 rounded-md border border-dashed border-warning/50 p-2"
+          : "space-y-1.5"
+      }
+    >
       <input type="hidden" name="id" value={connection.id} />
+      {requireReason && (
+        <p className="text-[11px] font-semibold text-warning uppercase">Admin override</p>
+      )}
       <div className="flex gap-1.5">
         <Select
           name="status"
@@ -245,6 +272,20 @@ function StatusForm({
             name="eocDate"
             type="date"
             defaultValue={toDateInputValue(connection.eocDate) || todayInputValue}
+            className="w-full"
+          />
+        </div>
+      )}
+      {requireReason && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted uppercase">
+            Reason (required)
+          </label>
+          <Textarea
+            name="reason"
+            rows={2}
+            required
+            placeholder="Why this status is being changed manually…"
             className="w-full"
           />
         </div>
@@ -733,6 +774,13 @@ export function ConnectionsTable({
                     key={openConn.id}
                     connection={openConn}
                     action={closeAnd(updateConnectionStatus)}
+                  />
+                ) : isAdmin && TERMINAL_CONNECTION_STATUSES.has(openConn.status) ? (
+                  <StatusForm
+                    key={openConn.id}
+                    connection={openConn}
+                    action={closeAnd(adminOverrideConnectionStatus)}
+                    requireReason
                   />
                 ) : (
                   <Badge tone={CONNECTION_STATUS_TONE[openConn.status]}>

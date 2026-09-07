@@ -154,6 +154,68 @@ export async function updateConnectionStatus(formData: FormData) {
   revalidatePath("/dashboard/connections");
 }
 
+// Admin-only escape hatch for updateConnectionStatus's terminal-status
+// guard above — e.g. a connection synced in already marked End of Contract
+// by mistake (see the now-removed legacy-sync/reference-sync.ts, which
+// copied status straight from the old KPI Portal sheet on every re-run with
+// no audit logging at all). Unlike that import, this path always writes a
+// ConnectionStatusEvent and an ActivityLog entry, and requires a typed
+// reason, so a manual override this time leaves the trail the original
+// change never did.
+export async function adminOverrideConnectionStatus(formData: FormData) {
+  const session = await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "") as ConnectionStatus;
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!id || !Object.values(ConnectionStatus).includes(status)) {
+    throw new Error("Missing or invalid status.");
+  }
+  if (!reason) {
+    throw new Error("A reason is required for a manual status override.");
+  }
+
+  const connection = await prisma.connection.findUnique({ where: { id } });
+  if (!connection) throw new Error("Connection not found.");
+  if (connection.status === status) return;
+
+  // Same eocDate handling as updateConnectionStatus when moving into a
+  // terminal status; explicitly cleared (not left as-is) when overriding
+  // out of one, since a non-ended connection shouldn't keep a stale end
+  // date around.
+  const eocDateRaw = String(formData.get("eocDate") ?? "");
+  const eocDate = TERMINAL_STATUSES.includes(status)
+    ? eocDateRaw
+      ? new Date(`${eocDateRaw}T00:00:00.000Z`)
+      : new Date()
+    : null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.connection.update({ where: { id }, data: { status, eocDate } });
+    await tx.connectionStatusEvent.create({
+      data: { connectionId: id, status, changedById: session!.user!.id },
+    });
+    await logActivity(tx, {
+      actor: { id: session!.user!.id, role: session!.user!.role },
+      action: "UPDATE",
+      entityType: "Connection",
+      entityId: id,
+      entityLabel: connection.clientName,
+      summary: `Admin override: changed status of "${connection.clientName}" from ${connection.status} to ${status} — ${reason}`,
+      changes: [
+        { field: "status", oldValue: connection.status, newValue: status },
+        {
+          field: "eocDate",
+          oldValue: connection.eocDate?.toISOString() ?? null,
+          newValue: eocDate?.toISOString() ?? null,
+        },
+        { field: "overrideReason", oldValue: null, newValue: reason },
+      ],
+      departmentId: connection.departmentId,
+    });
+  });
+  revalidatePath("/dashboard/connections");
+}
+
 export async function updateConnectionType(formData: FormData) {
   const session = await requireConnectionEditor();
   const id = String(formData.get("id") ?? "");
