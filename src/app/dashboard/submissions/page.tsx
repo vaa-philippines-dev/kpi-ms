@@ -13,7 +13,7 @@ import {
 } from "@/components/recent-submissions-table";
 import { SubmitForVaModal, type SubmitForVaOption } from "@/components/submit-for-va-modal";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { currentPeriodStart, hoursAgo, parseAnchorDate } from "@/lib/period";
+import { currentPeriodStart, hoursAgo, isPlausiblePeriodDate, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import {
   getDepartmentSubmissionSummary,
@@ -137,11 +137,20 @@ export default async function SubmissionsPage(
   const trackedConnections = connections.filter((c) => c.status === "ACTIVE");
   const excludedCount = connections.length - trackedConnections.length;
 
+  // A handful of older rows carry corrupted dates from a fixed bug (see
+  // submissions-sheet-export.ts's own isPlausiblePeriodDate filter for the
+  // same class of corruption) — a bad periodStart, or a submittedAt in the
+  // future, which would otherwise sail past the "last hour" cutoff below and
+  // show up looking like the most recent activity on the page.
+  const plausibleRecentSubmissions = recentSubmissions.filter(
+    (s) => isPlausiblePeriodDate(s.periodStart) && s.submittedAt.getTime() <= Date.now(),
+  );
+
   // Target isn't stored on the submission record itself — same effective-
   // target rule as everywhere else (connection's KpiConfig override, else
   // the KpiDefinition default), looked up in bulk for every connection that
   // appears in this batch rather than per-row.
-  const recentConnectionIds = [...new Set(recentSubmissions.map((s) => s.connectionId))];
+  const recentConnectionIds = [...new Set(plausibleRecentSubmissions.map((s) => s.connectionId))];
   const recentTargetOverrides = recentConnectionIds.length
     ? await prisma.kpiConfig.findMany({
         where: { connectionId: { in: recentConnectionIds } },
@@ -152,7 +161,7 @@ export default async function SubmissionsPage(
     recentTargetOverrides.map((c) => [`${c.connectionId}:${c.kpiDefinitionId}`, c.targetValue]),
   );
 
-  const recentSubmissionRows: RecentSubmissionRow[] = recentSubmissions.map((sub) => ({
+  const recentSubmissionRows: RecentSubmissionRow[] = plausibleRecentSubmissions.map((sub) => ({
     id: sub.id,
     submittedAt: sub.submittedAt.toISOString(),
     vaName: sub.connection.vaUser.name ?? sub.connection.vaUser.email,
@@ -301,7 +310,7 @@ export default async function SubmissionsPage(
           <div className="min-w-0 space-y-4">
             <div className="rounded-xl border border-surface-border bg-surface p-5">
               <h2 className="mb-4 text-sm font-semibold">Recent Submissions</h2>
-              {recentSubmissions.length === 0 ? (
+              {plausibleRecentSubmissions.length === 0 ? (
                 <ComingSoon note="No submissions yet — they'll show up here once VAs start using the form at /submit." />
               ) : (
                 <RecentSubmissionsTable
