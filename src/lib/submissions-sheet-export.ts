@@ -8,8 +8,9 @@ import { getWeekStartDay } from "@/lib/settings";
 export const SUBMISSIONS_SHEET_HEADERS = [
   "RecordID",
   "Connection ID",
-  "Customer ID",
-  "Account ID",
+  "CMS Connection ID",
+  "Customer Name",
+  "Account Name",
   "VA Name",
   "KPIType",
   "PeriodDate",
@@ -40,9 +41,15 @@ function periodWindowEnd(period: KpiPeriod, periodStart: Date): Date {
  * One row per connection × period × periodStart that has ever recorded a
  * PerformanceSummary, rolled up to a single overall status (same rule as the
  * VA KPI Sheet/Submissions pages) plus any interventions logged for that
- * connection within that period's window. Customer ID/Account ID are left
- * blank — no data source for them yet (see dashboard/customers, which is
- * itself still a placeholder).
+ * connection within that period's window. Customer Name is the connection's
+ * clientName; Account Name is its secondaryName (an internal account alias,
+ * null for connections that don't have one) — neither is a real Customer/
+ * Account ID, which don't exist anywhere in this app yet (see
+ * dashboard/customers, which is itself still a placeholder). CMS Connection
+ * ID is externalCmsId, the real CONN_xxxxxxxxxxxx id the CMS itself
+ * recognizes — blank for the ~98% of connections that came from the legacy
+ * KPI system rather than the CMS and so were never assigned one (Connection
+ * ID/shortCode still shows those in their legacy CON_XXXXXX form).
  *
  * `periodFilter` narrows to just WEEKLY or just MONTHLY rows; omitted (or
  * undefined) includes both, sorted together by date.
@@ -86,6 +93,9 @@ export async function buildSubmissionsSheetRows(
       select: {
         id: true,
         shortCode: true,
+        externalCmsId: true,
+        clientName: true,
+        secondaryName: true,
         vaUser: { select: { name: true, email: true } },
       },
     }),
@@ -142,8 +152,9 @@ export async function buildSubmissionsSheetRows(
     return [
       `WS-${String(i + 1).padStart(6, "0")}`,
       connection?.shortCode ?? "",
-      "",
-      "",
+      connection?.externalCmsId ?? "",
+      connection?.clientName ?? "",
+      connection?.secondaryName ?? "",
       connection?.vaUser.name ?? connection?.vaUser.email ?? "",
       group.period === KpiPeriod.WEEKLY ? "Weekly" : "Monthly",
       formatPeriodDate(group.periodStart),
