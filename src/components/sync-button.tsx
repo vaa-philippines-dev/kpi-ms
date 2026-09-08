@@ -7,28 +7,24 @@ import { Button } from "@/components/ui/button";
 type PhaseResult = { created: number; updated: number; skipped: number; errors: string[] };
 export type SyncReport = Record<string, PhaseResult>;
 
-function ReportTable({ report }: { report: SyncReport }) {
+function ReportSummary({ report }: { report: SyncReport }) {
+  const phases = Object.values(report);
+  const created = phases.reduce((sum, r) => sum + r.created, 0);
+  const errors = phases.flatMap((r) => r.errors);
+
   return (
     <div className="mt-3 space-y-2 text-xs">
-      {Object.entries(report).map(([phase, r]) => (
-        <div key={phase} className="rounded border border-surface-border p-2">
-          <div className="font-medium">{phase}</div>
-          <div className="text-muted">
-            created {r.created} · updated {r.updated} · skipped {r.skipped}
-            {r.errors.length > 0 && (
-              <span className="text-danger"> · {r.errors.length} errors</span>
-            )}
-          </div>
-          {r.errors.length > 0 && (
-            <ul className="mt-1 list-disc pl-4 text-danger">
-              {r.errors.slice(0, 10).map((e, i) => (
-                <li key={i}>{e}</li>
-              ))}
-              {r.errors.length > 10 && <li>...and {r.errors.length - 10} more</li>}
-            </ul>
-          )}
-        </div>
-      ))}
+      <p className="text-muted">
+        {created === 0 ? "No new connections." : `Added ${created} connection${created === 1 ? "" : "s"}.`}
+      </p>
+      {errors.length > 0 && (
+        <ul className="list-disc pl-4 text-danger">
+          {errors.slice(0, 10).map((e, i) => (
+            <li key={i}>{e}</li>
+          ))}
+          {errors.length > 10 && <li>...and {errors.length - 10} more</li>}
+        </ul>
+      )}
     </div>
   );
 }
@@ -118,7 +114,7 @@ export function SyncButton({ label, endpoint }: { label: string; endpoint: strin
         </div>
       )}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-      {report && <ReportTable report={report} />}
+      {report && <ReportSummary report={report} />}
     </div>
   );
 }

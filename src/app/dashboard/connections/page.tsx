@@ -6,6 +6,7 @@ import { NewConnectionModal } from "@/components/new-connection-modal";
 import { ImportConnectionsModal } from "@/components/import-connections-modal";
 import { SyncButton } from "@/components/sync-button";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { Info } from "lucide-react";
 
 export default async function ConnectionsPage(
   props: PageProps<"/dashboard/connections">,
@@ -192,6 +193,17 @@ export default async function ConnectionsPage(
               <ImportConnectionsModal departments={departments} services={services} />
             )}
             <NewConnectionModal departments={departments} services={services} vaUsers={vaUsers} />
+          </div>
+        )}
+
+        {canSyncConnections && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-accent">
+            <Info className="mt-0.5 size-4 shrink-0" />
+            <p>
+              Don&apos;t see a connection that should be here? Use{" "}
+              <span className="font-medium">Sync Connection IDs (from CMS)</span> below to pull in
+              anything new added on the CMS side.
+            </p>
           </div>
         )}
 
