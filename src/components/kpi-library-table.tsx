@@ -993,7 +993,15 @@ function DeleteKpiControl({
     }
     return (
       <ConfirmSubmitButton
-        action={forceDeleteKpiDefinition}
+        action={async (formData) => {
+          // forceDeleteKpiDefinition returns `{ error }` rather than
+          // throwing (see its comment) — re-throwing here, purely
+          // client-side, is what lets ConfirmSubmitButton's own try/catch
+          // show it as a toast without the message ever having crossed the
+          // server/client boundary as an actual throw.
+          const result = await forceDeleteKpiDefinition(formData);
+          if (result?.error) throw new Error(result.error);
+        }}
         fields={{ id: kpiId }}
         label="Force delete anyway"
         confirmLabel="This permanently deletes every submission, performance record, and config override for this KPI — it cannot be undone."
@@ -1007,13 +1015,12 @@ function DeleteKpiControl({
   return (
     <ConfirmSubmitButton
       action={async (formData) => {
-        try {
-          await deleteKpiDefinition(formData);
-        } catch (e) {
-          if (e instanceof Error && e.message.includes("submissions recorded")) {
+        const result = await deleteKpiDefinition(formData);
+        if (result?.error) {
+          if (result.error.includes("submissions recorded")) {
             setBlocked(true);
           }
-          throw e;
+          throw new Error(result.error);
         }
       }}
       fields={{ id: kpiId }}

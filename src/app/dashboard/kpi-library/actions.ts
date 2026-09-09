@@ -177,27 +177,40 @@ export async function updateKpiDefinition(formData: FormData) {
   revalidatePath("/dashboard/kpi-library");
 }
 
-export async function deleteKpiDefinition(formData: FormData) {
-  const session = await requireManager();
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  const existing = await findAccessibleKpi(session, id);
-  const kpi = await prisma.kpiDefinition.findUnique({ where: { id } });
+// Returns `{ error }` instead of throwing for every expected failure mode
+// (blocked by history, missing/inaccessible KPI, role check) — Next.js
+// redacts a thrown Server Action Error's message in production and, for
+// this particular call path, was surfacing the redacted throw as an
+// uncaught client-side crash (minified React #441) instead of the friendly
+// message DeleteKpiControl expects to key off of. Returning keeps the exact
+// message intact and never crosses the server/client boundary as a throw.
+export async function deleteKpiDefinition(
+  formData: FormData,
+): Promise<{ error: string } | undefined> {
   try {
-    await prisma.kpiDefinition.delete({ where: { id } });
-  } catch {
-    throw new Error("Can't delete a KPI that already has submissions recorded against it.");
+    const session = await requireManager();
+    const id = String(formData.get("id") ?? "");
+    if (!id) return;
+    const existing = await findAccessibleKpi(session, id);
+    const kpi = await prisma.kpiDefinition.findUnique({ where: { id } });
+    try {
+      await prisma.kpiDefinition.delete({ where: { id } });
+    } catch {
+      return { error: "Can't delete a KPI that already has submissions recorded against it." };
+    }
+    await logActivity(prisma, {
+      actor: session,
+      action: "DELETE",
+      entityType: "KpiDefinition",
+      entityId: id,
+      entityLabel: kpi ? `${kpi.name} (${kpi.cluster}, ${kpi.period})` : id,
+      summary: `Deleted KPI "${kpi?.name ?? id}"`,
+      departmentId: existing.departmentId,
+    });
+    revalidatePath("/dashboard/kpi-library");
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Something went wrong." };
   }
-  await logActivity(prisma, {
-    actor: session,
-    action: "DELETE",
-    entityType: "KpiDefinition",
-    entityId: id,
-    entityLabel: kpi ? `${kpi.name} (${kpi.cluster}, ${kpi.period})` : id,
-    summary: `Deleted KPI "${kpi?.name ?? id}"`,
-    departmentId: existing.departmentId,
-  });
-  revalidatePath("/dashboard/kpi-library");
 }
 
 // Admin-only (see requireAdmin above) — wipes every SubmissionRecord/
@@ -207,50 +220,60 @@ export async function deleteKpiDefinition(formData: FormData) {
 // KpiDefinition itself, all in one transaction. Irreversible: the UI only
 // offers this after the safe delete above has already been rejected, and
 // gates it behind retyping the KPI's name.
-export async function forceDeleteKpiDefinition(formData: FormData) {
-  const session = await requireAdmin();
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  const existing = await findAccessibleKpi(session, id);
-  const kpi = await prisma.kpiDefinition.findUnique({ where: { id } });
+// See the comment on deleteKpiDefinition above — same "return, never throw"
+// fix, for the same reason. This is the path a role-check rejection
+// (non-Admin hitting the button some other way) or any transaction failure
+// would otherwise crash the client on.
+export async function forceDeleteKpiDefinition(
+  formData: FormData,
+): Promise<{ error: string } | undefined> {
+  try {
+    const session = await requireAdmin();
+    const id = String(formData.get("id") ?? "");
+    if (!id) return;
+    const existing = await findAccessibleKpi(session, id);
+    const kpi = await prisma.kpiDefinition.findUnique({ where: { id } });
 
-  const counts = await prisma.$transaction(async (tx) => {
-    // Sequential, and in this order specifically: KpiConfigHistory rows
-    // must go before the KpiConfig rows they reference (its own FK target),
-    // and that lookup joins through KpiConfig while it still exists.
-    // PerformanceSummary/SubmissionRecord/SubmissionDraft have no such
-    // ordering constraint between each other, but keeping everything
-    // sequential inside one transaction avoids relying on that being safe.
-    const historyCount = await tx.kpiConfigHistory.deleteMany({
-      where: { kpiConfig: { kpiDefinitionId: id } },
+    const counts = await prisma.$transaction(async (tx) => {
+      // Sequential, and in this order specifically: KpiConfigHistory rows
+      // must go before the KpiConfig rows they reference (its own FK target),
+      // and that lookup joins through KpiConfig while it still exists.
+      // PerformanceSummary/SubmissionRecord/SubmissionDraft have no such
+      // ordering constraint between each other, but keeping everything
+      // sequential inside one transaction avoids relying on that being safe.
+      const historyCount = await tx.kpiConfigHistory.deleteMany({
+        where: { kpiConfig: { kpiDefinitionId: id } },
+      });
+      const configCount = await tx.kpiConfig.deleteMany({ where: { kpiDefinitionId: id } });
+      const summaryCount = await tx.performanceSummary.deleteMany({ where: { kpiDefinitionId: id } });
+      const submissionCount = await tx.submissionRecord.deleteMany({ where: { kpiDefinitionId: id } });
+      const draftCount = await tx.submissionDraft.deleteMany({ where: { kpiDefinitionId: id } });
+      await tx.kpiDefinition.delete({ where: { id } });
+      return {
+        history: historyCount.count,
+        configs: configCount.count,
+        summaries: summaryCount.count,
+        submissions: submissionCount.count,
+        drafts: draftCount.count,
+      };
     });
-    const configCount = await tx.kpiConfig.deleteMany({ where: { kpiDefinitionId: id } });
-    const summaryCount = await tx.performanceSummary.deleteMany({ where: { kpiDefinitionId: id } });
-    const submissionCount = await tx.submissionRecord.deleteMany({ where: { kpiDefinitionId: id } });
-    const draftCount = await tx.submissionDraft.deleteMany({ where: { kpiDefinitionId: id } });
-    await tx.kpiDefinition.delete({ where: { id } });
-    return {
-      history: historyCount.count,
-      configs: configCount.count,
-      summaries: summaryCount.count,
-      submissions: submissionCount.count,
-      drafts: draftCount.count,
-    };
-  });
 
-  await logActivity(prisma, {
-    actor: session,
-    action: "DELETE",
-    entityType: "KpiDefinition",
-    entityId: id,
-    entityLabel: kpi ? `${kpi.name} (${kpi.cluster}, ${kpi.period})` : id,
-    summary:
-      `Force-deleted KPI "${kpi?.name ?? id}" along with ${counts.submissions} submission(s), ` +
-      `${counts.summaries} performance summary row(s), ${counts.configs} config override(s), ` +
-      `and ${counts.drafts} in-progress draft(s)`,
-    departmentId: existing.departmentId,
-  });
-  revalidatePath("/dashboard/kpi-library");
+    await logActivity(prisma, {
+      actor: session,
+      action: "DELETE",
+      entityType: "KpiDefinition",
+      entityId: id,
+      entityLabel: kpi ? `${kpi.name} (${kpi.cluster}, ${kpi.period})` : id,
+      summary:
+        `Force-deleted KPI "${kpi?.name ?? id}" along with ${counts.submissions} submission(s), ` +
+        `${counts.summaries} performance summary row(s), ${counts.configs} config override(s), ` +
+        `and ${counts.drafts} in-progress draft(s)`,
+      departmentId: existing.departmentId,
+    });
+    revalidatePath("/dashboard/kpi-library");
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Something went wrong." };
+  }
 }
 
 // Lightweight move used by the By Cluster view's drag-and-drop — reassigns
