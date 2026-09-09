@@ -960,15 +960,14 @@ export function KpiLibraryTable({
 }
 
 /**
- * Progressive-disclosure delete: tries the safe delete first (blocked
- * server-side if the KPI has submissions/performance data/config overrides
- * — see deleteKpiDefinition), and only reveals the irreversible "force
- * delete" option, with its own scarier confirm text, once that's actually
- * been rejected. Keeps the common case (no history yet) a single click
- * while still requiring a second explicit action to destroy real data.
- * Force-delete itself is Admin-only (see forceDeleteKpiDefinition) — a
- * DM/Ops Manager/OM hitting the block sees why instead of a button that
- * would just fail server-side.
+ * "Delete this KPI" is the safe path — blocked server-side if the KPI has
+ * submissions/performance data/config overrides (see deleteKpiDefinition).
+ * An Admin doesn't have to hit that rejection first to get to the
+ * irreversible "force delete" option (see forceDeleteKpiDefinition):
+ * both buttons are offered up front, since an Admin reaching for this KPI
+ * usually already knows it has history. A DM/Ops Manager/OM only gets the
+ * safe button, and sees why once it's actually rejected rather than a
+ * second button that would just fail server-side.
  */
 function DeleteKpiControl({
   kpiId,
@@ -983,50 +982,50 @@ function DeleteKpiControl({
 }) {
   const [blocked, setBlocked] = useState(false);
 
-  if (blocked) {
-    if (!isAdmin) {
-      return (
-        <p className="text-xs text-muted">
-          This KPI has submissions, performance records, or config overrides recorded against it — only an Admin can force-delete it along with that history.
-        </p>
-      );
-    }
+  if (blocked && !isAdmin) {
     return (
-      <ConfirmSubmitButton
-        action={async (formData) => {
-          // forceDeleteKpiDefinition returns `{ error }` rather than
-          // throwing (see its comment) — re-throwing here, purely
-          // client-side, is what lets ConfirmSubmitButton's own try/catch
-          // show it as a toast without the message ever having crossed the
-          // server/client boundary as an actual throw.
-          const result = await forceDeleteKpiDefinition(formData);
-          if (result?.error) throw new Error(result.error);
-        }}
-        fields={{ id: kpiId }}
-        label="Force delete anyway"
-        confirmLabel="This permanently deletes every submission, performance record, and config override for this KPI — it cannot be undone."
-        typeToConfirm={kpiName}
-        successMessage="KPI and its history deleted."
-        onSuccess={onDeleted}
-      />
+      <p className="text-xs text-muted">
+        This KPI has submissions, performance records, or config overrides recorded against it — only an Admin can force-delete it along with that history.
+      </p>
     );
   }
 
   return (
-    <ConfirmSubmitButton
-      action={async (formData) => {
-        const result = await deleteKpiDefinition(formData);
-        if (result?.error) {
-          if (result.error.includes("submissions recorded")) {
-            setBlocked(true);
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <ConfirmSubmitButton
+        action={async (formData) => {
+          const result = await deleteKpiDefinition(formData);
+          if (result?.error) {
+            if (result.error.includes("submissions recorded")) {
+              setBlocked(true);
+            }
+            throw new Error(result.error);
           }
-          throw new Error(result.error);
-        }
-      }}
-      fields={{ id: kpiId }}
-      label="Delete this KPI"
-      successMessage="KPI deleted."
-      onSuccess={onDeleted}
-    />
+        }}
+        fields={{ id: kpiId }}
+        label="Delete this KPI"
+        successMessage="KPI deleted."
+        onSuccess={onDeleted}
+      />
+      {isAdmin && (
+        <ConfirmSubmitButton
+          action={async (formData) => {
+            // forceDeleteKpiDefinition returns `{ error }` rather than
+            // throwing (see its comment) — re-throwing here, purely
+            // client-side, is what lets ConfirmSubmitButton's own try/catch
+            // show it as a toast without the message ever having crossed
+            // the server/client boundary as an actual throw.
+            const result = await forceDeleteKpiDefinition(formData);
+            if (result?.error) throw new Error(result.error);
+          }}
+          fields={{ id: kpiId }}
+          label="Force delete (wipe history)"
+          confirmLabel="This permanently deletes every submission, performance record, and config override for this KPI — it cannot be undone."
+          typeToConfirm={kpiName}
+          successMessage="KPI and its history deleted."
+          onSuccess={onDeleted}
+        />
+      )}
+    </div>
   );
 }
