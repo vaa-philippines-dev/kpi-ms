@@ -8,6 +8,7 @@ import { getWeekStartDay } from "@/lib/settings";
 import { recomputePerformanceSummary } from "@/lib/performance";
 import { connectionScopeWhere } from "@/lib/connection-scope";
 import { getConnectionServiceIds } from "@/lib/connection-services";
+import { kpiAppliesToServices } from "@/lib/kpi-definition-services";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity-log";
@@ -94,6 +95,7 @@ export async function createSubmission(
             where: { period },
             include: {
               kpiConfigs: { where: { connectionId } },
+              additionalServices: { select: { serviceId: true } },
             },
           },
         },
@@ -131,7 +133,7 @@ export async function createSubmission(
 
   const kpisWithConfig = connection.department.kpiDefinitions
     .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
-    .filter(({ kpi }) => kpi.serviceId === null || connectionServiceIds.includes(kpi.serviceId))
+    .filter(({ kpi }) => kpiAppliesToServices(kpi, connectionServiceIds))
     .filter(({ config }) => config?.isApplicable ?? true)
     .filter(({ kpi }) => !targetClusters || targetClusters.includes(kpi.cluster));
 

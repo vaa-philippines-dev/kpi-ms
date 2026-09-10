@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getConnectionServiceIds } from "@/lib/connection-services";
+import { kpiAppliesToServices } from "@/lib/kpi-definition-services";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
 export type ClusterSummary = {
@@ -57,6 +58,7 @@ async function loadApplicableKpis({
         targetValue: true,
         direction: true,
         serviceId: true,
+        additionalServices: { select: { serviceId: true } },
         kpiConfigs: {
           where: { connectionId },
           select: { isApplicable: true, targetValue: true },
@@ -69,17 +71,16 @@ async function loadApplicableKpis({
     }),
   ]);
 
-  // A KPI applies here if it's department-wide (no serviceId) or scoped to
-  // one of this connection's assigned services (primary + additional) — see
-  // getConnectionServiceIds. Without this, every connection in a department
-  // saw every other service's clusters too (e.g. a CSR VA connection was
-  // shown Production Artist and Quality Assurance areas that have nothing
-  // to do with it).
+  // A KPI applies here if it's department-wide (no serviceId), or its own
+  // service set (primary + additional — see getKpiDefinitionServiceIds)
+  // intersects this connection's assigned services (primary + additional —
+  // see getConnectionServiceIds). Without this, every connection in a
+  // department saw every other service's clusters too (e.g. a CSR VA
+  // connection was shown Production Artist and Quality Assurance areas
+  // that have nothing to do with it).
   const serviceIds = connection ? getConnectionServiceIds(connection) : [];
   const applicable = kpiDefinitions.filter(
-    (kpi) =>
-      (kpi.serviceId === null || serviceIds.includes(kpi.serviceId)) &&
-      (kpi.kpiConfigs[0]?.isApplicable ?? true),
+    (kpi) => kpiAppliesToServices(kpi, serviceIds) && (kpi.kpiConfigs[0]?.isApplicable ?? true),
   );
   if (applicable.length === 0) return [];
 

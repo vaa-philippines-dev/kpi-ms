@@ -126,19 +126,20 @@ model Department {
 }
 
 model Service {
-  id                    String              @id @default(cuid())
-  name                  String
-  department            Department          @relation(fields: [departmentId], references: [id])
-  departmentId          String
-  isActive              Boolean             @default(true)
+  id                       String                 @id @default(cuid())
+  name                     String
+  department               Department             @relation(fields: [departmentId], references: [id])
+  departmentId             String
+  isActive                 Boolean                @default(true)
   // Legacy ServiceID — lets the legacy sync upsert idempotently.
-  legacyId              String?             @unique
-  kpiDefinitions        KpiDefinition[]
-  connections           Connection[]
-  users                 User[]
-  connectionMemberships ConnectionService[]
-  createdAt             DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
+  legacyId                 String?                @unique
+  kpiDefinitions           KpiDefinition[]
+  connections              Connection[]
+  users                    User[]
+  connectionMemberships    ConnectionService[]
+  kpiDefinitionMemberships KpiDefinitionService[]
+  createdAt                DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime               @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
 }
@@ -166,13 +167,22 @@ model Team {
 }
 
 model KpiDefinition {
-  id                    String               @id @default(cuid())
+  id                    String                 @id @default(cuid())
   name                  String
   cluster               String
-  department            Department           @relation(fields: [departmentId], references: [id])
+  department            Department             @relation(fields: [departmentId], references: [id])
   departmentId          String
-  service               Service?             @relation(fields: [serviceId], references: [id])
+  service               Service?               @relation(fields: [serviceId], references: [id])
   serviceId             String?
+  // Extra services this KPI (a cluster's definition) also applies to,
+  // beyond the primary `service` above — e.g. "Compliance & Back-Office
+  // Output" scoped to both Customer Service Representative VA and
+  // Executive Assistant VA, without being department-wide (serviceId
+  // null, which still means "every service"). Mirrors Connection's own
+  // additionalServices, one level up — see getKpiDefinitionServiceIds in
+  // lib/kpi-definition-services.ts, which every KPI-applicability query
+  // reads this union from instead of the primary serviceId alone.
+  additionalServices    KpiDefinitionService[]
   direction             KpiDirection
   period                KpiPeriod
   targetValue           Float
@@ -183,12 +193,12 @@ model KpiDefinition {
   // On-Target boundary: |actual-target|/target <= this % (legacy default 10%).
   // When thresholdUnit is VALUE, holds a raw floor/ceiling on the target's
   // own scale instead — see computeStatus in lib/performance.ts.
-  deviationThresholdPct Float                @default(10)
+  deviationThresholdPct Float                  @default(10)
   // At-Risk/Critical boundary: above this %, status is Critical (legacy default 25%).
   // Same VALUE-mode reinterpretation as deviationThresholdPct above.
-  criticalThresholdPct  Float                @default(25)
+  criticalThresholdPct  Float                  @default(25)
   // PERCENT (default) or VALUE — see the ThresholdUnit enum doc above.
-  thresholdUnit         ThresholdUnit        @default(PERCENT)
+  thresholdUnit         ThresholdUnit          @default(PERCENT)
   submissionRecords     SubmissionRecord[]
   performanceSummaries  PerformanceSummary[]
   submissionDrafts      SubmissionDraft[]
@@ -196,11 +206,24 @@ model KpiDefinition {
   // Legacy KPIID — one legacy KPI has both a WeeklyTarget and MonthlyTarget,
   // so it maps to up to two rows here (one per period); unique per period.
   legacyId              String?
-  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
+  createdAt             DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime               @updatedAt @db.Timestamptz(3)
 
   @@unique([legacyId, period])
   @@index([departmentId])
+  @@index([serviceId])
+}
+
+// Join row for KpiDefinition.additionalServices — see the comment there.
+model KpiDefinitionService {
+  id              String        @id @default(cuid())
+  kpiDefinition   KpiDefinition @relation(fields: [kpiDefinitionId], references: [id], onDelete: Cascade)
+  kpiDefinitionId String
+  service         Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId       String
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@unique([kpiDefinitionId, serviceId])
   @@index([serviceId])
 }
 

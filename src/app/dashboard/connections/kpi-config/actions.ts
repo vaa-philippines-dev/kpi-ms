@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
 import { getConnectionServiceIds } from "@/lib/connection-services";
+import { kpiApplicabilityOR } from "@/lib/kpi-definition-services";
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod, ThresholdUnit } from "@/generated/prisma/enums";
 
@@ -99,7 +100,7 @@ export async function getKpiConfigDetail(connectionId: string) {
     prisma.kpiDefinition.findMany({
       where: {
         departmentId: connection.departmentId,
-        OR: [{ serviceId: null }, { serviceId: { in: serviceIds } }],
+        OR: kpiApplicabilityOR(serviceIds),
       },
       orderBy: [{ name: "asc" }, { cluster: "asc" }, { period: "asc" }],
     }),
@@ -183,7 +184,7 @@ export async function initKpiConfig(formData: FormData) {
   const applicable = await prisma.kpiDefinition.findMany({
     where: {
       departmentId: connection.departmentId,
-      OR: [{ serviceId: null }, { serviceId: { in: getConnectionServiceIds(connection) } }],
+      OR: kpiApplicabilityOR(getConnectionServiceIds(connection)),
     },
   });
 
@@ -375,7 +376,7 @@ export async function resetKpiConfig(formData: FormData) {
   const applicable = await prisma.kpiDefinition.findMany({
     where: {
       departmentId: connection.departmentId,
-      OR: [{ serviceId: null }, { serviceId: { in: getConnectionServiceIds(connection) } }],
+      OR: kpiApplicabilityOR(getConnectionServiceIds(connection)),
     },
   });
 

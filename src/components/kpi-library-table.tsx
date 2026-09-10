@@ -33,6 +33,10 @@ export type KpiRow = {
   // See kpi-config/actions.ts and lib/alerts.ts for where this is consumed.
   serviceId: string | null;
   serviceName: string | null;
+  // Extra services this KPI also applies to, beyond the primary service
+  // above — see KpiDefinition.additionalServices.
+  additionalServiceIds: string[];
+  additionalServiceNames: string[];
   direction: KpiDirection;
   period: KpiPeriod;
   // Display format for targetValue/actualValue — "Number" (2 decimal
@@ -113,7 +117,10 @@ function getColumns(onClusterClick: (cluster: string) => void): DataTableColumn<
       filterable: "select",
       filterPlaceholder: "All Services",
       className: "text-muted",
-      render: (v) => (v as string | null) ?? "All Services",
+      render: (v, row) => {
+        const names = [v as string | null, ...row.additionalServiceNames].filter(Boolean);
+        return names.length > 0 ? names.join(", ") : "All Services";
+      },
     },
     {
       key: "direction",
@@ -319,7 +326,10 @@ function ClusterView({
                       )}
                       <Td>{k.name}</Td>
                       <Td className="text-muted">{k.departmentName}</Td>
-                      <Td className="text-muted">{k.serviceName ?? "All Services"}</Td>
+                      <Td className="text-muted">
+                        {[k.serviceName, ...k.additionalServiceNames].filter(Boolean).join(", ") ||
+                          "All Services"}
+                      </Td>
                       <Td className="text-muted">{DIRECTION_LABELS[k.direction]}</Td>
                       <Td className="text-muted">{k.unit ?? "—"}</Td>
                       <Td className="text-muted">{formatKpiValue(k.targetValue, k.unit)}</Td>
@@ -576,14 +586,33 @@ function KpiForm({
               </option>
             ))}
           </Select>
-          <Select name="serviceId" defaultValue={kpi?.serviceId ?? ""} className="col-span-2 sm:col-span-4">
-            <option value="">Service (optional — applies dept-wide)</option>
-            {services.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.departmentName})
-              </option>
-            ))}
-          </Select>
+          <div className="col-span-2 sm:col-span-4">
+            <label className="mb-1 block text-xs font-medium text-muted uppercase">
+              Services (leave all unchecked to apply department-wide)
+            </label>
+            <div className="grid max-h-40 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-surface-border px-2.5 py-2 sm:grid-cols-2">
+              {services.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name="serviceIds"
+                    value={s.id}
+                    defaultChecked={
+                      kpi ? kpi.serviceId === s.id || kpi.additionalServiceIds.includes(s.id) : false
+                    }
+                  />
+                  {s.name} ({s.departmentName})
+                </label>
+              ))}
+            </div>
+            {kpi && kpi.additionalServiceIds.length > 0 && (
+              <p className="mt-1 text-xs text-muted">
+                Every service checked above shares this same KPI — a connection tagged into any
+                one of them gets it. To scope different services to different targets, create
+                separate KPIs instead.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

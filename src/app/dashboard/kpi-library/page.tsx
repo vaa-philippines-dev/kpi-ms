@@ -31,7 +31,11 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     prisma.kpiDefinition.findMany({
       where: { period: selectedPeriod, ...scope },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
-      include: { department: { select: { name: true } }, service: { select: { name: true } } },
+      include: {
+        department: { select: { name: true } },
+        service: { select: { name: true } },
+        additionalServices: { include: { service: { select: { id: true, name: true } } } },
+      },
     }),
     prisma.department.findMany({
       where: isUnrestricted ? {} : { id: session.departmentId ?? "__none__" },
@@ -54,6 +58,8 @@ export default async function KpiLibraryPage(props: PageProps<"/dashboard/kpi-li
     departmentName: k.department.name,
     serviceId: k.serviceId,
     serviceName: k.service?.name ?? null,
+    additionalServiceIds: k.additionalServices.map((s) => s.service.id),
+    additionalServiceNames: k.additionalServices.map((s) => s.service.name),
     direction: k.direction,
     period: k.period,
     unit: k.unit,

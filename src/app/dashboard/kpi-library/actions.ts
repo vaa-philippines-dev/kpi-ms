@@ -60,19 +60,19 @@ function numberOrDefault(formData: FormData, key: string, fallback: number) {
   return Number(raw);
 }
 
-function optionalId(formData: FormData, key: string): string | null {
-  const value = String(formData.get(key) ?? "");
-  return value === "" ? null : value;
-}
-
 function parseKpiForm(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const cluster = String(formData.get("cluster") ?? "").trim();
   const departmentId = String(formData.get("departmentId") ?? "");
-  // Optional — null means the KPI applies to every connection in the
-  // department; set, it scopes the KPI to connections in that service only
-  // (see kpi-config/actions.ts and lib/alerts.ts, which both filter on this).
-  const serviceId = optionalId(formData, "serviceId");
+  // No services selected means the KPI applies to every connection in the
+  // department; one or more selected scopes it to connections tagged into
+  // any of those services (see kpi-config/actions.ts and lib/alerts.ts,
+  // which both filter on this via kpiApplicabilityOR/kpiAppliesToServices).
+  // The first selected service becomes the primary `serviceId` (kept for
+  // display/back-compat), the rest become KpiDefinitionService rows.
+  const serviceIds = [...new Set(formData.getAll("serviceIds").map(String).filter(Boolean))];
+  const serviceId = serviceIds[0] ?? null;
+  const additionalServiceIds = serviceIds.slice(1);
   const direction = String(formData.get("direction") ?? "") as KpiDirection;
   const period = String(formData.get("period") ?? "") as KpiPeriod;
   // Display format for targetValue/actualValue — "Number" (2 decimals),
@@ -111,6 +111,7 @@ function parseKpiForm(formData: FormData) {
     cluster,
     departmentId,
     serviceId,
+    additionalServiceIds,
     direction,
     period,
     unit,
@@ -121,11 +122,28 @@ function parseKpiForm(formData: FormData) {
   };
 }
 
+async function assertServicesBelongToDepartment(serviceIds: string[], departmentId: string) {
+  if (serviceIds.length === 0) return;
+  const count = await prisma.service.count({ where: { id: { in: serviceIds }, departmentId } });
+  if (count !== serviceIds.length) {
+    throw new Error("One or more selected services do not belong to the selected department.");
+  }
+}
+
 export async function createKpiDefinition(formData: FormData) {
   const session = await requireManager();
-  const data = parseKpiForm(formData);
+  const { additionalServiceIds, ...data } = parseKpiForm(formData);
   await assertDepartmentAccess(session, data.departmentId);
-  const kpi = await prisma.kpiDefinition.create({ data });
+  await assertServicesBelongToDepartment(
+    data.serviceId ? [data.serviceId, ...additionalServiceIds] : additionalServiceIds,
+    data.departmentId,
+  );
+  const kpi = await prisma.kpiDefinition.create({
+    data: {
+      ...data,
+      additionalServices: { create: additionalServiceIds.map((serviceId) => ({ serviceId })) },
+    },
+  });
   await logActivity(prisma, {
     actor: session,
     action: "CREATE",
@@ -142,26 +160,59 @@ export async function updateKpiDefinition(formData: FormData) {
   const session = await requireManager();
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("Missing KPI id.");
-  const data = parseKpiForm(formData);
+  const { additionalServiceIds, ...data } = parseKpiForm(formData);
   // Check both the KPI's current department and the one it's being moved
   // to — a manager can't edit their way into or out of another department.
   await findAccessibleKpi(session, id);
   await assertDepartmentAccess(session, data.departmentId);
-  const before = await prisma.kpiDefinition.findUniqueOrThrow({ where: { id } });
-  const kpi = await prisma.kpiDefinition.update({ where: { id }, data });
-  const changes = diffFields(before, data, [
-    "name",
-    "cluster",
-    "departmentId",
-    "serviceId",
-    "direction",
-    "period",
-    "unit",
-    "targetValue",
-    "deviationThresholdPct",
-    "criticalThresholdPct",
-    "thresholdUnit",
-  ]);
+  await assertServicesBelongToDepartment(
+    data.serviceId ? [data.serviceId, ...additionalServiceIds] : additionalServiceIds,
+    data.departmentId,
+  );
+  const before = await prisma.kpiDefinition.findUniqueOrThrow({
+    where: { id },
+    include: { additionalServices: { select: { serviceId: true } } },
+  });
+  const beforeServiceIds = [before.serviceId, ...before.additionalServices.map((s) => s.serviceId)].filter(
+    (v): v is string => v !== null,
+  );
+  const newServiceIds = data.serviceId ? [data.serviceId, ...additionalServiceIds] : [];
+  const toRemove = beforeServiceIds.filter((s) => !newServiceIds.includes(s));
+  const toAdd = additionalServiceIds.filter((s) => !beforeServiceIds.includes(s));
+
+  const kpi = await prisma.$transaction(async (tx) => {
+    const updated = await tx.kpiDefinition.update({ where: { id }, data });
+    if (toRemove.length > 0) {
+      await tx.kpiDefinitionService.deleteMany({
+        where: { kpiDefinitionId: id, serviceId: { in: toRemove } },
+      });
+    }
+    if (toAdd.length > 0) {
+      await tx.kpiDefinitionService.createMany({
+        data: toAdd.map((serviceId) => ({ kpiDefinitionId: id, serviceId })),
+        skipDuplicates: true,
+      });
+    }
+    return updated;
+  });
+  const changes = diffFields(
+    { ...before, serviceIds: beforeServiceIds.slice().sort().join(",") },
+    { ...data, serviceIds: newServiceIds.slice().sort().join(",") },
+    [
+      "name",
+      "cluster",
+      "departmentId",
+      "serviceId",
+      "serviceIds",
+      "direction",
+      "period",
+      "unit",
+      "targetValue",
+      "deviationThresholdPct",
+      "criticalThresholdPct",
+      "thresholdUnit",
+    ],
+  );
   if (changes.length > 0) {
     await logActivity(prisma, {
       actor: session,

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { getConnectionServiceIds } from "@/lib/connection-services";
+import { kpiAppliesToServices } from "@/lib/kpi-definition-services";
 import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -33,16 +34,19 @@ async function countMissingKpiConfig(scope: Prisma.ConnectionWhereInput) {
       },
     }),
     prisma.kpiDefinition.findMany({
-      select: { id: true, departmentId: true, serviceId: true },
+      select: {
+        id: true,
+        departmentId: true,
+        serviceId: true,
+        additionalServices: { select: { serviceId: true } },
+      },
     }),
   ]);
 
   return connections.filter((c) => {
     const serviceIds = getConnectionServiceIds(c);
     const applicable = kpiDefs.filter(
-      (k) =>
-        k.departmentId === c.departmentId &&
-        (k.serviceId === null || serviceIds.includes(k.serviceId)),
+      (k) => k.departmentId === c.departmentId && kpiAppliesToServices(k, serviceIds),
     );
     const configuredIds = new Set(c.kpiConfigs.map((k) => k.kpiDefinitionId));
     return applicable.some((k) => !configuredIds.has(k.id));
