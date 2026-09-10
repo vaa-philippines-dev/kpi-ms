@@ -61,7 +61,13 @@ export async function createConnection(formData: FormData) {
   const clientName = String(formData.get("clientName") ?? "").trim();
   const secondaryName = String(formData.get("secondaryName") ?? "").trim() || null;
   const departmentId = String(formData.get("departmentId") ?? "");
-  const serviceId = String(formData.get("serviceId") ?? "") || null;
+  // A connection can be tagged into more than one service in its
+  // department (see Connection.additionalServices) — the first selected
+  // service becomes the primary `serviceId` (kept for display/back-compat),
+  // the rest become ConnectionService rows.
+  const serviceIds = [...new Set(formData.getAll("serviceIds").map(String).filter(Boolean))];
+  const serviceId = serviceIds[0] ?? null;
+  const additionalServiceIds = serviceIds.slice(1);
   const connectionTypeRaw = String(formData.get("connectionType") ?? "REGULAR");
   const connectionType = connectionTypeRaw === "PROJECT_BASED" ? "PROJECT_BASED" : "REGULAR";
   const startDateRaw = String(formData.get("startDate") ?? "");
@@ -71,6 +77,14 @@ export async function createConnection(formData: FormData) {
 
   if (!vaUserId || !clientName || !departmentId) {
     throw new Error("All fields are required.");
+  }
+  if (serviceIds.length > 0) {
+    const validServices = await prisma.service.count({
+      where: { id: { in: serviceIds }, departmentId },
+    });
+    if (validServices !== serviceIds.length) {
+      throw new Error("One or more selected services do not belong to the selected department.");
+    }
   }
 
   const shortCode = await generateConnectionShortCode();
@@ -87,6 +101,9 @@ export async function createConnection(formData: FormData) {
       // Legacy createVAConnection() always starts a new connection as
       // Pending, regardless of role or form defaults.
       status: "PENDING",
+      additionalServices: {
+        create: additionalServiceIds.map((id) => ({ serviceId: id })),
+      },
     },
   });
   await logActivity(prisma, {
@@ -452,14 +469,18 @@ export async function updateConnectionAssignment(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const vaUserId = String(formData.get("vaUserId") ?? "");
   const departmentId = String(formData.get("departmentId") ?? "");
-  const serviceId = String(formData.get("serviceId") ?? "") || null;
+  // See createConnection above — first selected service is the primary
+  // `serviceId`, the rest become ConnectionService rows.
+  const serviceIds = [...new Set(formData.getAll("serviceIds").map(String).filter(Boolean))];
+  const serviceId = serviceIds[0] ?? null;
+  const additionalServiceIds = serviceIds.slice(1);
   if (!id || !vaUserId || !departmentId) {
     throw new Error("VA and department are required.");
   }
 
   const before = await prisma.connection.findFirst({
     where: { id, ...connectionScopeWhere(session) },
-    include: { vaUser: true, department: true },
+    include: { vaUser: true, department: true, additionalServices: { select: { serviceId: true } } },
   });
   if (!before) throw new Error("Connection not found.");
 
@@ -467,15 +488,17 @@ export async function updateConnectionAssignment(formData: FormData) {
     throw new Error("You can only assign connections within your own department.");
   }
 
-  const [va, department, service] = await Promise.all([
+  const [va, department, validServiceCount] = await Promise.all([
     prisma.user.findUnique({ where: { id: vaUserId }, include: { additionalDepartments: true } }),
     prisma.department.findUnique({ where: { id: departmentId } }),
-    serviceId ? prisma.service.findUnique({ where: { id: serviceId } }) : Promise.resolve(null),
+    serviceIds.length > 0
+      ? prisma.service.count({ where: { id: { in: serviceIds }, departmentId } })
+      : Promise.resolve(0),
   ]);
   if (!va || va.role !== "VA") throw new Error("Invalid VA.");
   if (!department) throw new Error("Invalid department.");
-  if (serviceId && (!service || service.departmentId !== departmentId)) {
-    throw new Error("Selected service does not belong to the selected department.");
+  if (serviceIds.length > 0 && validServiceCount !== serviceIds.length) {
+    throw new Error("One or more selected services do not belong to the selected department.");
   }
   const vaInDept =
     va.departmentId === departmentId ||
@@ -484,15 +507,40 @@ export async function updateConnectionAssignment(formData: FormData) {
     throw new Error("Selected VA does not belong to the selected department.");
   }
 
-  await prisma.connection.update({
-    where: { id },
-    data: { vaUserId, departmentId, serviceId },
+  const beforeServiceIds = [
+    before.serviceId,
+    ...before.additionalServices.map((s) => s.serviceId),
+  ].filter((v): v is string => v !== null);
+  const toRemove = beforeServiceIds.filter((s) => !serviceIds.includes(s));
+  const toAdd = additionalServiceIds.filter((s) => !beforeServiceIds.includes(s));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.connection.update({
+      where: { id },
+      data: { vaUserId, departmentId, serviceId },
+    });
+    if (toRemove.length > 0) {
+      await tx.connectionService.deleteMany({
+        where: { connectionId: id, serviceId: { in: toRemove } },
+      });
+    }
+    if (toAdd.length > 0) {
+      await tx.connectionService.createMany({
+        data: toAdd.map((sid) => ({ connectionId: id, serviceId: sid })),
+        skipDuplicates: true,
+      });
+    }
   });
 
   const changes = diffFields(
-    { vaUserId: before.vaUserId, departmentId: before.departmentId, serviceId: before.serviceId },
-    { vaUserId, departmentId, serviceId },
-    ["vaUserId", "departmentId", "serviceId"],
+    {
+      vaUserId: before.vaUserId,
+      departmentId: before.departmentId,
+      serviceId: before.serviceId,
+      serviceIds: beforeServiceIds.slice().sort().join(","),
+    },
+    { vaUserId, departmentId, serviceId, serviceIds: serviceIds.slice().sort().join(",") },
+    ["vaUserId", "departmentId", "serviceId", "serviceIds"],
   );
   if (changes.length > 0) {
     const bits: string[] = [];

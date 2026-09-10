@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
+import { getConnectionServiceIds } from "@/lib/connection-services";
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod, ThresholdUnit } from "@/generated/prisma/enums";
 
@@ -84,8 +85,10 @@ export async function getKpiConfigDetail(connectionId: string) {
   const scope = connectionScopeWhere(session);
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...scope },
+    include: { additionalServices: { select: { serviceId: true } } },
   });
   if (!connection) throw new Error("Connection not found.");
+  const serviceIds = getConnectionServiceIds(connection);
 
   const [configs, applicableKpis] = await Promise.all([
     prisma.kpiConfig.findMany({
@@ -96,7 +99,7 @@ export async function getKpiConfigDetail(connectionId: string) {
     prisma.kpiDefinition.findMany({
       where: {
         departmentId: connection.departmentId,
-        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+        OR: [{ serviceId: null }, { serviceId: { in: serviceIds } }],
       },
       orderBy: [{ name: "asc" }, { cluster: "asc" }, { period: "asc" }],
     }),
@@ -173,13 +176,14 @@ export async function initKpiConfig(formData: FormData) {
 
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...connectionScopeWhere(session) },
+    include: { additionalServices: { select: { serviceId: true } } },
   });
   if (!connection) throw new Error("Connection not found.");
 
   const applicable = await prisma.kpiDefinition.findMany({
     where: {
       departmentId: connection.departmentId,
-      OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+      OR: [{ serviceId: null }, { serviceId: { in: getConnectionServiceIds(connection) } }],
     },
   });
 
@@ -364,13 +368,14 @@ export async function resetKpiConfig(formData: FormData) {
 
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...connectionScopeWhere(session) },
+    include: { additionalServices: { select: { serviceId: true } } },
   });
   if (!connection) throw new Error("Connection not found.");
 
   const applicable = await prisma.kpiDefinition.findMany({
     where: {
       departmentId: connection.departmentId,
-      OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+      OR: [{ serviceId: null }, { serviceId: { in: getConnectionServiceIds(connection) } }],
     },
   });
 

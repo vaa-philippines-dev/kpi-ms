@@ -124,6 +124,7 @@ export default async function ConnectionsPage(
         include: { changedBy: { select: { name: true, email: true } } },
       },
       interventions: { orderBy: { createdAt: "desc" }, take: 5 },
+      additionalServices: { include: { service: { select: { id: true, name: true } } } },
       _count: { select: { kpiConfigs: true, interventions: true } },
     },
   });
@@ -140,6 +141,8 @@ export default async function ConnectionsPage(
     departmentName: c.department.name,
     serviceId: c.serviceId,
     serviceName: c.service?.name ?? null,
+    additionalServiceIds: c.additionalServices.map((s) => s.service.id),
+    additionalServiceNames: c.additionalServices.map((s) => s.service.name),
     // Hidden (not just "shown but wrong") when the VA's team belongs to a
     // different department than this connection — e.g. a hybrid VA whose
     // home team is Amazon showing up on a Walmart connection. Surfacing an

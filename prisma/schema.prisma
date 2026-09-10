@@ -109,35 +109,36 @@ enum TicketCategory {
 }
 
 model Department {
-  id             String          @id @default(cuid())
-  name           String          @unique
-  services       Service[]
-  teams          Team[]
-  kpiDefinitions KpiDefinition[]
-  connections    Connection[]
-  users          User[]
-  vaMemberships  UserDepartment[]
+  id                    String           @id @default(cuid())
+  name                  String           @unique
+  services              Service[]
+  teams                 Team[]
+  kpiDefinitions        KpiDefinition[]
+  connections           Connection[]
+  users                 User[]
+  vaMemberships         UserDepartment[]
   // Optional daily submission window ("HH:mm", Asia/Manila) to spread VA
   // submission traffic across the day. Null on either side = unrestricted.
   submissionWindowStart String?
   submissionWindowEnd   String?
-  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+  createdAt             DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime         @updatedAt @db.Timestamptz(3)
 }
 
 model Service {
-  id             String          @id @default(cuid())
-  name           String
-  department     Department      @relation(fields: [departmentId], references: [id])
-  departmentId   String
-  isActive       Boolean         @default(true)
+  id                    String              @id @default(cuid())
+  name                  String
+  department            Department          @relation(fields: [departmentId], references: [id])
+  departmentId          String
+  isActive              Boolean             @default(true)
   // Legacy ServiceID — lets the legacy sync upsert idempotently.
-  legacyId       String?         @unique
-  kpiDefinitions KpiDefinition[]
-  connections    Connection[]
-  users          User[]
-  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+  legacyId              String?             @unique
+  kpiDefinitions        KpiDefinition[]
+  connections           Connection[]
+  users                 User[]
+  connectionMemberships ConnectionService[]
+  createdAt             DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime            @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
 }
@@ -231,6 +232,14 @@ model Connection {
   departmentId         String
   service              Service?                @relation(fields: [serviceId], references: [id])
   serviceId            String?
+  // Extra services this connection also draws KPI clusters from, beyond the
+  // primary `service` above — e.g. a VA tagged Customer Service
+  // Representative VA on this connection who also does Executive Assistant
+  // VA-scoped work (Compliance, back-office) for the same client. Mirrors
+  // UserDepartment's "home + additional" pattern for hybrid VAs, one level
+  // down. See getConnectionServiceIds in lib/connection-services.ts, the
+  // single place every KPI-applicability query reads this union from.
+  additionalServices   ConnectionService[]
   team                 Team?                   @relation(fields: [teamId], references: [id])
   teamId               String?
   status               ConnectionStatus        @default(ACTIVE)
@@ -263,6 +272,19 @@ model Connection {
   @@index([departmentId])
   @@index([vaUserId])
   @@index([teamId])
+}
+
+// Join row for Connection.additionalServices — see the comment there.
+model ConnectionService {
+  id           String     @id @default(cuid())
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  connectionId String
+  service      Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId    String
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@unique([connectionId, serviceId])
+  @@index([serviceId])
 }
 
 model ConnectionStatusEvent {
@@ -340,30 +362,30 @@ model Intervention {
 // exist (KpiConfigHistory, ConnectionStatusEvent). Written via
 // lib/activity-log.ts's logActivity(), never directly.
 model ActivityLog {
-  id          String         @id @default(cuid())
-  action      ActivityAction
+  id           String         @id @default(cuid())
+  action       ActivityAction
   // Model name the change applies to (e.g. "KpiDefinition", "Connection",
   // "Submission") — plain string rather than an enum so new entity types
   // don't need a migration.
-  entityType  String
-  entityId    String
+  entityType   String
+  entityId     String
   // Human-readable name of the affected record, snapshotted at write time
   // so the log still reads sensibly after the record itself changes name or
   // is deleted (e.g. a connection's client name).
-  entityLabel String?
+  entityLabel  String?
   // One-line human-readable description shown in the activity table.
-  summary     String
+  summary      String
   // Per-field old/new values for UPDATE actions — [{field, oldValue, newValue}].
-  changes     Json?
-  actor       User?          @relation(fields: [actorId], references: [id])
-  actorId     String?
+  changes      Json?
+  actor        User?          @relation(fields: [actorId], references: [id])
+  actorId      String?
   // Snapshot of the actor's role at the time of the action, so a later role
   // change (e.g. DM promoted to Admin) doesn't rewrite history.
-  actorRole   UserRole?
+  actorRole    UserRole?
   // Snapshot of the department the change happened in, for DM/OM-scoped
   // filtering — null when the entity has no department context.
   departmentId String?
-  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
 
   @@index([entityType, entityId])
   @@index([actorId])
@@ -463,41 +485,41 @@ model RateLimitEvent {
 }
 
 model User {
-  id                String                  @id @default(cuid())
-  email             String                  @unique
-  name              String?
-  role              UserRole                @default(SERVICE_MANAGER)
-  isActive          Boolean                 @default(true)
-  lastLogin         DateTime?               @db.Timestamptz(3)
-  loginCount        Int                     @default(0)
-  department        Department?             @relation(fields: [departmentId], references: [id])
-  departmentId      String?
-  service           Service?                @relation(fields: [serviceId], references: [id])
-  serviceId         String?
-  team              Team?                   @relation("TeamMembers", fields: [teamId], references: [id])
-  teamId            String?
-  ledTeams          Team[]                  @relation("TeamLeader")
-  tempLedTeams1     Team[]                  @relation("TeamTempLeader1")
-  tempLedTeams2     Team[]                  @relation("TeamTempLeader2")
-  vaConnections     Connection[]            @relation("VaConnections")
-  statusChanges     ConnectionStatusEvent[]
-  kpiConfigsUpdated KpiConfig[]
-  kpiConfigHistory  KpiConfigHistory[]
-  interventions     Intervention[]
-  settingsUpdated   Setting[]
-  activityLogs      ActivityLog[]
-  ticketsCreated    Ticket[]                @relation("TicketCreator")
-  ticketsClosed     Ticket[]                @relation("TicketCloser")
-  ticketMessages    TicketMessage[]         @relation("TicketMessageSender")
-  submissionDrafts  SubmissionDraft[]
+  id                    String                  @id @default(cuid())
+  email                 String                  @unique
+  name                  String?
+  role                  UserRole                @default(SERVICE_MANAGER)
+  isActive              Boolean                 @default(true)
+  lastLogin             DateTime?               @db.Timestamptz(3)
+  loginCount            Int                     @default(0)
+  department            Department?             @relation(fields: [departmentId], references: [id])
+  departmentId          String?
+  service               Service?                @relation(fields: [serviceId], references: [id])
+  serviceId             String?
+  team                  Team?                   @relation("TeamMembers", fields: [teamId], references: [id])
+  teamId                String?
+  ledTeams              Team[]                  @relation("TeamLeader")
+  tempLedTeams1         Team[]                  @relation("TeamTempLeader1")
+  tempLedTeams2         Team[]                  @relation("TeamTempLeader2")
+  vaConnections         Connection[]            @relation("VaConnections")
+  statusChanges         ConnectionStatusEvent[]
+  kpiConfigsUpdated     KpiConfig[]
+  kpiConfigHistory      KpiConfigHistory[]
+  interventions         Intervention[]
+  settingsUpdated       Setting[]
+  activityLogs          ActivityLog[]
+  ticketsCreated        Ticket[]                @relation("TicketCreator")
+  ticketsClosed         Ticket[]                @relation("TicketCloser")
+  ticketMessages        TicketMessage[]         @relation("TicketMessageSender")
+  submissionDrafts      SubmissionDraft[]
   // Extra departments a VA also belongs to, on top of `department` above
   // (kept as-is, e.g. a VA who does both Amazon and Executive Assistant
   // work). Managers (DM/OPS_MANAGER/OM) never get rows here — they stay
   // single-department, since their own department drives their own
   // authorization scope, not just a display label like it is for a VA.
   additionalDepartments UserDepartment[]
-  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime                @updatedAt @db.Timestamptz(3)
+  createdAt             DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
   @@index([serviceId])
@@ -505,19 +527,19 @@ model User {
 }
 
 model Ticket {
-  id           String          @id @default(cuid())
-  subject      String
-  category     TicketCategory  @default(OTHER)
-  priority     TicketPriority  @default(NORMAL)
-  status       TicketStatus    @default(OPEN)
-  createdBy    User            @relation("TicketCreator", fields: [createdById], references: [id])
-  createdById  String
-  closedBy     User?           @relation("TicketCloser", fields: [closedById], references: [id])
-  closedById   String?
-  closedAt     DateTime?       @db.Timestamptz(3)
-  messages     TicketMessage[]
-  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+  id          String          @id @default(cuid())
+  subject     String
+  category    TicketCategory  @default(OTHER)
+  priority    TicketPriority  @default(NORMAL)
+  status      TicketStatus    @default(OPEN)
+  createdBy   User            @relation("TicketCreator", fields: [createdById], references: [id])
+  createdById String
+  closedBy    User?           @relation("TicketCloser", fields: [closedById], references: [id])
+  closedById  String?
+  closedAt    DateTime?       @db.Timestamptz(3)
+  messages    TicketMessage[]
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
 
   @@index([createdById])
   @@index([status])

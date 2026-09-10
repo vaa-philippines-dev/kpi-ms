@@ -93,23 +93,34 @@ export function NewConnectionModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted uppercase">
-                Service
+                Services
               </label>
-              <Select
-                name="serviceId"
-                disabled={!departmentId}
-                defaultValue=""
-                className="w-full"
-              >
-                <option value="">
-                  {departmentId ? "— Select Service —" : "— Select department first —"}
-                </option>
-                {servicesForDept.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
+              {departmentId ? (
+                servicesForDept.length > 0 ? (
+                  <div className="space-y-1 rounded-lg border border-surface-border px-2.5 py-2">
+                    {servicesForDept.map((s) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" name="serviceIds" value={s.id} />
+                        {s.name}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-lg border border-surface-border bg-surface-hover/40 px-2.5 py-2 text-sm text-muted">
+                    No services for this department.
+                  </p>
+                )
+              ) : (
+                <p className="rounded-lg border border-surface-border bg-surface-hover/40 px-2.5 py-2 text-sm text-muted">
+                  — Select department first —
+                </p>
+              )}
+              {servicesForDept.length > 1 && (
+                <p className="mt-1 text-xs text-muted">
+                  Pick more than one if this connection needs KPIs from several services (e.g. a
+                  CSR VA who also does EA Admin work for this client).
+                </p>
+              )}
             </div>
           </div>
 

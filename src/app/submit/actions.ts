@@ -7,6 +7,7 @@ import { currentPeriodStart, parseAnchorDate, isPlausiblePeriodDate } from "@/li
 import { getWeekStartDay } from "@/lib/settings";
 import { recomputePerformanceSummary } from "@/lib/performance";
 import { connectionScopeWhere } from "@/lib/connection-scope";
+import { getConnectionServiceIds } from "@/lib/connection-services";
 import { isWithinSubmissionWindow, formatManilaWindow } from "@/lib/submission-window";
 import { checkRateLimit, getClientIp, formatRetryAfter } from "@/lib/rate-limit";
 import { logActivity } from "@/lib/activity-log";
@@ -98,11 +99,17 @@ export async function createSubmission(
         },
       },
       vaUser: { select: { teamId: true } },
+      additionalServices: { select: { serviceId: true } },
     },
   });
   if (!connection) {
     return { error: "Connection not found." };
   }
+  // See kpi-cluster.ts's loadApplicableKpis — same "connection's assigned
+  // services, not just its department" scoping, applied here too so a
+  // direct call into this action can't submit values for a KPI the cluster
+  // picker wouldn't even show for this connection.
+  const connectionServiceIds = getConnectionServiceIds(connection);
 
   // VAs are subject to their department's submission window (spreads
   // traffic across the day); managers submitting on a VA's behalf are not.
@@ -124,6 +131,7 @@ export async function createSubmission(
 
   const kpisWithConfig = connection.department.kpiDefinitions
     .map((kpi) => ({ kpi, config: kpi.kpiConfigs[0] }))
+    .filter(({ kpi }) => kpi.serviceId === null || connectionServiceIds.includes(kpi.serviceId))
     .filter(({ config }) => config?.isApplicable ?? true)
     .filter(({ kpi }) => !targetClusters || targetClusters.includes(kpi.cluster));
 

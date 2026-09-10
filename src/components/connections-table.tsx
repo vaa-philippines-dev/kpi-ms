@@ -72,6 +72,10 @@ export type ConnectionRow = {
   departmentName: string;
   serviceId: string | null;
   serviceName: string | null;
+  // Services this connection also draws KPI clusters from, beyond the
+  // primary service above — see Connection.additionalServices.
+  additionalServiceIds: string[];
+  additionalServiceNames: string[];
   teamLeaderName: string | null;
   status: ConnectionStatus;
   connectionType: ConnectionType;
@@ -143,14 +147,19 @@ function getColumns(canEditConnection: boolean): DataTableColumn<ConnectionRow>[
       filterable: "select",
       className: "text-muted",
       // Service subline, kept distinct from the Client/SecondaryName cell above.
-      render: (v, row) => (
-        <>
-          {v as string}
-          {row.serviceName && row.serviceName !== row.departmentName && (
-            <div className="text-xs text-muted">{row.serviceName}</div>
-          )}
-        </>
-      ),
+      render: (v, row) => {
+        const serviceNames = [row.serviceName, ...row.additionalServiceNames].filter(
+          (n): n is string => !!n && n !== row.departmentName,
+        );
+        return (
+          <>
+            {v as string}
+            {serviceNames.length > 0 && (
+              <div className="text-xs text-muted">{serviceNames.join(", ")}</div>
+            )}
+          </>
+        );
+      },
     },
     {
       key: "sinceDate",
@@ -348,7 +357,11 @@ function ConnectionAssignmentForm({
   lockedDepartmentId?: string;
 }) {
   const [departmentId, setDepartmentId] = useState(lockedDepartmentId ?? connection.departmentId);
-  const [serviceId, setServiceId] = useState(connection.serviceId ?? "");
+  const [serviceIds, setServiceIds] = useState<string[]>(
+    [connection.serviceId, ...connection.additionalServiceIds].filter(
+      (v): v is string => v !== null,
+    ),
+  );
   const [vaUserId, setVaUserId] = useState(connection.vaUserId);
 
   const vaBelongsToDept = (u: AssignmentVaUser, deptId: string) =>
@@ -374,18 +387,31 @@ function ConnectionAssignmentForm({
   // and overwrites the real assignment with it. Appending the actual
   // current value as an extra, clearly-labeled option — even when it
   // wouldn't otherwise qualify under the department filter — keeps the
-  // select's displayed value truthful so nothing gets clobbered by
-  // accident; the person has to deliberately pick something else.
-  const currentServiceOutOfList =
-    serviceId && !servicesForDept.some((s) => s.id === serviceId)
-      ? (services.find((s) => s.id === serviceId) ??
-        (serviceId === connection.serviceId && connection.serviceName
-          ? { id: serviceId, name: connection.serviceName, departmentId }
-          : null))
-      : null;
-  const serviceOptions = currentServiceOutOfList
-    ? [...servicesForDept, currentServiceOutOfList]
-    : servicesForDept;
+  // displayed value truthful so nothing gets clobbered by accident; the
+  // person has to deliberately pick something else. Same idea for services
+  // below, just per-id since a connection can now hold more than one.
+  const currentServiceNamesById = new Map<string, string>();
+  if (connection.serviceId && connection.serviceName) {
+    currentServiceNamesById.set(connection.serviceId, connection.serviceName);
+  }
+  connection.additionalServiceIds.forEach((id, i) => {
+    const name = connection.additionalServiceNames[i];
+    if (name) currentServiceNamesById.set(id, name);
+  });
+  const outOfListServiceIds = serviceIds.filter((id) => !servicesForDept.some((s) => s.id === id));
+  const serviceOptions: (AssignmentService & { outOfList?: boolean })[] = [
+    ...servicesForDept,
+    ...outOfListServiceIds.map((id) => ({
+      id,
+      name: services.find((s) => s.id === id)?.name ?? currentServiceNamesById.get(id) ?? id,
+      departmentId,
+      outOfList: true as const,
+    })),
+  ];
+
+  function toggleService(id: string, checked: boolean) {
+    setServiceIds((prev) => (checked ? [...prev, id] : prev.filter((s) => s !== id)));
+  }
 
   const currentVaOutOfList =
     vaUserId && !vaUsersForDept.some((u) => u.id === vaUserId)
@@ -404,9 +430,9 @@ function ConnectionAssignmentForm({
 
   function handleDepartmentChange(nextDeptId: string) {
     setDepartmentId(nextDeptId);
-    if (!services.some((s) => s.id === serviceId && s.departmentId === nextDeptId)) {
-      setServiceId("");
-    }
+    setServiceIds((prev) =>
+      prev.filter((id) => services.some((s) => s.id === id && s.departmentId === nextDeptId)),
+    );
     const currentVa = vaUsers.find((u) => u.id === vaUserId);
     if (!currentVa || !vaBelongsToDept(currentVa, nextDeptId)) {
       setVaUserId("");
@@ -453,21 +479,28 @@ function ConnectionAssignmentForm({
         )}
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-muted uppercase">Service</label>
-        <Select
-          name="serviceId"
-          value={serviceId}
-          onChange={(e) => setServiceId(e.target.value)}
-          className="w-full"
-        >
-          <option value="">— None —</option>
-          {serviceOptions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s === currentServiceOutOfList ? " (current — different department)" : ""}
-            </option>
-          ))}
-        </Select>
+        <label className="mb-1 block text-xs font-medium text-muted uppercase">Services</label>
+        {serviceOptions.length > 0 ? (
+          <div className="space-y-1 rounded-lg border border-surface-border px-2.5 py-2">
+            {serviceOptions.map((s) => (
+              <label key={s.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="serviceIds"
+                  value={s.id}
+                  checked={serviceIds.includes(s.id)}
+                  onChange={(e) => toggleService(s.id, e.target.checked)}
+                />
+                {s.name}
+                {s.outOfList ? " (current — different department)" : ""}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-surface-border bg-surface-hover/40 px-2.5 py-2 text-sm text-muted">
+            — None —
+          </p>
+        )}
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-muted uppercase">VA</label>
@@ -747,7 +780,10 @@ export function ConnectionsTable({
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
               <ShortCodeItem shortCode={openConn.shortCode} />
               <InfoItem label="Department">{openConn.departmentName}</InfoItem>
-              <InfoItem label="Service">{openConn.serviceName ?? "—"}</InfoItem>
+              <InfoItem label="Service">
+                {[openConn.serviceName, ...openConn.additionalServiceNames].filter(Boolean).join(", ") ||
+                  "—"}
+              </InfoItem>
               <InfoItem label="VA Name">{openConn.vaName}</InfoItem>
               <InfoItem label="Team Leader">{openConn.teamLeaderName ?? "—"}</InfoItem>
               <InfoItem label="Start Date">

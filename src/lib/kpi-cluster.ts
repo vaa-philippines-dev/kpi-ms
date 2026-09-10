@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getConnectionServiceIds } from "@/lib/connection-services";
 import { KpiDirection, KpiPeriod } from "@/generated/prisma/enums";
 
 export type ClusterSummary = {
@@ -41,7 +42,11 @@ async function loadApplicableKpis({
   // need the KPI id list — connectionId+period+periodStart alone already
   // pins it to this connection's rows for this exact period), so they run
   // in parallel rather than as two serial round trips to the DB.
-  const [kpiDefinitions, submitted] = await Promise.all([
+  const [connection, kpiDefinitions, submitted] = await Promise.all([
+    prisma.connection.findUnique({
+      where: { id: connectionId },
+      select: { serviceId: true, additionalServices: { select: { serviceId: true } } },
+    }),
     prisma.kpiDefinition.findMany({
       where: { departmentId, period },
       orderBy: { name: "asc" },
@@ -51,6 +56,7 @@ async function loadApplicableKpis({
         cluster: true,
         targetValue: true,
         direction: true,
+        serviceId: true,
         kpiConfigs: {
           where: { connectionId },
           select: { isApplicable: true, targetValue: true },
@@ -63,7 +69,18 @@ async function loadApplicableKpis({
     }),
   ]);
 
-  const applicable = kpiDefinitions.filter((kpi) => kpi.kpiConfigs[0]?.isApplicable ?? true);
+  // A KPI applies here if it's department-wide (no serviceId) or scoped to
+  // one of this connection's assigned services (primary + additional) — see
+  // getConnectionServiceIds. Without this, every connection in a department
+  // saw every other service's clusters too (e.g. a CSR VA connection was
+  // shown Production Artist and Quality Assurance areas that have nothing
+  // to do with it).
+  const serviceIds = connection ? getConnectionServiceIds(connection) : [];
+  const applicable = kpiDefinitions.filter(
+    (kpi) =>
+      (kpi.serviceId === null || serviceIds.includes(kpi.serviceId)) &&
+      (kpi.kpiConfigs[0]?.isApplicable ?? true),
+  );
   if (applicable.length === 0) return [];
 
   const submittedIds = new Set(submitted.map((s) => s.kpiDefinitionId));
