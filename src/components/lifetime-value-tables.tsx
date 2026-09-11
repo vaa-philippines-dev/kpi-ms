@@ -45,6 +45,7 @@ export function LifetimeValueTables({
   top10Longest,
   top10Shortest,
   sort,
+  statusFilter,
   periodStart,
   period,
   isManager,
@@ -54,6 +55,7 @@ export function LifetimeValueTables({
   top10Longest: LifetimeValueCustomer[];
   top10Shortest: LifetimeValueCustomer[];
   sort: "asc" | "desc";
+  statusFilter: "active" | "all";
   periodStart: string;
   period: KpiPeriod;
   isManager: boolean;
@@ -73,13 +75,13 @@ export function LifetimeValueTables({
           </div>
           <div className="flex gap-2 text-xs">
             <Link
-              href="?sort=desc"
+              href={`?sort=desc&status=${statusFilter}`}
               className={`rounded-full px-2 py-1 ${sort === "desc" ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground"}`}
             >
               Longest first
             </Link>
             <Link
-              href="?sort=asc"
+              href={`?sort=asc&status=${statusFilter}`}
               className={`rounded-full px-2 py-1 ${sort === "asc" ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground"}`}
             >
               Shortest first

@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { LifetimeValueTables, type LifetimeValueCustomer } from "@/components/lifetime-value-tables";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { daysSince, formatDuration, currentPeriodStart } from "@/lib/period";
 import { getWeekStartDay, getInterventionTypes } from "@/lib/settings";
+import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 // Worst-first rollup, mirroring legacy getLifetimeValueReport()'s customer
@@ -27,6 +29,10 @@ export default async function LifetimeValuePage(
   const scope = connectionScopeWhere(session);
   const searchParams = await props.searchParams;
   const sort = searchParams.sort === "asc" ? "asc" : "desc";
+  // Defaults to ACTIVE-only — END_OF_CONTRACT/END_OF_PROJECT/etc. clients
+  // clutter this report far more than they inform it, so they're opt-in via
+  // ?status=all rather than shown by default.
+  const statusFilter = searchParams.status === "all" ? "all" : "active";
 
   // Rows here open the same "KPI Submissions" modal as the Performance
   // page's Per Connection tab — mirrors that page's isManager gate (who can
@@ -42,26 +48,37 @@ export default async function LifetimeValuePage(
   const interventionTypes = await getInterventionTypes();
 
   const connections = await prisma.connection.findMany({
-    where: scope,
+    where: {
+      ...scope,
+      ...(statusFilter === "active" ? { status: ConnectionStatus.ACTIVE } : {}),
+    },
     include: {
       department: { select: { name: true } },
       performanceSummaries: {
-        orderBy: { periodStart: "desc" },
-        take: 1,
+        where: { period: KpiPeriod.WEEKLY, periodStart },
+        select: { kpiDefinitionId: true, status: true },
       },
+      // Not-applicable KPIs can still have a PerformanceSummary row left
+      // over from before they were marked N/A — excluded below so a stale
+      // status doesn't drag down this connection's rollup.
+      kpiConfigs: { where: { isApplicable: false }, select: { kpiDefinitionId: true } },
     },
     orderBy: { createdAt: "asc" },
   });
 
-  const rows = connections.map((c) => ({
-    connectionId: c.id,
-    clientName: c.clientName,
-    secondaryName: c.secondaryName,
-    department: c.department.name,
-    status: c.status,
-    tenureDays: daysSince(c.startDate ?? c.createdAt),
-    latestStatus: c.performanceSummaries[0]?.status ?? PerformanceStatus.NO_DATA,
-  }));
+  const rows = connections.map((c) => {
+    const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
+    const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
+    return {
+      connectionId: c.id,
+      clientName: c.clientName,
+      secondaryName: c.secondaryName,
+      department: c.department.name,
+      status: c.status,
+      tenureDays: daysSince(c.startDate ?? c.createdAt),
+      latestStatus: rollupStatus(applicableSummaries.map((s) => s.status)),
+    };
+  });
 
   const customerMap = new Map<string, Customer>();
   for (const row of rows) {
@@ -123,11 +140,26 @@ export default async function LifetimeValuePage(
       {rows.length > 0 && (
         <a
           href="/api/export/lifetime-value"
-          className="mb-6 inline-block text-xs text-accent hover:underline"
+          className="mb-4 inline-block text-xs text-accent hover:underline"
         >
           Export CSV →
         </a>
       )}
+
+      <div className="mb-6 flex gap-2 text-xs">
+        <Link
+          href={`?sort=${sort}&status=active`}
+          className={`rounded-full px-2 py-1 ${statusFilter === "active" ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground"}`}
+        >
+          Active only
+        </Link>
+        <Link
+          href={`?sort=${sort}&status=all`}
+          className={`rounded-full px-2 py-1 ${statusFilter === "all" ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground"}`}
+        >
+          All statuses
+        </Link>
+      </div>
 
       {rows.length === 0 ? (
         <ComingSoon note="No connections visible to your account yet." />
@@ -157,6 +189,7 @@ export default async function LifetimeValuePage(
             top10Longest={top10Longest}
             top10Shortest={top10Shortest}
             sort={sort}
+            statusFilter={statusFilter}
             periodStart={periodStart.toISOString()}
             period={KpiPeriod.WEEKLY}
             isManager={isManager}
