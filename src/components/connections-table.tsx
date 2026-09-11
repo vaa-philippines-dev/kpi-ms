@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Flag } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
@@ -363,6 +363,18 @@ function ConnectionAssignmentForm({
     ),
   );
   const [vaUserId, setVaUserId] = useState(connection.vaUserId);
+  // Requires an explicit extra click, naming the actual VA/department
+  // change, before a save that would reassign either can go through — see
+  // handleSubmit below for why this exists beyond the out-of-list guard.
+  const [confirmingReassign, setConfirmingReassign] = useState(false);
+  const confirmedRef = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  function selectVaUserId(id: string) {
+    setVaUserId(id);
+    setConfirmingReassign(false);
+    confirmedRef.current = false;
+  }
 
   const vaBelongsToDept = (u: AssignmentVaUser, deptId: string) =>
     u.departmentId === deptId || u.additionalDepartmentIds.includes(deptId);
@@ -430,6 +442,8 @@ function ConnectionAssignmentForm({
 
   function handleDepartmentChange(nextDeptId: string) {
     setDepartmentId(nextDeptId);
+    setConfirmingReassign(false);
+    confirmedRef.current = false;
     setServiceIds((prev) =>
       prev.filter((id) => services.some((s) => s.id === id && s.departmentId === nextDeptId)),
     );
@@ -439,9 +453,47 @@ function ConnectionAssignmentForm({
     }
   }
 
+  // Changing the VA or department is the one part of this form that can
+  // move a client to a different person/team, so — on top of the
+  // out-of-list guard above, which only stops a value the user never
+  // touched from being silently substituted — require an explicit extra
+  // click spelling out the actual change before Save does anything.
+  // Prompted by a real incident: an OM rapid-fired this form while only
+  // toggling service checkboxes, and one of those clicks carried a VA
+  // reassignment neither intended nor noticed until a client's connection
+  // had quietly moved to the wrong VA (see ActivityLog around 2026-09-11
+  // 01:01 for connection "Derek Chenn").
+  const originalVaUserId = connection.vaUserId ?? "";
+  const originalDepartmentId = lockedDepartmentId ?? connection.departmentId ?? "";
+  const vaChanged = vaUserId !== originalVaUserId;
+  const deptChanged = !lockedDepartmentId && departmentId !== originalDepartmentId;
+  const newVaName = vaOptions.find((u) => u.id === vaUserId)?.name ?? vaUserId;
+  const newDepartmentName = departments.find((d) => d.id === departmentId)?.name ?? departmentId;
+
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    if ((vaChanged || deptChanged) && !confirmedRef.current) {
+      e.preventDefault();
+      setConfirmingReassign(true);
+    }
+  }
+
+  function confirmAndSave() {
+    confirmedRef.current = true;
+    formRef.current?.requestSubmit();
+  }
+
+  function cancelReassign() {
+    setVaUserId(connection.vaUserId);
+    setDepartmentId(lockedDepartmentId ?? connection.departmentId);
+    setConfirmingReassign(false);
+    confirmedRef.current = false;
+  }
+
   return (
     <form
+      ref={formRef}
       action={updateConnectionAssignment}
+      onSubmit={handleSubmit}
       className="grid grid-cols-1 gap-2 rounded-lg border border-dashed border-surface-border p-3 sm:grid-cols-3"
     >
       <p className="text-xs font-medium text-muted uppercase sm:col-span-3">
@@ -507,7 +559,7 @@ function ConnectionAssignmentForm({
         <Select
           name="vaUserId"
           value={vaUserId}
-          onChange={(e) => setVaUserId(e.target.value)}
+          onChange={(e) => selectVaUserId(e.target.value)}
           required
           className="w-full"
         >
@@ -522,9 +574,43 @@ function ConnectionAssignmentForm({
           ))}
         </Select>
       </div>
-      <Button type="submit" className="px-3 py-1.5 text-xs sm:col-span-3 sm:w-fit">
-        Save assignment
-      </Button>
+      {confirmingReassign ? (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs sm:col-span-3">
+          <p className="mb-2 text-warning">
+            This will reassign{" "}
+            {vaChanged && (
+              <>
+                the VA from <strong>{connection.vaName}</strong> to <strong>{newVaName}</strong>
+              </>
+            )}
+            {vaChanged && deptChanged && " and "}
+            {deptChanged && (
+              <>
+                the department from <strong>{connection.departmentName}</strong> to{" "}
+                <strong>{newDepartmentName}</strong>
+              </>
+            )}
+            . Continue?
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" className="px-3 py-1 text-xs" onClick={confirmAndSave}>
+              Yes, reassign
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="px-3 py-1 text-xs"
+              onClick={cancelReassign}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button type="submit" className="px-3 py-1.5 text-xs sm:col-span-3 sm:w-fit">
+          Save assignment
+        </Button>
+      )}
     </form>
   );
 }

@@ -23,7 +23,14 @@ export default async function ConnectionsPage(
     prisma.user.findMany({
       where: { role: "VA" },
       orderBy: { name: "asc" },
-      include: { additionalDepartments: true },
+      include: {
+        additionalDepartments: true,
+        // Only needed to scope the assignment-form VA list for OM (Team
+        // Leader) below — an OM should only ever be able to reassign a
+        // connection to a VA on the team(s) they actually lead, not every
+        // VA in their department.
+        team: { select: { teamLeaderId: true, tempLeader1Id: true, tempLeader2Id: true } },
+      },
     }),
   ]);
   const isAdmin = session.role === "ADMIN";
@@ -57,14 +64,29 @@ export default async function ConnectionsPage(
   const assignmentServices = isDeptLockedForAssignment
     ? services.filter((s) => s.departmentId === session.departmentId)
     : services;
+  // OM (Team Leader) gets a narrower VA list than DM/OPS_MANAGER: only VAs
+  // on the team(s) they actually lead (teamLeader or either temp-leader
+  // slot), not every VA in the department — mirrors connectionScopeWhere's
+  // OM branch in lib/connection-scope.ts, which scopes connection
+  // *visibility* the same way. Without this, an OM reassigning a connection
+  // could pick (and previously did, by accident) a VA elsewhere in the
+  // department who isn't actually on any team they lead.
   const assignmentVaUsers = (
-    isDeptLockedForAssignment
+    session.role === "OM"
       ? vaUsers.filter(
           (u) =>
-            u.departmentId === session.departmentId ||
-            u.additionalDepartments.some((d) => d.departmentId === session.departmentId),
+            u.team &&
+            (u.team.teamLeaderId === session.id ||
+              u.team.tempLeader1Id === session.id ||
+              u.team.tempLeader2Id === session.id),
         )
-      : vaUsers
+      : isDeptLockedForAssignment
+        ? vaUsers.filter(
+            (u) =>
+              u.departmentId === session.departmentId ||
+              u.additionalDepartments.some((d) => d.departmentId === session.departmentId),
+          )
+        : vaUsers
   ).map((u) => ({
     id: u.id,
     name: u.name,
