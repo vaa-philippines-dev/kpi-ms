@@ -16,8 +16,19 @@ import {
   updateKpiConfig,
   resetKpiConfig,
   type KpiConfigGroupRow,
+  type KpiConfigEditor,
 } from "@/app/dashboard/connections/kpi-config/actions";
 import { KpiDirection, ThresholdUnit } from "@/generated/prisma/enums";
+import { roleLabel } from "@/lib/roles";
+
+function LastEditedBy({ editor }: { editor: KpiConfigEditor | null }) {
+  if (!editor) return <span className="text-muted">—</span>;
+  return (
+    <span title={new Date(editor.at).toLocaleString()}>
+      {editor.name} <span className="text-muted">({roleLabel(editor.role)})</span>
+    </span>
+  );
+}
 
 const DIRECTION_LABELS: Record<KpiDirection, string> = {
   HIGHER_IS_BETTER: "Higher is better",
@@ -140,6 +151,7 @@ export function KpiConfigPanel({
               <Th>Deviation</Th>
               <Th>At Risk Max</Th>
               <Th>Applicable</Th>
+              <Th>Last Edited By</Th>
               <Th />
             </tr>
           </TableHead>
@@ -166,6 +178,9 @@ export function KpiConfigPanel({
                   ) : (
                     <Badge tone="neutral">No</Badge>
                   )}
+                </Td>
+                <Td className="text-xs">
+                  <LastEditedBy editor={r.lastEditedBy} />
                 </Td>
                 <Td className="text-right">
                   <button
@@ -241,6 +256,9 @@ function KpiInfoBox({
         Unit: <span className="font-medium text-foreground">{row.unit ?? "—"}</span> · Direction:{" "}
         <span className="font-medium text-foreground">{directionLabel}</span> · Default Target:{" "}
         <span className="font-medium text-foreground">{defaultTargetLabel}</span>
+      </p>
+      <p className="mt-1 text-xs text-muted">
+        Last edited by: <LastEditedBy editor={row.lastEditedBy} />
       </p>
     </div>
   );

@@ -39,6 +39,16 @@ export type KpiConfigPeriodInfo = {
   defaultTargetValue: number;
 };
 
+// Who last touched this KPI's config for this connection, and in what
+// capacity (DM/Ops Manager/Team Leader/Admin/etc — see roleLabel) — surfaced
+// so a manager can tell at a glance who to ask about an override without
+// digging through the Activity Log.
+export type KpiConfigEditor = {
+  name: string;
+  role: string;
+  at: Date;
+};
+
 // One row per (name, cluster) pair, merging the Weekly and Monthly
 // KpiDefinition rows a single legacy KPI maps to (same name/cluster,
 // different period) into the columns the UI shows side by side.
@@ -68,6 +78,9 @@ export type KpiConfigGroupRow = {
   isApplicable: boolean;
   notes: string | null;
   hasOverride: boolean;
+  // Most recent of the weekly/monthly config rows' updatedBy — null when
+  // neither period has ever been configured (still on KPI Library defaults).
+  lastEditedBy: KpiConfigEditor | null;
 };
 
 // Lazily loaded when a row's modal opens, rather than preloading every
@@ -94,7 +107,7 @@ export async function getKpiConfigDetail(connectionId: string) {
   const [configs, applicableKpis] = await Promise.all([
     prisma.kpiConfig.findMany({
       where: { connectionId },
-      include: { kpiDefinition: true },
+      include: { kpiDefinition: true, updatedBy: { select: { name: true, email: true, role: true } } },
       orderBy: [{ kpiDefinition: { name: "asc" } }, { kpiDefinition: { cluster: "asc" } }, { kpiDefinition: { period: "asc" } }],
     }),
     prisma.kpiDefinition.findMany({
@@ -138,6 +151,7 @@ export async function getKpiConfigDetail(connectionId: string) {
         isApplicable: config?.isApplicable ?? true,
         notes: config?.notes ?? null,
         hasOverride: false,
+        lastEditedBy: null,
       };
       groups.set(key, group);
     }
@@ -150,6 +164,15 @@ export async function getKpiConfigDetail(connectionId: string) {
       group.isApplicable = config.isApplicable;
       group.notes = config.notes ?? group.notes;
       group.hasOverride = true;
+      // Weekly and monthly are separate rows that can be edited independently
+      // — show whichever was touched most recently as this KPI's editor.
+      if (!group.lastEditedBy || config.updatedAt > group.lastEditedBy.at) {
+        group.lastEditedBy = {
+          name: config.updatedBy.name ?? config.updatedBy.email,
+          role: config.updatedBy.role,
+          at: config.updatedAt,
+        };
+      }
     }
     if (def.period === KpiPeriod.WEEKLY) group.weekly = periodInfo;
     else group.monthly = periodInfo;
