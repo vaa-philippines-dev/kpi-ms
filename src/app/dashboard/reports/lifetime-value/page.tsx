@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader, ComingSoon } from "@/components/page-header";
 import { LifetimeValueTables, type LifetimeValueCustomer } from "@/components/lifetime-value-tables";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
-import { daysSince, formatDuration, currentPeriodStart } from "@/lib/period";
+import { daysSince, formatDuration, currentPeriodStart, parseAnchorDate } from "@/lib/period";
 import { getWeekStartDay, getInterventionTypes } from "@/lib/settings";
 import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -36,15 +36,24 @@ export default async function LifetimeValuePage(
 
   // Rows here open the same "KPI Submissions" modal as the Performance
   // page's Per Connection tab — mirrors that page's isManager gate (who can
-  // log an intervention from the modal) and its WEEKLY-current-period
-  // default, since Lifetime Value has no period selector of its own.
+  // log an intervention from the modal). Follows the same global
+  // Weekly/Monthly + ◀/▶ period nav (DashboardTopbar's PeriodNav) every other
+  // report page does — previously hardcoded to WEEKLY/"now" regardless of
+  // the nav's `?period=`/`?date=`, so paging back to a week that actually
+  // had submissions silently did nothing and the Performance column just
+  // looked perpetually empty once the current week's data hadn't come in yet.
   const isManager =
     session.role === "ADMIN" ||
     session.role === "DM" ||
     session.role === "OPS_MANAGER" ||
     session.role === "OM";
   const weekStartDay = await getWeekStartDay();
-  const periodStart = currentPeriodStart(KpiPeriod.WEEKLY, new Date(), weekStartDay);
+  const selectedPeriod: KpiPeriod =
+    searchParams.period === "monthly" ? KpiPeriod.MONTHLY : KpiPeriod.WEEKLY;
+  const anchor = parseAnchorDate(
+    typeof searchParams.date === "string" ? searchParams.date : undefined,
+  );
+  const periodStart = currentPeriodStart(selectedPeriod, anchor, weekStartDay);
   const interventionTypes = await getInterventionTypes();
 
   const connections = await prisma.connection.findMany({
@@ -55,7 +64,7 @@ export default async function LifetimeValuePage(
     include: {
       department: { select: { name: true } },
       performanceSummaries: {
-        where: { period: KpiPeriod.WEEKLY, periodStart },
+        where: { period: selectedPeriod, periodStart },
         select: { kpiDefinitionId: true, status: true },
       },
       // Not-applicable KPIs can still have a PerformanceSummary row left
@@ -191,7 +200,7 @@ export default async function LifetimeValuePage(
             sort={sort}
             statusFilter={statusFilter}
             periodStart={periodStart.toISOString()}
-            period={KpiPeriod.WEEKLY}
+            period={selectedPeriod}
             isManager={isManager}
             interventionTypes={interventionTypes}
           />
