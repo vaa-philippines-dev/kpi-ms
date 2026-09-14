@@ -81,7 +81,12 @@ export function AllClustersForm({
     [flush],
   );
 
-  const clusterNames = groups.map((g) => g.cluster).join(",");
+  // Each name is percent-encoded before joining — cluster names aren't
+  // guaranteed comma-free (e.g. "Technical, Logistics & E-commerce"), and a
+  // raw join would let that cluster's own comma be mistaken for the
+  // separator on the server, silently dropping all of its KPIs from the
+  // submission. See createSubmission's matching decodeURIComponent.
+  const clusterNames = groups.map((g) => encodeURIComponent(g.cluster)).join(",");
 
   return (
     <SubmitForm
