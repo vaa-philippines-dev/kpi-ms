@@ -73,23 +73,59 @@ export async function buildSubmissionsSheetRows(
   let periodWhere: Prisma.PerformanceSummaryWhereInput | undefined = periodFilter
     ? { period: periodFilter }
     : undefined;
+  // Narrowest possible window covering every instance requested, so a
+  // single-week/month export doesn't also pull interventions from every
+  // other period the connection has ever had one logged in.
+  let interventionWindow: Prisma.DateTimeFilter<never> | undefined;
 
   if (anchor) {
     const weekStartDay = await getWeekStartDay();
     const weeklyStart = currentPeriodStart(KpiPeriod.WEEKLY, anchor, weekStartDay);
     const monthlyStart = currentPeriodStart(KpiPeriod.MONTHLY, anchor);
     const instances: Prisma.PerformanceSummaryWhereInput[] = [];
+    const windowStarts: Date[] = [];
+    const windowEnds: Date[] = [];
     if (periodFilter !== KpiPeriod.MONTHLY) {
       instances.push({ period: KpiPeriod.WEEKLY, periodStart: weeklyStart });
+      windowStarts.push(weeklyStart);
+      windowEnds.push(periodWindowEnd(KpiPeriod.WEEKLY, weeklyStart));
     }
     if (periodFilter !== KpiPeriod.WEEKLY) {
       instances.push({ period: KpiPeriod.MONTHLY, periodStart: monthlyStart });
+      windowStarts.push(monthlyStart);
+      windowEnds.push(periodWindowEnd(KpiPeriod.MONTHLY, monthlyStart));
     }
     periodWhere = { OR: instances };
+    interventionWindow = {
+      gte: new Date(Math.min(...windowStarts.map((d) => d.getTime()))),
+      lt: new Date(Math.max(...windowEnds.map((d) => d.getTime()))),
+    };
   }
 
-  const [connections, rawSummaries, interventions, inapplicablePairs] = await Promise.all([
+  // Connection and Intervention are fetched *after* summaries, scoped down
+  // to only the connections that actually have a matching row — this used
+  // to pull all ~850 connections and every intervention ever logged (across
+  // the whole company) on every single call, regardless of how narrow
+  // `periodFilter`/`anchor` made the actual export. That unscoped pair of
+  // full-table reads, run repeatedly while this feature was being built and
+  // tested, was a confirmed contributor to a Supabase egress spike
+  // (2026-09-07) — see the Activity Log page for the other one.
+  const [rawSummaries, inapplicablePairs] = await Promise.all([
+    prisma.performanceSummary.findMany({
+      where: periodWhere,
+      select: { connectionId: true, kpiDefinitionId: true, period: true, periodStart: true, status: true },
+    }),
+    loadInapplicableKpiPairs({}),
+  ]);
+
+  const summaries = excludeInapplicablePairs(rawSummaries, inapplicablePairs).filter((s) =>
+    isPlausiblePeriodDate(s.periodStart),
+  );
+  const connectionIds = [...new Set(summaries.map((s) => s.connectionId))];
+
+  const [connections, interventions] = await Promise.all([
     prisma.connection.findMany({
+      where: { id: { in: connectionIds } },
       select: {
         id: true,
         shortCode: true,
@@ -99,19 +135,14 @@ export async function buildSubmissionsSheetRows(
         vaUser: { select: { name: true, email: true } },
       },
     }),
-    prisma.performanceSummary.findMany({
-      where: periodWhere,
-      select: { connectionId: true, kpiDefinitionId: true, period: true, periodStart: true, status: true },
-    }),
     prisma.intervention.findMany({
+      where: {
+        connectionId: { in: connectionIds },
+        ...(interventionWindow ? { createdAt: interventionWindow } : {}),
+      },
       select: { connectionId: true, type: true, description: true, createdAt: true },
     }),
-    loadInapplicableKpiPairs({}),
   ]);
-
-  const summaries = excludeInapplicablePairs(rawSummaries, inapplicablePairs).filter((s) =>
-    isPlausiblePeriodDate(s.periodStart),
-  );
   const connectionById = new Map(connections.map((c) => [c.id, c]));
 
   const groups = new Map<
