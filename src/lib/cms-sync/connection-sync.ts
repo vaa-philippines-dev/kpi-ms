@@ -104,7 +104,7 @@ export async function runCmsConnectionSync(
     readCmsSheet("VirtualAssistants"),
     readCmsSheet("VAConnections"),
     prisma.department.findMany({ select: { id: true, name: true } }),
-    prisma.user.findMany({ where: { role: UserRole.VA }, select: { id: true, email: true } }),
+    prisma.user.findMany({ where: { role: UserRole.VA }, select: { id: true, email: true, serviceId: true } }),
     prisma.user.findMany({ select: { email: true } }),
     prisma.connection.findMany({
       select: { externalCmsId: true, shortCode: true, vaUserId: true, clientName: true },
@@ -120,6 +120,11 @@ export async function runCmsConnectionSync(
   const userIdByEmail = new Map(
     existingVaUsers.map((u) => [u.email.trim().toLowerCase(), u.id]),
   );
+  // The VA's own assigned service (User.serviceId) — carried onto each new
+  // Connection so KPI-Configuration's per-service KPI filter has something
+  // real to match against, instead of always falling back to null (which
+  // reads as "applies dept-wide" and pulls in every unscoped cluster).
+  const serviceIdByUserId = new Map(existingVaUsers.map((u) => [u.id, u.serviceId]));
   // ALL existing emails (any role) — checked before creating a new VA user,
   // since User.email is unique account-wide, not just within role VA.
   const emailsInUse = new Set(allUserEmails.map((u) => u.email.trim().toLowerCase()));
@@ -232,6 +237,7 @@ export async function runCmsConnectionSync(
           vaUserId,
           clientName,
           departmentId,
+          serviceId: serviceIdByUserId.get(vaUserId) ?? null,
           status,
           startDate,
           connectionType,
