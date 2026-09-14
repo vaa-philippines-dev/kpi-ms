@@ -5,8 +5,6 @@ import { ArrowUp, Link2, Image as ImageIcon, X } from "lucide-react";
 import { Textarea } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { sendTicketMessage } from "@/app/dashboard/dev/actions";
-import { subscribeToTicketLive } from "@/lib/ticket-live-bus";
-import { TICKET_STATUS_LABELS } from "@/lib/ticket-labels";
 import type { TicketStatus } from "@/generated/prisma/enums";
 
 type ThreadMessage = {
@@ -17,12 +15,6 @@ type ThreadMessage = {
   attachmentUrl: string | null;
   createdAt: string;
   pending?: boolean;
-};
-
-type SystemEvent = {
-  id: string;
-  text: string;
-  createdAt: string;
 };
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|svg)(\?.*)?$/i;
@@ -78,9 +70,7 @@ export function TicketThread({
 }) {
   const { toast } = useToast();
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
-  const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
-  const [status, setStatus] = useState<TicketStatus>(initialStatus);
-  const locked = status === "CLOSED" && !isAdmin;
+  const locked = initialStatus === "CLOSED" && !isAdmin;
   const [draft, setDraft] = useState("");
   const [attachmentUrl, setAttachmentUrl] = useState("");
   const [showAttachment, setShowAttachment] = useState(false);
@@ -103,37 +93,13 @@ export function TicketThread({
   }
 
   useEffect(() => {
-    return subscribeToTicketLive(ticketId, (event) => {
-      if (event.kind === "message" && event.message) {
-        applyMessage({ ...event.message, createdAt: event.createdAt });
-      } else if (event.kind === "status") {
-        setStatus(event.status);
-        setSystemEvents((prev) => [
-          ...prev,
-          {
-            id: `status-${event.createdAt}`,
-            text: `${event.actorName} set status to ${TICKET_STATUS_LABELS[event.status]}`,
-            createdAt: event.createdAt,
-          },
-        ]);
-      }
-    });
-  }, [ticketId]);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, systemEvents.length]);
+  }, [messages.length]);
 
-  const timeline = useMemo(() => {
-    const items: Array<
-      { type: "message"; data: ThreadMessage } | { type: "system"; data: SystemEvent }
-    > = [
-      ...messages.map((m) => ({ type: "message" as const, data: m })),
-      ...systemEvents.map((s) => ({ type: "system" as const, data: s })),
-    ];
-    items.sort((a, b) => new Date(a.data.createdAt).getTime() - new Date(b.data.createdAt).getTime());
-    return items;
-  }, [messages, systemEvents]);
+  const timeline = useMemo(
+    () => [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [messages],
+  );
 
   async function handleSend() {
     const body = draft.trim();
@@ -171,33 +137,21 @@ export function TicketThread({
           {timeline.length === 0 && (
             <p className="py-8 text-center text-sm text-muted">No messages yet.</p>
           )}
-          {timeline.map((item, i) => {
-            const prevMessage = [...timeline.slice(0, i)].reverse().find((it) => it.type === "message");
-            const nextMessage = timeline.slice(i + 1).find((it) => it.type === "message");
-            const showDateSeparator = !prevMessage || dayKey(prevMessage.data.createdAt) !== dayKey(item.data.createdAt);
+          {timeline.map((m, i) => {
+            const prevMessage = timeline[i - 1];
+            const nextMessage = timeline[i + 1];
+            const showDateSeparator = !prevMessage || dayKey(prevMessage.createdAt) !== dayKey(m.createdAt);
 
-            if (item.type === "system") {
-              return (
-                <div key={item.data.id} className="my-3 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-surface-border" />
-                  <p className="shrink-0 text-[11px] font-medium text-muted">{item.data.text}</p>
-                  <div className="h-px flex-1 bg-surface-border" />
-                </div>
-              );
-            }
-
-            const m = item.data;
             const isMe = m.senderId === currentUserId;
             const isGroupedWithPrev =
               !showDateSeparator &&
-              prevMessage?.type === "message" &&
-              prevMessage.data.senderId === m.senderId &&
-              new Date(m.createdAt).getTime() - new Date(prevMessage.data.createdAt).getTime() < 5 * 60 * 1000;
+              prevMessage.senderId === m.senderId &&
+              new Date(m.createdAt).getTime() - new Date(prevMessage.createdAt).getTime() < 5 * 60 * 1000;
             const isGroupedWithNext =
-              nextMessage?.type === "message" &&
-              dayKey(nextMessage.data.createdAt) === dayKey(m.createdAt) &&
-              nextMessage.data.senderId === m.senderId &&
-              new Date(nextMessage.data.createdAt).getTime() - new Date(m.createdAt).getTime() < 5 * 60 * 1000;
+              !!nextMessage &&
+              dayKey(nextMessage.createdAt) === dayKey(m.createdAt) &&
+              nextMessage.senderId === m.senderId &&
+              new Date(nextMessage.createdAt).getTime() - new Date(m.createdAt).getTime() < 5 * 60 * 1000;
             const isImage = m.attachmentUrl && IMAGE_EXTENSIONS.test(m.attachmentUrl);
 
             return (

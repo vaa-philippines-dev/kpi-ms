@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, Search } from "lucide-react";
 import { Input, Select } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { subscribeToTicketLive } from "@/lib/ticket-live-bus";
 import {
   TICKET_STATUS_LABELS,
   TICKET_PRIORITY_LABELS,
@@ -87,12 +86,9 @@ function relativeTime(iso: string): string {
  * left (search + department/status filters, colored avatars, unread-style
  * "needs reply" dot) and the selected ticket's thread on the right via
  * `children` — the [id] route renders TicketThread/TicketMetaPanel there,
- * the bare /inbox route renders an empty state. Live-patches whichever row
- * is currently open (via ticket-live-bus, the same per-tab fan-out
- * TicketThread itself uses) so the preview/order stays current while
- * chatting instead of only refreshing once you navigate away — every other
- * row still updates the normal way, via TicketNotificationListener's
- * router.refresh() re-running the server-fetched list in inbox/layout.tsx.
+ * the bare /inbox route renders an empty state. The list reflects whatever
+ * `tickets` the server last rendered — there's no live push, so a new
+ * ticket/reply/status change shows up on the next navigation or reload.
  */
 export function InboxShell({ tickets, children }: { tickets: InboxTicketRow[]; children: ReactNode }) {
   const pathname = usePathname();
@@ -101,41 +97,6 @@ export function InboxShell({ tickets, children }: { tickets: InboxTicketRow[]; c
     : null;
   const hasSelection = selectedId !== null;
 
-  const [rows, setRows] = useState(tickets);
-  // Re-sync from the freshly server-fetched list (a new `tickets` reference
-  // arrives whenever TicketNotificationListener's router.refresh() re-runs
-  // inbox/layout.tsx) without an effect — adjusting state during render per
-  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
-  const [syncedTickets, setSyncedTickets] = useState(tickets);
-  if (tickets !== syncedTickets) {
-    setSyncedTickets(tickets);
-    setRows(tickets);
-  }
-
-  useEffect(() => {
-    if (!selectedId) return;
-    return subscribeToTicketLive(selectedId, (event) => {
-      if (event.kind === "message" && event.message) {
-        setRows((prev) => {
-          const next = prev.map((r) =>
-            r.id === selectedId
-              ? {
-                  ...r,
-                  updatedAt: event.createdAt,
-                  status: event.status,
-                  lastMessage: { body: event.message!.body, senderId: event.message!.senderId },
-                }
-              : r,
-          );
-          next.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-          return next;
-        });
-      } else if (event.kind === "status") {
-        setRows((prev) => prev.map((r) => (r.id === selectedId ? { ...r, status: event.status } : r)));
-      }
-    });
-  }, [selectedId]);
-
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("ALL");
   const [statusTab, setStatusTab] = useState<StatusTab>("ALL");
@@ -143,16 +104,16 @@ export function InboxShell({ tickets, children }: { tickets: InboxTicketRow[]; c
   const departmentOptions = useMemo(() => {
     const names = new Set<string>();
     let hasNone = false;
-    for (const r of rows) {
+    for (const r of tickets) {
       if (r.departmentName) names.add(r.departmentName);
       else hasNone = true;
     }
     return [...[...names].sort(), ...(hasNone ? ["No department"] : [])];
-  }, [rows]);
+  }, [tickets]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    return tickets.filter((r) => {
       if (q && !r.subject.toLowerCase().includes(q) && !r.requesterName.toLowerCase().includes(q)) return false;
       if (department !== "ALL") {
         const rowDept = r.departmentName ?? "No department";
@@ -162,7 +123,7 @@ export function InboxShell({ tickets, children }: { tickets: InboxTicketRow[]; c
       if (statusTab !== "ALL") return r.status === statusTab;
       return true;
     });
-  }, [rows, search, department, statusTab]);
+  }, [tickets, search, department, statusTab]);
 
   return (
     <div className="flex h-[75vh] min-h-[560px] overflow-hidden rounded-2xl border border-surface-border bg-surface">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,6 @@ import { Select } from "@/components/ui/input";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
 import { updateTicketStatus, updateTicketMeta, deleteTicket } from "@/app/dashboard/dev/actions";
-import { subscribeToTicketLive } from "@/lib/ticket-live-bus";
 import {
   TICKET_STATUS_LABELS,
   TICKET_PRIORITY_LABELS,
@@ -21,9 +20,7 @@ import { TicketCategory, TicketPriority, TicketStatus } from "@/generated/prisma
 /**
  * Read-only for everyone, editable status/priority/category selects for
  * ADMIN only (enforced server-side too, in dev/actions.ts — this is just
- * the UI gate). Subscribes to the same live bus as TicketThread
- * (ticket-live-bus.ts) so a status change from elsewhere (e.g. the actor's
- * own action, or another tab) reflects here without a page refresh.
+ * the UI gate).
  */
 export function TicketMetaPanel({
   ticketId,
@@ -55,12 +52,6 @@ export function TicketMetaPanel({
   const [category, setCategory] = useState(initialCategory);
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingMeta, setSavingMeta] = useState(false);
-
-  useEffect(() => {
-    return subscribeToTicketLive(ticketId, (event) => {
-      if (event.kind === "status") setStatus(event.status);
-    });
-  }, [ticketId]);
 
   async function handleStatusChange(next: TicketStatus) {
     const previous = status;
