@@ -86,13 +86,19 @@ export default async function ActivityLogPage(props: PageProps<"/dashboard/activ
               Export CSV →
             </a>
             {!showAll && totalCount > RECENT_LIMIT && (
-              <a href="/dashboard/activity?all=1" className="inline-block text-xs text-accent hover:underline">
-                Load full history ({totalCount.toLocaleString()} events) →
+              <a
+                href="/dashboard/activity?all=1"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-surface-border px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-surface-hover"
+              >
+                Show all activity ({totalCount.toLocaleString()} events)
               </a>
             )}
             {showAll && (
-              <a href="/dashboard/activity" className="inline-block text-xs text-accent hover:underline">
-                Show recent only →
+              <a
+                href="/dashboard/activity"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-surface-border px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-surface-hover"
+              >
+                Show recent only
               </a>
             )}
           </div>

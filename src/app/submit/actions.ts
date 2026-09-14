@@ -184,11 +184,20 @@ export async function createSubmission(
     // batched via "view all clusters", so an earlier submission's summary
     // rows must not block a later, still-unsubmitted cluster for the same
     // period.
-    const alreadySubmitted = await prisma.performanceSummary.findFirst({
+    //
+    // Checked against SubmissionRecord/Submission (the real source of
+    // truth for "was this submitted"), not PerformanceSummary: moving a
+    // submission off this period (updateSubmission) or deleting it
+    // (deleteSubmission) recomputes — but never deletes — that period's
+    // PerformanceSummary row, collapsing it to NO_DATA rather than
+    // removing it (see recomputePerformanceSummary's doc comment in
+    // lib/performance.ts). A PerformanceSummary-based check would treat
+    // that leftover NO_DATA row as "already submitted" and permanently
+    // block a VA from ever actually submitting that period again.
+    const alreadySubmitted = await prisma.submissionRecord.findFirst({
       where: {
-        connectionId,
-        periodStart,
         kpiDefinitionId: { in: kpisWithConfig.map(({ kpi }) => kpi.id) },
+        submission: { connectionId, periodStart },
       },
     });
     if (alreadySubmitted) {
