@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import { AlertTriangle, Pencil } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
+import { getClusterIcon } from "@/lib/cluster-icons";
 import {
   getConnectionPeriodDetail,
   updateSubmission,
@@ -207,8 +208,28 @@ export function SubmissionDetailModal({
                 </tr>
               </thead>
               <tbody>
-                {detail.kpiRows.map((r) => (
-                  <tr key={r.kpiDefinitionId} className="border-t border-surface-border">
+                {(() => {
+                  let lastCluster: string | null = null;
+                  return detail.kpiRows.map((r) => {
+                    const isNewCluster = r.cluster !== lastCluster;
+                    lastCluster = r.cluster;
+                    const ClusterIcon = getClusterIcon(r.cluster);
+                    return (
+                      <Fragment key={r.kpiDefinitionId}>
+                        {isNewCluster && (
+                          <tr className="border-t border-surface-border bg-surface-hover/40">
+                            <td
+                              colSpan={4}
+                              className="px-3 py-1.5 text-xs font-semibold tracking-wide text-muted uppercase"
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                <ClusterIcon className="size-3.5" />
+                                {r.cluster}
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                        <tr className="border-t border-surface-border">
                     <td className="px-3 py-2 font-medium">{r.name}</td>
                     <td className="px-3 py-2 text-muted">
                       {editingTargetKpiId === r.kpiDefinitionId ? (
@@ -263,8 +284,11 @@ export function SubmissionDetailModal({
                     <td className="px-3 py-2">
                       {r.missing ? <Badge tone="warning">Missing</Badge> : <StatusBadge status={r.status} />}
                     </td>
-                  </tr>
-                ))}
+                        </tr>
+                      </Fragment>
+                    );
+                  });
+                })()}
                 {detail.kpiRows.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-3 py-6 text-center text-muted">

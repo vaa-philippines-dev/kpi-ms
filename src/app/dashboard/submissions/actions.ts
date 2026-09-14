@@ -81,6 +81,7 @@ export async function getSubmissionsForConnection(
 export type ConnectionPeriodKpiRow = {
   kpiDefinitionId: string;
   name: string;
+  cluster: string;
   unit: string | null;
   direction: KpiDirection;
   targetValue: number;
@@ -180,6 +181,7 @@ export async function getConnectionPeriodDetail(
       return {
         kpiDefinitionId: kpi.id,
         name: kpi.name,
+        cluster: kpi.cluster,
         unit: kpi.unit,
         direction: kpi.direction,
         targetValue: summary?.targetValue ?? config?.targetValue ?? kpi.targetValue,
@@ -188,7 +190,12 @@ export async function getConnectionPeriodDetail(
         missing,
       };
     })
+    // Clustered first (e.g. Facebook vs Instagram) so the detail table reads
+    // as the same grouped-by-area shape as the submission forms, then
+    // missing-first/worst-status-first within each cluster same as before.
     .sort((a, b) => {
+      const clusterCompare = a.cluster.localeCompare(b.cluster);
+      if (clusterCompare !== 0) return clusterCompare;
       if (a.missing !== b.missing) return a.missing ? -1 : 1;
       return DETAIL_STATUS_SEVERITY[a.status] - DETAIL_STATUS_SEVERITY[b.status];
     });

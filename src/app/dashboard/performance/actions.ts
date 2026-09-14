@@ -7,6 +7,7 @@ import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/e
 export type ConnectionWeekKpiRow = {
   kpiDefinitionId: string;
   name: string;
+  cluster: string;
   unit: string | null;
   direction: KpiDirection;
   targetValue: number;
@@ -135,6 +136,7 @@ export async function getConnectionWeekDetail(
     return {
       kpiDefinitionId: kpi.id,
       name: kpi.name,
+      cluster: kpi.cluster,
       unit: kpi.unit,
       direction: kpi.direction,
       targetValue: summary?.targetValue ?? targetValue,
@@ -144,10 +146,13 @@ export async function getConnectionWeekDetail(
       submitted,
     };
   });
-  // Not-yet-submitted rows sink below every real status (including a
-  // genuine "submitted, no data" NO_DATA), so an incomplete cluster reads
-  // as clearly outstanding rather than blending in with the rest.
+  // Clustered first (same grouping the submission forms use), then
+  // not-yet-submitted rows sink below every real status within each cluster
+  // (including a genuine "submitted, no data" NO_DATA), so an incomplete
+  // cluster reads as clearly outstanding rather than blending into the rest.
   kpiRows.sort((a, b) => {
+    const clusterCompare = a.cluster.localeCompare(b.cluster);
+    if (clusterCompare !== 0) return clusterCompare;
     const rankA = a.submitted ? STATUS_SEVERITY[a.status] : 4;
     const rankB = b.submitted ? STATUS_SEVERITY[b.status] : 4;
     return rankA - rankB;
