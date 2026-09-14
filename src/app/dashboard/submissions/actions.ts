@@ -306,7 +306,49 @@ export async function updateSubmission(formData: FormData) {
   const kpiDefinitionIds = submission.records.map((r) => r.kpiDefinitionId);
 
   await prisma.$transaction(async (tx) => {
+    // Each SubmissionRecord.kpiDefinitionId is anchored to one specific
+    // period's KpiDefinition row — WEEKLY and MONTHLY are separate rows
+    // (paired by legacyId) even for "the same" KPI. Moving a submission's
+    // period must re-point every record at the new period's KPI row, or the
+    // KPI status table (which keys "was this KPI submitted this period" off
+    // kpiDefinitionId, not name) permanently stops matching it while the raw
+    // submission list — which just displays the joined KPI name — keeps
+    // looking fine, making the mismatch invisible until someone checks status.
+    let newKpiDefinitionIds = kpiDefinitionIds;
     if (periodChanged) {
+      const oldKpis = await tx.kpiDefinition.findMany({ where: { id: { in: kpiDefinitionIds } } });
+      const remap = new Map<string, string>();
+      for (const oldKpi of oldKpis) {
+        if (oldKpi.period === newPeriod) {
+          remap.set(oldKpi.id, oldKpi.id);
+          continue;
+        }
+        const newKpi = await tx.kpiDefinition.findFirst({
+          where: oldKpi.legacyId
+            ? { legacyId: oldKpi.legacyId, period: newPeriod }
+            : { name: oldKpi.name, departmentId: oldKpi.departmentId, serviceId: oldKpi.serviceId, period: newPeriod },
+        });
+        // Some legacy KPIs only ever had a Weekly or only a Monthly target
+        // (no counterpart row exists) — moving a submission across the
+        // boundary for one of those would otherwise silently leave its
+        // record pointing at the wrong period's KPI forever.
+        if (!newKpi) {
+          throw new Error(
+            `"${oldKpi.name}" has no ${newPeriod === KpiPeriod.WEEKLY ? "weekly" : "monthly"} KPI definition — this submission can't be moved to a ${newPeriod === KpiPeriod.WEEKLY ? "weekly" : "monthly"} period.`,
+          );
+        }
+        remap.set(oldKpi.id, newKpi.id);
+      }
+      for (const [oldId, newId] of remap) {
+        if (oldId !== newId) {
+          await tx.submissionRecord.updateMany({
+            where: { submissionId, kpiDefinitionId: oldId },
+            data: { kpiDefinitionId: newId },
+          });
+        }
+      }
+      newKpiDefinitionIds = kpiDefinitionIds.map((id) => remap.get(id) ?? id);
+
       await tx.submission.update({
         where: { id: submissionId },
         data: { period: newPeriod, periodStart: newPeriodStart },
@@ -328,12 +370,13 @@ export async function updateSubmission(formData: FormData) {
         kpiDefinitionIds,
       });
     }
-    // ...the (possibly same) period's aggregate picks up the current values.
+    // ...the (possibly same) period's aggregate picks up the current values,
+    // under whichever KPI ids they now actually live under.
     await recomputePerformanceSummary(tx, {
       connectionId,
       period: newPeriod,
       periodStart: newPeriodStart,
-      kpiDefinitionIds,
+      kpiDefinitionIds: newKpiDefinitionIds,
     });
 
     const changes: { field: string; oldValue: string | null; newValue: string | null }[] = [];
