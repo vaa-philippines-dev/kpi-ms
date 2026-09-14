@@ -38,13 +38,17 @@ export async function createSubmission(
   );
   const clusterRaw = formData.get("cluster");
   const cluster = typeof clusterRaw === "string" && clusterRaw.length > 0 ? clusterRaw : undefined;
-  // Plural `clusters` (comma-separated) — set by the "view all clusters"
-  // form, which submits several areas in one call. Falls back to the
-  // singular `cluster` for the existing one-area-at-a-time forms.
+  // Plural `clusters` (comma-separated, each name percent-encoded — cluster
+  // names aren't guaranteed comma-free, e.g. "Technical, Logistics &
+  // E-commerce", so a raw join/split would silently truncate that cluster's
+  // name into unmatched fragments and drop every one of its KPIs with no
+  // error) — set by the "view all clusters" form, which submits several
+  // areas in one call. Falls back to the singular `cluster` for the
+  // existing one-area-at-a-time forms.
   const clustersRaw = formData.get("clusters");
   const targetClusters =
     typeof clustersRaw === "string" && clustersRaw.length > 0
-      ? clustersRaw.split(",").filter(Boolean)
+      ? clustersRaw.split(",").filter(Boolean).map((c) => decodeURIComponent(c))
       : cluster
         ? [cluster]
         : undefined;
