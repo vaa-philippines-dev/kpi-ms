@@ -41,11 +41,13 @@ export default async function ConnectionsPage(
   // actions that remain admin-only.
   const canEditKpiConfig =
     isAdmin || session.role === "DM" || session.role === "OPS_MANAGER" || session.role === "OM";
-  // Mirrors requireConnectionEditor() in ./actions.ts — ADMIN, DM, and OM
-  // can edit a connection's status, type, account info, and notes, each
-  // locked to the connections connectionScopeWhere already lets them see;
-  // flagging and deleting a connection stay admin-only (isAdmin above).
-  const canEditConnection = isAdmin || session.role === "DM" || session.role === "OM";
+  // Mirrors requireConnectionEditor() in ./actions.ts — ADMIN, DM,
+  // OPS_MANAGER, and OM can edit a connection's status, type, account info,
+  // and notes, each locked to the connections connectionScopeWhere already
+  // lets them see; flagging and deleting a connection stay admin-only
+  // (isAdmin above).
+  const canEditConnection =
+    isAdmin || isDeptScopedManager || session.role === "OM";
   // Adding a connection manually is admin-only — DM/OPS_MANAGER/OM sync
   // connections in from the CMS instead (canSyncConnections below), so they
   // don't need a manual "add connection" form too.

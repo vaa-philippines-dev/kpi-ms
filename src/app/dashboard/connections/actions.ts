@@ -17,15 +17,16 @@ async function requireAdmin() {
 }
 
 // Editing a connection's status, type, account info, and notes is open to
-// ADMIN, DM (Manager), and OM (Team Leader) — each locked to the
-// connections they can already see via connectionScopeWhere (DM: own
-// department, OM: own team's connections). Same pattern as
-// requireKpiConfigEditor() in kpi-config/actions.ts; flagging and deleting
-// a connection stay admin-only, so those two mutations keep requireAdmin().
+// ADMIN, DM (Manager), OPS_MANAGER (department-wide, DM-equivalent by
+// spec), and OM (Team Leader) — each locked to the connections they can
+// already see via connectionScopeWhere (DM/OPS_MANAGER: own department,
+// OM: own team's connections). Same pattern as requireKpiConfigEditor() in
+// kpi-config/actions.ts; flagging and deleting a connection stay
+// admin-only, so those two mutations keep requireAdmin().
 async function requireConnectionEditor(): Promise<ScopingSession> {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM" && role !== "OM") {
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
     throw new Error("You don't have permission to edit connections.");
   }
   return {
@@ -460,10 +461,10 @@ export async function updateConnectionInfo(formData: FormData) {
 // Reassigns which VA (and, for admins, which department/service) a
 // connection belongs to — the "change the VA connected to this client, or
 // move the connection to another department/service" counterpart to
-// updateConnectionInfo above. DM/OM stay locked to their own department
-// (same restriction requireConnectionCreator applies on create) so they
-// can only reassign VAs within it; only ADMIN can move a connection across
-// departments.
+// updateConnectionInfo above. DM/OPS_MANAGER/OM stay locked to their own
+// department (same restriction requireConnectionCreator applies on create)
+// so they can only reassign VAs within it; only ADMIN can move a
+// connection across departments.
 export async function updateConnectionAssignment(formData: FormData) {
   const session = await requireConnectionEditor();
   const id = String(formData.get("id") ?? "");
