@@ -426,3 +426,97 @@ export async function resetKpiConfig(formData: FormData) {
   revalidatePath("/dashboard/connections/kpi-config");
   revalidatePath("/dashboard");
 }
+
+// Bulk-sets `isApplicable` across every KPI in one cluster for a connection —
+// the cluster-level counterpart to updateKpiConfig's per-KPI checkbox. A
+// connection that doesn't do, say, Pinterest at all has a whole cluster of
+// KPIs that don't apply to it, and flipping each one through its own modal
+// is the same decision repeated N times.
+//
+// Turning a cluster ON only clears existing not-applicable rows: applicable
+// is already the default (KpiConfig.isApplicable @default(true)), so creating
+// rows just to say "yes" would flip the connection to "Custom Config" without
+// overriding anything. Turning it OFF does create the rows it needs, since
+// that genuinely deviates from the KPI Library default.
+export async function updateClusterApplicability(formData: FormData) {
+  const session = await requireKpiConfigEditor();
+  const connectionId = String(formData.get("connectionId") ?? "");
+  if (!connectionId) throw new Error("Missing connection id.");
+  const cluster = String(formData.get("cluster") ?? "");
+  if (!cluster) throw new Error("Missing cluster.");
+  const isApplicable = formData.get("isApplicable") === "true";
+
+  const connection = await prisma.connection.findFirst({
+    where: { id: connectionId, ...connectionScopeWhere(session) },
+    include: { additionalServices: { select: { serviceId: true } } },
+  });
+  if (!connection) throw new Error("Connection not found.");
+
+  // Same department + service filter getKpiConfigDetail builds the table
+  // from, narrowed to one cluster — so this can only ever touch KPIs the
+  // caller can already see listed under that cluster heading. Both the
+  // Weekly and Monthly KpiDefinition rows behind a KPI match, which is what
+  // we want: applicability is edited as one shared value across periods.
+  const definitions = await prisma.kpiDefinition.findMany({
+    where: {
+      departmentId: connection.departmentId,
+      cluster,
+      OR: kpiApplicabilityOR(getConnectionServiceIds(connection)),
+    },
+    select: { id: true },
+  });
+  if (definitions.length === 0) throw new Error("No applicable KPIs in that cluster.");
+
+  const existingConfigs = await prisma.kpiConfig.findMany({
+    where: { connectionId, kpiDefinitionId: { in: definitions.map((d) => d.id) } },
+  });
+  const configuredIds = new Set(existingConfigs.map((c) => c.kpiDefinitionId));
+
+  const toCreate = isApplicable ? [] : definitions.filter((d) => !configuredIds.has(d.id));
+  const toUpdate = existingConfigs.filter((c) => c.isApplicable !== isApplicable);
+  if (toCreate.length === 0 && toUpdate.length === 0) return;
+
+  const entityLabel = `${cluster} — ${connection.clientName}`;
+  await prisma.$transaction(async (tx) => {
+    if (toCreate.length > 0) {
+      await tx.kpiConfig.createMany({
+        data: toCreate.map((d) => ({
+          connectionId,
+          kpiDefinitionId: d.id,
+          isApplicable,
+          updatedById: session.id,
+        })),
+      });
+    }
+    if (toUpdate.length > 0) {
+      await tx.kpiConfig.updateMany({
+        where: { id: { in: toUpdate.map((c) => c.id) } },
+        data: { isApplicable, version: { increment: 1 }, updatedById: session.id },
+      });
+      await tx.kpiConfigHistory.createMany({
+        data: toUpdate.map((c) => ({
+          kpiConfigId: c.id,
+          fieldChanged: "isApplicable",
+          oldValue: String(c.isApplicable),
+          newValue: String(isApplicable),
+          changedById: session.id,
+        })),
+      });
+    }
+    // One aggregate entry rather than one per KPI row — a cluster can hold
+    // a dozen KPIs across two periods, and "turned Pinterest off" is the
+    // single decision actually worth reading back in the Activity Log.
+    await logActivity(tx, {
+      actor: { id: session.id, role: session.role },
+      action: "UPDATE",
+      entityType: "KpiConfig",
+      entityId: connectionId,
+      entityLabel,
+      summary: `Marked the ${cluster} cluster ${isApplicable ? "applicable" : "not applicable"} for ${connection.clientName} (${toCreate.length + toUpdate.length} KPI row${toCreate.length + toUpdate.length === 1 ? "" : "s"})`,
+      changes: [{ field: "isApplicable", oldValue: null, newValue: String(isApplicable) }],
+      departmentId: connection.departmentId,
+    });
+  });
+  revalidatePath("/dashboard/connections/kpi-config");
+  revalidatePath("/dashboard");
+}

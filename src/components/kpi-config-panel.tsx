@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState, useTransition } from "react";
+import { Fragment, ReactNode, useEffect, useState, useTransition } from "react";
 import { Eye, Pencil } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   getKpiConfigDetail,
   initKpiConfig,
   updateKpiConfig,
+  updateClusterApplicability,
   resetKpiConfig,
   type KpiConfigGroupRow,
   type KpiConfigEditor,
@@ -35,6 +36,105 @@ const DIRECTION_LABELS: Record<KpiDirection, string> = {
   LOWER_IS_BETTER: "Lower is better",
 };
 
+type ClusterGroup = {
+  cluster: string;
+  rows: KpiConfigGroupRow[];
+  applicableCount: number;
+};
+
+/**
+ * Buckets the flat KPI list into its clusters (the same free-text grouping the
+ * submission side already navigates by — see lib/kpi-cluster.ts), so
+ * applicability can be judged and set a cluster at a time. A connection that
+ * simply doesn't do Pinterest has a whole cluster of KPIs that don't apply to
+ * it, and the per-KPI checkbox makes that one decision N modal round trips.
+ */
+function groupByCluster(rows: KpiConfigGroupRow[]): ClusterGroup[] {
+  const byCluster = new Map<string, KpiConfigGroupRow[]>();
+  for (const row of rows) {
+    const list = byCluster.get(row.cluster) ?? [];
+    list.push(row);
+    byCluster.set(row.cluster, list);
+  }
+  return [...byCluster.entries()]
+    .map(([cluster, clusterRows]) => ({
+      cluster,
+      rows: clusterRows,
+      applicableCount: clusterRows.filter((r) => r.isApplicable).length,
+    }))
+    .sort((a, b) => a.cluster.localeCompare(b.cluster));
+}
+
+/**
+ * The heading row that precedes each cluster's KPI rows: its applicable tally,
+ * plus (for editors) the bulk actions. Only the action that would actually
+ * change something is offered — an all-applicable cluster has nothing to gain
+ * from "Mark all applicable" — so the pair doubles as a state readout.
+ */
+function ClusterHeaderRow({
+  group,
+  connectionId,
+  canEdit,
+  onChanged,
+}: {
+  group: ClusterGroup;
+  connectionId: string;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const { cluster, applicableCount } = group;
+  const total = group.rows.length;
+  const kpiLabel = `${total} KPI${total === 1 ? "" : "s"}`;
+
+  return (
+    <tr className="border-t border-surface-border bg-surface">
+      <Td colSpan={8}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold tracking-wide uppercase">{cluster}</span>
+            <span className="text-xs text-muted">{kpiLabel}</span>
+            {applicableCount === total ? (
+              <Badge tone="success">All applicable</Badge>
+            ) : applicableCount === 0 ? (
+              <Badge tone="neutral">Not applicable</Badge>
+            ) : (
+              <Badge tone="warning">
+                {applicableCount} of {total} applicable
+              </Badge>
+            )}
+          </div>
+          {canEdit && (
+            <div className="flex items-center gap-3">
+              {applicableCount < total && (
+                <ConfirmSubmitButton
+                  action={updateClusterApplicability}
+                  fields={{ connectionId, cluster, isApplicable: "true" }}
+                  label="Mark all applicable"
+                  confirmLabel={`Mark all ${kpiLabel} in ${cluster} applicable?`}
+                  successMessage={`${cluster} marked applicable.`}
+                  onSuccess={onChanged}
+                  tone="accent"
+                />
+              )}
+              {applicableCount > 0 && (
+                <ConfirmSubmitButton
+                  action={updateClusterApplicability}
+                  fields={{ connectionId, cluster, isApplicable: "false" }}
+                  label="Mark none applicable"
+                  confirmLabel={`Mark all ${kpiLabel} in ${cluster} not applicable?`}
+                  successMessage={`${cluster} marked not applicable.`}
+                  onSuccess={onChanged}
+                  tone="danger"
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </Td>
+    </tr>
+  );
+}
+
 /**
  * Per-connection KPI override editor — the guts of `KpiConfigTable`'s
  * row-click modal, extracted so it can also be embedded as a tab inside the
@@ -43,7 +143,8 @@ const DIRECTION_LABELS: Record<KpiDirection, string> = {
  * separate system-wide KPI Config screen). One row per KPI (Weekly and
  * Monthly targets side by side, mirroring legacy's KPI_Master grouping), with
  * a per-row "View/Edit" opening the detail editor (legacy's
- * `openKPIConfigEditor()`).
+ * `openKPIConfigEditor()`). Rows sit under their cluster's heading row, which
+ * carries the bulk applicability actions — see ClusterHeaderRow.
  */
 export function KpiConfigPanel({
   connectionId,
@@ -156,43 +257,52 @@ export function KpiConfigPanel({
             </tr>
           </TableHead>
           <tbody>
-            {detail.rows.map((r) => (
-              <Tr key={r.key}>
-                <Td>
-                  <div className="font-medium">{r.name}</div>
-                  <div className="text-xs text-muted">{r.cluster}</div>
-                </Td>
-                <Td>{r.weekly ? r.weekly.targetValue : "—"}</Td>
-                <Td>{r.monthly ? r.monthly.targetValue : "—"}</Td>
-                <Td className="font-semibold text-warning">
-                  {r.deviationThresholdPct}
-                  {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
-                </Td>
-                <Td className="font-semibold text-danger">
-                  {r.criticalThresholdPct}
-                  {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
-                </Td>
-                <Td>
-                  {r.isApplicable ? (
-                    <Badge tone="success">Yes</Badge>
-                  ) : (
-                    <Badge tone="neutral">No</Badge>
-                  )}
-                </Td>
-                <Td className="text-xs">
-                  <LastEditedBy editor={r.lastEditedBy} />
-                </Td>
-                <Td className="text-right">
-                  <button
-                    type="button"
-                    onClick={() => setEditing(r)}
-                    aria-label={`${canEdit ? "Edit" : "View"} ${r.name}`}
-                    className="text-muted transition hover:text-foreground"
-                  >
-                    {canEdit ? <Pencil className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </Td>
-              </Tr>
+            {groupByCluster(detail.rows).map((group) => (
+              <Fragment key={group.cluster}>
+                <ClusterHeaderRow
+                  group={group}
+                  connectionId={connectionId}
+                  canEdit={canEdit}
+                  onChanged={load}
+                />
+                {group.rows.map((r) => (
+                  <Tr key={r.key}>
+                    <Td>
+                      <div className="font-medium">{r.name}</div>
+                    </Td>
+                    <Td>{r.weekly ? r.weekly.targetValue : "—"}</Td>
+                    <Td>{r.monthly ? r.monthly.targetValue : "—"}</Td>
+                    <Td className="font-semibold text-warning">
+                      {r.deviationThresholdPct}
+                      {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
+                    </Td>
+                    <Td className="font-semibold text-danger">
+                      {r.criticalThresholdPct}
+                      {r.thresholdUnit === ThresholdUnit.VALUE ? "" : "%"}
+                    </Td>
+                    <Td>
+                      {r.isApplicable ? (
+                        <Badge tone="success">Yes</Badge>
+                      ) : (
+                        <Badge tone="neutral">No</Badge>
+                      )}
+                    </Td>
+                    <Td className="text-xs">
+                      <LastEditedBy editor={r.lastEditedBy} />
+                    </Td>
+                    <Td className="text-right">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(r)}
+                        aria-label={`${canEdit ? "Edit" : "View"} ${r.name}`}
+                        className="text-muted transition hover:text-foreground"
+                      >
+                        {canEdit ? <Pencil className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </Td>
+                  </Tr>
+                ))}
+              </Fragment>
             ))}
           </tbody>
         </Table>
