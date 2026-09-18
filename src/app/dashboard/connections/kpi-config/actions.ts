@@ -124,9 +124,18 @@ export async function getKpiConfigDetail(connectionId: string) {
   // Group by (name, cluster) so a KPI's Weekly and Monthly KpiDefinition
   // rows land in one KpiConfigGroupRow with side-by-side target columns,
   // in the same order applicableKpis was fetched in (name, cluster, period).
+  // cluster is trimmed for the key (and for display) — a KPI's Weekly and
+  // Monthly rows are meant to share one cluster, and stray whitespace on
+  // just one of them (seen once in production: a trailing-tab-corrupted
+  // cluster on a legacy-imported MONTHLY row) would otherwise silently
+  // split them into two incomplete, half-uneditable rows instead of
+  // merging. createKpiDefinition/updateKpiDefinition/moveKpiCluster
+  // already trim on write; this trims on read too, as a second line of
+  // defense against any other stray/legacy data.
   const groups = new Map<string, KpiConfigGroupRow>();
   for (const def of applicableKpis) {
-    const key = `${def.name}::${def.cluster}`;
+    const cluster = def.cluster.trim();
+    const key = `${def.name}::${cluster}`;
     const config = configByDefId.get(def.id) ?? null;
     const periodInfo: KpiConfigPeriodInfo = {
       kpiDefinitionId: def.id,
@@ -140,7 +149,7 @@ export async function getKpiConfigDetail(connectionId: string) {
       group = {
         key,
         name: def.name,
-        cluster: def.cluster,
+        cluster,
         unit: def.unit,
         direction: def.direction,
         weekly: null,
