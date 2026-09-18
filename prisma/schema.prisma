@@ -138,6 +138,7 @@ model Service {
   users                    User[]
   connectionMemberships    ConnectionService[]
   kpiDefinitionMemberships KpiDefinitionService[]
+  vaMemberships            UserService[]
   createdAt                DateTime               @default(now()) @db.Timestamptz(3)
   updatedAt                DateTime               @updatedAt @db.Timestamptz(3)
 
@@ -541,6 +542,13 @@ model User {
   // single-department, since their own department drives their own
   // authorization scope, not just a display label like it is for a VA.
   additionalDepartments UserDepartment[]
+  // Extra services a VA also holds, on top of `service` above — one level
+  // down from additionalDepartments: since every Service belongs to
+  // exactly one Department, a hybrid VA picks at most one service per
+  // department they belong to (see assertTeamAndServiceInDepartment in
+  // dashboard/users/actions.ts). Team stays single/fixed regardless —
+  // this only extends Service, not Team.
+  additionalServices    UserService[]
   createdAt             DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
 
@@ -598,4 +606,23 @@ model UserDepartment {
 
   @@unique([userId, departmentId])
   @@index([departmentId])
+}
+
+// A VA's services beyond the primary `User.service` above — mirrors
+// UserDepartment's "home + additional" pattern one level down, same
+// convention: `service` UNION whatever's here, no service among them
+// treated as more "real" than another. Each service still belongs to
+// exactly one Department, so each row here should resolve to one of this
+// VA's own departments (home `department` or one of `additionalDepartments`) —
+// enforced in assertTeamAndServiceInDepartment, not at the DB level.
+model UserService {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, serviceId])
+  @@index([serviceId])
 }

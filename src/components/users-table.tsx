@@ -11,8 +11,10 @@ import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
 import { updateUser, toggleUserActive } from "@/app/dashboard/users/actions";
+import { ServiceCheckboxGroups } from "@/components/service-checkbox-groups";
 
 type Option = { id: string; name: string };
+type ServiceOption = Option & { departmentId: string };
 
 export type UserRow = {
   id: string;
@@ -27,6 +29,7 @@ export type UserRow = {
   serviceId: string | null;
   teamId: string | null;
   additionalDepartmentIds: string[];
+  additionalServiceIds: string[];
 };
 
 const ROLE_FILTER_OPTIONS = Object.values(UserRole).map((r) => ({
@@ -130,7 +133,7 @@ export function UsersTable({
 }: {
   users: UserRow[];
   departments: Option[];
-  services: Option[];
+  services: ServiceOption[];
   teams: Option[];
   /** Role choices offered in the edit modal — a DM only offers OM/VA (mirrors createUser's restriction). */
   roles?: UserRole[];
@@ -236,14 +239,26 @@ export function UsersTable({
                     ))}
                   </Select>
                 )}
-                <Select name="serviceId" defaultValue={editing.serviceId ?? ""}>
-                  <option value="">Service —</option>
-                  {services.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
+                {isAdmin && editRole === UserRole.VA ? (
+                  <ServiceCheckboxGroups
+                    departments={departments}
+                    services={services}
+                    defaultCheckedIds={
+                      editing.serviceId
+                        ? [editing.serviceId, ...editing.additionalServiceIds]
+                        : editing.additionalServiceIds
+                    }
+                  />
+                ) : (
+                  <Select name="serviceId" defaultValue={editing.serviceId ?? ""}>
+                    <option value="">Service —</option>
+                    {services.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
                 <Select name="teamId" defaultValue={editing.teamId ?? ""}>
                   <option value="">Team —</option>
                   {teams.map((t) => (
