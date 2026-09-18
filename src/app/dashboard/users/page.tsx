@@ -178,24 +178,27 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
       service: { select: { name: true } },
       team: { select: { name: true } },
       additionalDepartments: { select: { departmentId: true, department: { select: { name: true } } } },
+      additionalServices: { select: { serviceId: true, service: { select: { name: true } } } },
     },
   });
 
   const rows: UserRow[] = users.map((u) => {
-    const extraNames = u.additionalDepartments.map((d) => d.department.name);
+    const extraDeptNames = u.additionalDepartments.map((d) => d.department.name);
+    const extraServiceNames = u.additionalServices.map((s) => s.service.name);
     return {
       id: u.id,
       email: u.email,
       name: u.name,
       role: u.role,
       isActive: u.isActive,
-      departmentName: [u.department?.name, ...extraNames].filter(Boolean).join(", ") || UNASSIGNED,
-      serviceName: u.service?.name ?? null,
+      departmentName: [u.department?.name, ...extraDeptNames].filter(Boolean).join(", ") || UNASSIGNED,
+      serviceName: [u.service?.name, ...extraServiceNames].filter(Boolean).join(", ") || null,
       teamName: u.team?.name ?? null,
       departmentId: u.departmentId,
       serviceId: u.serviceId,
       teamId: u.teamId,
       additionalDepartmentIds: u.additionalDepartments.map((d) => d.departmentId),
+      additionalServiceIds: u.additionalServices.map((s) => s.serviceId),
     };
   });
 

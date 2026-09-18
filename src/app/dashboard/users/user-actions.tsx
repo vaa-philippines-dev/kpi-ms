@@ -6,8 +6,10 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
+import { ServiceCheckboxGroups } from "@/components/service-checkbox-groups";
 
 type Option = { id: string; name: string };
+type ServiceOption = Option & { departmentId: string };
 
 export function UserActions({
   departments,
@@ -19,7 +21,7 @@ export function UserActions({
   bulkCreateUsers,
 }: {
   departments: Option[];
-  services: Option[];
+  services: ServiceOption[];
   teams: Option[];
   /** Role choices offered in the Add-user form — a DM only offers OM/VA (mirrors legacy's Manager create form). */
   roles?: UserRole[];
@@ -101,14 +103,18 @@ export function UserActions({
               ))}
             </Select>
           )}
-          <Select name="serviceId" defaultValue="">
-            <option value="">Service (optional)</option>
-            {services.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
+          {isAdmin && addRole === UserRole.VA ? (
+            <ServiceCheckboxGroups departments={departments} services={services} />
+          ) : (
+            <Select name="serviceId" defaultValue="">
+              <option value="">Service (optional)</option>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          )}
           <Select name="teamId" defaultValue="">
             <option value="">Team (optional)</option>
             {teams.map((t) => (
