@@ -84,3 +84,26 @@ export async function createPublicSheet(
 
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 }
+
+/**
+ * Overwrites an already-shared spreadsheet's first sheet in place — clears
+ * the existing values, then writes `headers` + `rows` starting at A1 — so
+ * repeat callers (the weekly auto-export) keep refreshing the same link
+ * instead of leaving a new file behind on every run.
+ */
+export async function updatePublicSheet(
+  spreadsheetId: string,
+  headers: string[],
+  rows: (string | number)[][],
+): Promise<void> {
+  const authClient = getAuth();
+  const sheets = google.sheets({ version: "v4", auth: authClient });
+
+  await sheets.spreadsheets.values.clear({ spreadsheetId, range: "A:Z" });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: "A1",
+    valueInputOption: "RAW",
+    requestBody: { values: [headers, ...rows] },
+  });
+}

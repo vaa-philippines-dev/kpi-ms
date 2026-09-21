@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { UserRole } from "@/generated/prisma/enums";
 
 export const DEFAULT_INTERVENTION_TYPES = [
   "Coaching",
@@ -34,6 +35,35 @@ export async function getWeekStartDay(): Promise<number> {
   });
   const parsed = setting?.value ? Number(setting.value) : NaN;
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 6 ? parsed : 1;
+}
+
+const WEEKLY_KPI_SHEET_ID_KEY = "WEEKLY_KPI_SHEET_ID";
+
+/** The standing weekly export's spreadsheet ID, once one has ever been created. */
+export async function getWeeklyKpiSheetId(): Promise<string | null> {
+  const setting = await prisma.setting.findUnique({ where: { key: WEEKLY_KPI_SHEET_ID_KEY } });
+  return setting?.value || null;
+}
+
+/**
+ * Records the weekly export's spreadsheet ID so later runs update it in
+ * place instead of creating a new file. Setting.updatedById is a required
+ * FK to a real user, but this write comes from an unattended cron run with
+ * no session — attributed to the oldest ADMIN account instead. A no-op if
+ * no admin exists yet (the next run will just create another sheet).
+ */
+export async function setWeeklyKpiSheetId(spreadsheetId: string): Promise<void> {
+  const admin = await prisma.user.findFirst({
+    where: { role: UserRole.ADMIN },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (!admin) return;
+  await prisma.setting.upsert({
+    where: { key: WEEKLY_KPI_SHEET_ID_KEY },
+    create: { key: WEEKLY_KPI_SHEET_ID_KEY, value: spreadsheetId, updatedById: admin.id },
+    update: { value: spreadsheetId, updatedById: admin.id },
+  });
 }
 
 export type SystemMessageTone = "update" | "notice" | "caution";
