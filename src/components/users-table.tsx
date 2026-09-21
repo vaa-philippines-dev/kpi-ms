@@ -12,9 +12,11 @@ import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
 import { updateUser, toggleUserActive } from "@/app/dashboard/users/actions";
 import { ServiceCheckboxGroups } from "@/components/service-checkbox-groups";
+import { TeamCheckboxGroups } from "@/components/team-checkbox-groups";
 
 type Option = { id: string; name: string };
 type ServiceOption = Option & { departmentId: string };
+type TeamOption = Option & { departmentId: string };
 
 export type UserRow = {
   id: string;
@@ -30,6 +32,7 @@ export type UserRow = {
   teamId: string | null;
   additionalDepartmentIds: string[];
   additionalServiceIds: string[];
+  additionalTeamIds: string[];
 };
 
 const ROLE_FILTER_OPTIONS = Object.values(UserRole).map((r) => ({
@@ -129,17 +132,20 @@ export function UsersTable({
   roles = Object.values(UserRole),
   canManage,
   isAdmin = false,
+  isDeptScopedManager = false,
   viewerDepartmentId = null,
 }: {
   users: UserRow[];
   departments: Option[];
   services: ServiceOption[];
-  teams: Option[];
+  teams: TeamOption[];
   /** Role choices offered in the edit modal — a DM only offers OM/VA (mirrors createUser's restriction). */
   roles?: UserRole[];
   canManage: boolean;
-  /** Admin only: lets a VA's department field become a multi-select. */
+  /** Admin only: lets a VA's department (and team) field become a multi-select. */
   isAdmin?: boolean;
+  /** DM/Ops Manager: lets a VA's service field become a multi-select within their own department. */
+  isDeptScopedManager?: boolean;
   /**
    * A DM/Ops Manager's own department — when set (non-admin managers only),
    * rows whose primary department isn't this one are shown but not
@@ -239,7 +245,7 @@ export function UsersTable({
                     ))}
                   </Select>
                 )}
-                {isAdmin && editRole === UserRole.VA ? (
+                {(isAdmin || isDeptScopedManager) && editRole === UserRole.VA ? (
                   <ServiceCheckboxGroups
                     departments={departments}
                     services={services}
@@ -259,14 +265,26 @@ export function UsersTable({
                     ))}
                   </Select>
                 )}
-                <Select name="teamId" defaultValue={editing.teamId ?? ""}>
-                  <option value="">Team —</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </Select>
+                {isAdmin && editRole === UserRole.VA ? (
+                  <TeamCheckboxGroups
+                    departments={departments}
+                    teams={teams}
+                    defaultCheckedIds={
+                      editing.teamId
+                        ? [editing.teamId, ...editing.additionalTeamIds]
+                        : editing.additionalTeamIds
+                    }
+                  />
+                ) : (
+                  <Select name="teamId" defaultValue={editing.teamId ?? ""}>
+                    <option value="">Team —</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
               </div>
               <Button type="submit" className="w-full">
                 Save

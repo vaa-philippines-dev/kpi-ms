@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { logActivity, diffFields } from "@/lib/activity-log";
 import { UserRole } from "@/generated/prisma/enums";
+import type { Prisma } from "@/generated/prisma/client";
 
 type ManagingSession = { id: string; role: UserRole; departmentId: string | null };
 
@@ -42,40 +43,46 @@ function optionalId(formData: FormData, key: string): string | null {
 // keys visibility off team leadership, so this is a real cross-department
 // escalation route, not just a data-integrity nicety.
 //
-// Team is checked against the single primary `departmentId` only — Team
-// stays fixed/single regardless of how many departments or services a
-// hybrid VA holds. Services are checked against the VA's full department
-// set (`allDepartmentIds` — primary + additional), since a hybrid VA's
-// extra services belong to their extra departments, not the primary one.
-// Each Service belongs to exactly one Department, so at most one service
-// per department is allowed here — a second service in an already-covered
-// department isn't a new capability, just an ambiguous duplicate.
-async function assertTeamAndServicesInDepartments(
-  teamId: string | null,
+// Teams are checked against the VA's full department set (`allDepartmentIds`
+// — primary + additional), same as services below, but — unlike services —
+// still capped at one team per department: a Team always belongs to exactly
+// one Department, so a second team in an already-covered department isn't a
+// new capability, just an ambiguous duplicate. Services have no such cap
+// (mirrors Connection.additionalServices, which already allows more than one
+// service within a single department — see getConnectionServiceIds in
+// lib/connection-services.ts) — they just need to belong to one of the VA's
+// departments.
+async function assertTeamsAndServicesInDepartments(
+  teamIds: string[],
   serviceIds: string[],
-  departmentId: string | null,
   allDepartmentIds: string[],
 ): Promise<void> {
-  const [team, services] = await Promise.all([
-    teamId ? prisma.team.findUnique({ where: { id: teamId } }) : null,
+  const [teams, services] = await Promise.all([
+    teamIds.length > 0 ? prisma.team.findMany({ where: { id: { in: teamIds } } }) : [],
     serviceIds.length > 0 ? prisma.service.findMany({ where: { id: { in: serviceIds } } }) : [],
   ]);
 
-  if (teamId && (!team || team.departmentId !== departmentId)) {
+  if (teams.length !== teamIds.length) {
     throw new Error("Selected team does not belong to the chosen department.");
   }
+  const seenTeamDepartmentIds = new Set<string>();
+  for (const team of teams) {
+    if (!allDepartmentIds.includes(team.departmentId)) {
+      throw new Error("Selected team does not belong to the chosen department.");
+    }
+    if (seenTeamDepartmentIds.has(team.departmentId)) {
+      throw new Error("Only one team can be selected per department.");
+    }
+    seenTeamDepartmentIds.add(team.departmentId);
+  }
+
   if (services.length !== serviceIds.length) {
     throw new Error("Selected service does not belong to the chosen department.");
   }
-  const seenDepartmentIds = new Set<string>();
   for (const service of services) {
     if (!allDepartmentIds.includes(service.departmentId)) {
       throw new Error("Selected service does not belong to the chosen department.");
     }
-    if (seenDepartmentIds.has(service.departmentId)) {
-      throw new Error("Only one service can be selected per department.");
-    }
-    seenDepartmentIds.add(service.departmentId);
   }
 }
 
@@ -88,7 +95,7 @@ export async function createUser(formData: FormData) {
   const role = String(formData.get("role") ?? "") as UserRole;
   let departmentId = optionalId(formData, "departmentId");
   let serviceId = optionalId(formData, "serviceId");
-  const teamId = optionalId(formData, "teamId");
+  let teamId = optionalId(formData, "teamId");
 
   if (!email || !Object.values(UserRole).includes(role)) {
     throw new Error("Email and role are required.");
@@ -97,18 +104,33 @@ export async function createUser(formData: FormData) {
   // Admin only — a VA can be tagged with more than one department (e.g. one
   // VA doing both Amazon and Executive Assistant work); every department is
   // treated equally, with departmentId as just the first of the set. Same
-  // idea one level down for services: extraServiceIds holds whichever
-  // services beyond the first-picked one were checked (at most one per
-  // department, enforced below). DMs/Ops Managers stay strictly
-  // single-department (see below), so this never applies to their create flow.
+  // idea one level down for teams: extraTeamIds holds whichever teams beyond
+  // the first-picked one were checked (at most one per department, enforced
+  // below). DMs/Ops Managers stay strictly single-department (see below), so
+  // this never applies to their create flow.
   let extraDepartmentIds: string[] = [];
-  let extraServiceIds: string[] = [];
+  let extraTeamIds: string[] = [];
   if (session.role === "ADMIN" && role === UserRole.VA) {
     const submittedDepartments = formData.getAll("departmentIds").map(String).filter(Boolean);
     if (submittedDepartments.length > 0) {
       departmentId = submittedDepartments[0];
       extraDepartmentIds = submittedDepartments.slice(1);
     }
+    const submittedTeams = formData.getAll("teamIds").map(String).filter(Boolean);
+    if (submittedTeams.length > 0) {
+      teamId = submittedTeams[0];
+      extraTeamIds = submittedTeams.slice(1);
+    }
+  }
+
+  // Services: admin (full department set) or a DM/Ops Manager (their own
+  // single department only — a VA can now hold more than one service within
+  // that one department, no per-department cap unlike teams above).
+  let extraServiceIds: string[] = [];
+  if (
+    (session.role === "ADMIN" || DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) &&
+    role === UserRole.VA
+  ) {
     const submittedServices = formData.getAll("serviceIds").map(String).filter(Boolean);
     if (submittedServices.length > 0) {
       serviceId = submittedServices[0];
@@ -129,7 +151,8 @@ export async function createUser(formData: FormData) {
     (v): v is string => Boolean(v),
   );
   const allServiceIds = [serviceId, ...extraServiceIds].filter((v): v is string => Boolean(v));
-  await assertTeamAndServicesInDepartments(teamId, allServiceIds, departmentId, allDepartmentIds);
+  const allTeamIds = [teamId, ...extraTeamIds].filter((v): v is string => Boolean(v));
+  await assertTeamsAndServicesInDepartments(allTeamIds, allServiceIds, allDepartmentIds);
 
   // Pre-provisions the row so it's ready with the right role/department the
   // moment this person signs in with Google — the NextAuth jwt callback
@@ -147,6 +170,9 @@ export async function createUser(formData: FormData) {
         : {}),
       ...(extraServiceIds.length > 0
         ? { additionalServices: { create: extraServiceIds.map((id) => ({ serviceId: id })) } }
+        : {}),
+      ...(extraTeamIds.length > 0
+        ? { additionalTeams: { create: extraTeamIds.map((id) => ({ teamId: id })) } }
         : {}),
     },
   });
@@ -173,7 +199,7 @@ export async function updateUser(formData: FormData) {
   const role = String(formData.get("role") ?? "") as UserRole;
   let departmentId = optionalId(formData, "departmentId");
   let serviceId = optionalId(formData, "serviceId");
-  const teamId = optionalId(formData, "teamId");
+  let teamId = optionalId(formData, "teamId");
 
   if (!email) {
     throw new Error("Email is required.");
@@ -189,7 +215,7 @@ export async function updateUser(formData: FormData) {
 
   const target = await prisma.user.findUnique({
     where: { id },
-    include: { additionalDepartments: true, additionalServices: true },
+    include: { additionalDepartments: true, additionalServices: true, additionalTeams: true },
   });
   if (!target) throw new Error("User not found.");
   const targetDepartmentIds = new Set(
@@ -199,11 +225,11 @@ export async function updateUser(formData: FormData) {
   );
 
   // Admin only — see createUser for why. Replaces the VA's full department
-  // (and, one level down, service) set with whatever was submitted; a
-  // non-VA role change below drops any additional departments/services,
-  // since only VAs carry them.
+  // (and, one level down, team) set with whatever was submitted; a non-VA
+  // role change below drops any additional departments/teams, since only
+  // VAs carry them.
   let extraDepartmentIds: string[] | null = null;
-  let extraServiceIds: string[] | null = null;
+  let extraTeamIds: string[] | null = null;
   if (session.role === "ADMIN" && role === UserRole.VA) {
     const submittedDepartments = formData.getAll("departmentIds").map(String).filter(Boolean);
     if (submittedDepartments.length > 0) {
@@ -217,12 +243,31 @@ export async function updateUser(formData: FormData) {
         : submittedDepartments[0];
       extraDepartmentIds = submittedDepartments.filter((depId) => depId !== departmentId);
     }
+    const submittedTeams = formData.getAll("teamIds").map(String).filter(Boolean);
+    if (submittedTeams.length > 0) {
+      teamId = submittedTeams.includes(target.teamId ?? "") ? target.teamId : submittedTeams[0];
+      extraTeamIds = submittedTeams.filter((tId) => tId !== teamId);
+    }
+  }
+
+  // Services: admin (full department set, full replace below) or a
+  // DM/Ops Manager (their own single department only — see the write-path
+  // below for why their save must not touch services outside it).
+  let extraServiceIds: string[] | null = null;
+  let dmServiceDepartmentId: string | null = null;
+  if (
+    (session.role === "ADMIN" || DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) &&
+    role === UserRole.VA
+  ) {
     const submittedServices = formData.getAll("serviceIds").map(String).filter(Boolean);
     if (submittedServices.length > 0) {
       serviceId = submittedServices.includes(target.serviceId ?? "")
         ? target.serviceId
         : submittedServices[0];
       extraServiceIds = submittedServices.filter((svcId) => svcId !== serviceId);
+    }
+    if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
+      dmServiceDepartmentId = session.departmentId;
     }
   }
 
@@ -268,7 +313,8 @@ export async function updateUser(formData: FormData) {
   const allServiceIds = [serviceId, ...(extraServiceIds ?? [])].filter(
     (v): v is string => Boolean(v),
   );
-  await assertTeamAndServicesInDepartments(teamId, allServiceIds, departmentId, allDepartmentIds);
+  const allTeamIds = [teamId, ...(extraTeamIds ?? [])].filter((v): v is string => Boolean(v));
+  await assertTeamsAndServicesInDepartments(allTeamIds, allServiceIds, allDepartmentIds);
 
   const before = target;
   const after = { email, name, role, departmentId, serviceId, teamId };
@@ -288,8 +334,32 @@ export async function updateUser(formData: FormData) {
       // a non-VA role never reads.
       await tx.userDepartment.deleteMany({ where: { userId: id } });
     }
+    if (extraTeamIds !== null) {
+      await tx.userTeam.deleteMany({ where: { userId: id } });
+      if (extraTeamIds.length > 0) {
+        await tx.userTeam.createMany({
+          data: extraTeamIds.map((tId) => ({ userId: id, teamId: tId })),
+          skipDuplicates: true,
+        });
+      }
+    } else if (role !== UserRole.VA && before.additionalTeams.length > 0) {
+      // Demoted out of VA — additional teams are a VA-only concept, same
+      // reasoning as additional departments above.
+      await tx.userTeam.deleteMany({ where: { userId: id } });
+    }
     if (extraServiceIds !== null) {
-      await tx.userService.deleteMany({ where: { userId: id } });
+      // Admin sees (and submits) the VA's full service universe, so a plain
+      // full replace is authoritative. A DM/Ops Manager's form only ever
+      // shows their own single department's services (see
+      // service-checkbox-groups.tsx usage in user-actions.tsx/users-table.tsx),
+      // so their save must only touch that department's slice — otherwise it
+      // would silently wipe additionalServices rows in other departments
+      // that their form never displayed (e.g. set earlier by an admin for a
+      // hybrid VA).
+      const serviceDeleteWhere: Prisma.UserServiceWhereInput = dmServiceDepartmentId
+        ? { userId: id, service: { departmentId: dmServiceDepartmentId } }
+        : { userId: id };
+      await tx.userService.deleteMany({ where: serviceDeleteWhere });
       if (extraServiceIds.length > 0) {
         await tx.userService.createMany({
           data: extraServiceIds.map((svcId) => ({ userId: id, serviceId: svcId })),
@@ -334,10 +404,9 @@ export async function bulkCreateUsers(formData: FormData) {
     departmentId = session.departmentId;
   }
 
-  await assertTeamAndServicesInDepartments(
-    teamId,
+  await assertTeamsAndServicesInDepartments(
+    teamId ? [teamId] : [],
     serviceId ? [serviceId] : [],
-    departmentId,
     departmentId ? [departmentId] : [],
   );
 
@@ -410,14 +479,19 @@ export async function toggleUserActive(formData: FormData) {
     }
   }
   const activating = !user.isActive;
-  await prisma.user.update({
-    where: { id },
-    data: {
-      isActive: activating,
-      // Mirrors legacy autoCleanInactiveTeamMembers() — a deactivated user
-      // shouldn't keep occupying a team roster slot.
-      ...(activating ? {} : { teamId: null }),
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id },
+      data: {
+        isActive: activating,
+        // Mirrors legacy autoCleanInactiveTeamMembers() — a deactivated user
+        // shouldn't keep occupying a team roster slot (home or additional).
+        ...(activating ? {} : { teamId: null }),
+      },
+    });
+    if (!activating) {
+      await tx.userTeam.deleteMany({ where: { userId: id } });
+    }
   });
   await logActivity(prisma, {
     actor: session,

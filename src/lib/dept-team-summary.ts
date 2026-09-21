@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { KpiPeriod, ConnectionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 
 export type GroupSubmissionRow = {
   id: string;
@@ -127,18 +128,23 @@ export async function getTeamSubmissionSummary(
     select: {
       id: true,
       departmentId: true,
-      vaUser: { select: { teamId: true, team: { select: { departmentId: true } } } },
+      vaUser: {
+        select: {
+          team: { select: { id: true, departmentId: true } },
+          additionalTeams: { select: { team: { select: { id: true, departmentId: true } } } },
+        },
+      },
     },
   });
 
   const idsByTeam = new Map<string, string[]>();
   const noTeamIds: string[] = [];
   for (const c of connections) {
-    const teamId = c.vaUser.teamId;
-    if (teamId && c.vaUser.team?.departmentId === c.departmentId) {
-      const ids = idsByTeam.get(teamId) ?? [];
+    const team = pickTeamForDepartment(c.vaUser, c.departmentId);
+    if (team) {
+      const ids = idsByTeam.get(team.id) ?? [];
       ids.push(c.id);
-      idsByTeam.set(teamId, ids);
+      idsByTeam.set(team.id, ids);
     } else {
       noTeamIds.push(c.id);
     }

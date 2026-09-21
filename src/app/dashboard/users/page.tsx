@@ -109,6 +109,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
                 teams={teams}
                 roles={manageableRoles}
                 isAdmin={isAdmin}
+                isDeptScopedManager={isDM}
                 createUser={createUser}
                 bulkCreateUsers={bulkCreateUsers}
               />
@@ -179,12 +180,14 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
       team: { select: { name: true } },
       additionalDepartments: { select: { departmentId: true, department: { select: { name: true } } } },
       additionalServices: { select: { serviceId: true, service: { select: { name: true } } } },
+      additionalTeams: { select: { teamId: true, team: { select: { name: true } } } },
     },
   });
 
   const rows: UserRow[] = users.map((u) => {
     const extraDeptNames = u.additionalDepartments.map((d) => d.department.name);
     const extraServiceNames = u.additionalServices.map((s) => s.service.name);
+    const extraTeamNames = u.additionalTeams.map((t) => t.team.name);
     return {
       id: u.id,
       email: u.email,
@@ -193,12 +196,13 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
       isActive: u.isActive,
       departmentName: [u.department?.name, ...extraDeptNames].filter(Boolean).join(", ") || UNASSIGNED,
       serviceName: [u.service?.name, ...extraServiceNames].filter(Boolean).join(", ") || null,
-      teamName: u.team?.name ?? null,
+      teamName: [u.team?.name, ...extraTeamNames].filter(Boolean).join(", ") || null,
       departmentId: u.departmentId,
       serviceId: u.serviceId,
       teamId: u.teamId,
       additionalDepartmentIds: u.additionalDepartments.map((d) => d.departmentId),
       additionalServiceIds: u.additionalServices.map((s) => s.serviceId),
+      additionalTeamIds: u.additionalTeams.map((t) => t.teamId),
     };
   });
 
@@ -226,6 +230,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
                 teams={teams}
                 roles={manageableRoles}
                 isAdmin={isAdmin}
+                isDeptScopedManager={isDM}
                 createUser={createUser}
                 bulkCreateUsers={bulkCreateUsers}
               />
@@ -241,6 +246,7 @@ export default async function UsersPage(props: PageProps<"/dashboard/users">) {
           roles={manageableRoles}
           canManage={canManage}
           isAdmin={isAdmin}
+          isDeptScopedManager={isDM}
           viewerDepartmentId={isDM ? session.departmentId : null}
         />
       </UsersFilters>

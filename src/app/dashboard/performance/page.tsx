@@ -31,6 +31,7 @@ import {
 } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 
 function rateStyle(pct: number): string {
   if (pct >= 80) return "border-success/30 text-success";
@@ -87,12 +88,14 @@ export default async function PerformancePage(
   // its rows out per-department and would otherwise have a fixed dept.id
   // clobbered by spreading a dept filter into its own per-row scope.
   const teamTypeScope: Prisma.ConnectionWhereInput = {
-    // Filters by the VA's own team (User.teamId), not Connection.teamId —
-    // the latter is written once at creation/import and goes stale on
-    // transfer, so it disagrees with the VA's real team for a large share
-    // of connections. See lib/dept-team-summary.ts's getTeamSubmissionSummary
-    // for the full explanation.
-    ...(teamFilter ? { vaUser: { teamId: teamFilter } } : {}),
+    // Filters by the VA's own team (User.teamId, home or additional), not
+    // Connection.teamId — the latter is written once at creation/import and
+    // goes stale on transfer, so it disagrees with the VA's real team for a
+    // large share of connections. See lib/dept-team-summary.ts's
+    // getTeamSubmissionSummary for the full explanation.
+    ...(teamFilter
+      ? { vaUser: { OR: [{ teamId: teamFilter }, { additionalTeams: { some: { teamId: teamFilter } } }] } }
+      : {}),
     ...(typeFilter ? { connectionType: typeFilter } : {}),
   };
   const attrScope: Prisma.ConnectionWhereInput = {
@@ -147,7 +150,10 @@ export default async function PerformancePage(
                 select: {
                   name: true,
                   email: true,
-                  team: { select: { departmentId: true, name: true } },
+                  team: { select: { id: true, departmentId: true, name: true } },
+                  additionalTeams: {
+                    select: { team: { select: { id: true, departmentId: true, name: true } } },
+                  },
                 },
               },
             },
@@ -199,15 +205,13 @@ export default async function PerformancePage(
       clientName: connection.clientName,
       vaName: connection.vaUser.name ?? connection.vaUser.email,
       departmentName: connection.department.name,
-      // Blank (not the VA's home team) when that team belongs to a
-      // different department than this connection — same hybrid-VA case
-      // handled in the Connections page and in dept-team-summary.ts's "No
-      // Team" bucket; a Walmart client row showing an Amazon team name
-      // reads as a data bug to a Walmart-scoped viewer.
-      teamName:
-        connection.vaUser.team?.departmentId === connection.departmentId
-          ? (connection.vaUser.team?.name ?? null)
-          : null,
+      // Picks whichever of the VA's teams (home or, for a hybrid VA,
+      // additional) belongs to this connection's own department — same
+      // hybrid-VA case handled in the Connections page and in
+      // dept-team-summary.ts's "No Team" bucket; a Walmart client row
+      // showing an Amazon team name reads as a data bug to a
+      // Walmart-scoped viewer.
+      teamName: pickTeamForDepartment(connection.vaUser, connection.departmentId)?.name ?? null,
       connectionType: connection.connectionType,
       status: rollupStatus(statuses),
       durationDays: daysSince(connection.startDate ?? connection.createdAt),

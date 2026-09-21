@@ -7,6 +7,7 @@ import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Input, Select } from "@/components/ui/input";
 import { TeamRosterTable, type TeamMemberRow } from "@/components/team-roster-table";
 import { roleLabel } from "@/lib/roles";
+import { getUserTeamIds } from "@/lib/user-teams";
 import {
   createTeam,
   updateTeam,
@@ -48,17 +49,26 @@ export default async function TeamsPage() {
         teamLeader: { select: { id: true, name: true, email: true } },
         tempLeader1: { select: { id: true, name: true, email: true } },
         tempLeader2: { select: { id: true, name: true, email: true } },
-        members: { select: { id: true, name: true, email: true, role: true } },
       },
     }),
     prisma.department.findMany({
       where: isDeptScopedManager && session?.departmentId ? { id: session.departmentId } : {},
       orderBy: { name: "asc" },
     }),
+    // Selects every user org-wide when this viewer is Admin (userDepartmentFilter
+    // is `{}` in that case) — needed so a team's roster/availability below can
+    // account for additionalTeams membership too, not just the home teamId.
     prisma.user.findMany({
       where: userDepartmentFilter,
       orderBy: { email: "asc" },
-      select: { id: true, name: true, email: true, role: true, teamId: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        teamId: true,
+        additionalTeams: { select: { teamId: true } },
+      },
     }),
   ]);
 
@@ -77,11 +87,12 @@ export default async function TeamsPage() {
             <p className="text-sm text-muted">No teams yet.</p>
           )}
           {teams.map((team) => {
+            const teamMembers = users.filter((u) => getUserTeamIds(u).includes(team.id));
             const availableUsers = users.filter(
-              (u) => u.teamId !== team.id && u.role !== "VA",
+              (u) => !getUserTeamIds(u).includes(team.id) && u.role !== "VA",
             );
             const availableVas = users.filter(
-              (u) => u.role === "VA" && u.teamId !== team.id,
+              (u) => u.role === "VA" && !getUserTeamIds(u).includes(team.id),
             );
             return (
               <div
@@ -160,11 +171,12 @@ export default async function TeamsPage() {
                 )}
 
                 <TeamRosterTable
-                  members={team.members.map(
+                  members={teamMembers.map(
                     (m): TeamMemberRow => ({
                       id: m.id,
                       name: m.name ?? m.email,
                       role: roleLabel(m.role),
+                      viaAdditional: m.teamId !== team.id,
                     }),
                   )}
                   isManager={isManager}

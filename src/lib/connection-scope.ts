@@ -47,9 +47,9 @@ export async function requireSession(): Promise<ScopingSession> {
  * its own case here for exactly that reason — it is NOT unscoped in
  * legacy, so it must not share ADMIN/SERVICE_MANAGER's fallthrough.
  *
- * OM scopes by the VA's *current* team (User.teamId via vaUser.team) plus a
- * department match against the connection itself — never by the
- * connection's own teamId. Connection.teamId is written once at
+ * OM scopes by the VA's *current* team (User.teamId/additionalTeams via
+ * vaUser.team) plus a department match against the connection itself —
+ * never by the connection's own teamId. Connection.teamId is written once at
  * creation/import and goes stale the moment a VA transfers teams (only
  * User.teamId is kept current — see teams/actions.ts's addTeamMember/
  * removeTeamMember/transferTeamMember, and the matching comment in
@@ -62,11 +62,20 @@ export async function requireSession(): Promise<ScopingSession> {
  * fixes the original leak this replaced: a VA who carries connections
  * across multiple departments (see User.additionalDepartments) still only
  * exposes to this team leader the connections in the team leader's own
- * department, not every connection that VA touches everywhere.
+ * department, not every connection that VA touches everywhere — including
+ * via a team the VA holds as an additionalTeams membership for that
+ * department rather than their home team.
  */
 export function connectionScopeWhere(
   session: ScopingSession,
 ): Prisma.ConnectionWhereInput {
+  const ledTeam = {
+    OR: [
+      { teamLeaderId: session.id },
+      { tempLeader1Id: session.id },
+      { tempLeader2Id: session.id },
+    ],
+  };
   switch (session.role) {
     case UserRole.ADMIN:
     case UserRole.EXECUTIVE:
@@ -82,13 +91,7 @@ export function connectionScopeWhere(
           {
             departmentId: session.departmentId ?? "__none__",
             vaUser: {
-              team: {
-                OR: [
-                  { teamLeaderId: session.id },
-                  { tempLeader1Id: session.id },
-                  { tempLeader2Id: session.id },
-                ],
-              },
+              OR: [{ team: ledTeam }, { additionalTeams: { some: { team: ledTeam } } }],
             },
           },
         ],

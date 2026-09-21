@@ -21,6 +21,7 @@ import {
   getTeamSubmissionSummary,
 } from "@/lib/dept-team-summary";
 import { ConnectionStatus, KpiPeriod, UserRole } from "@/generated/prisma/enums";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 
 const TREND_WEEKS = 8;
 
@@ -61,7 +62,14 @@ export default async function SubmissionsPage(
         where: scope,
         include: {
           vaUser: {
-            select: { name: true, email: true, team: { select: { departmentId: true, name: true } } },
+            select: {
+              name: true,
+              email: true,
+              team: { select: { id: true, departmentId: true, name: true } },
+              additionalTeams: {
+                select: { team: { select: { id: true, departmentId: true, name: true } } },
+              },
+            },
           },
           department: { select: { name: true } },
         },
@@ -185,11 +193,11 @@ export default async function SubmissionsPage(
     return {
       connectionId: c.id,
       vaName: c.vaUser.name ?? c.vaUser.email,
-      // Blank when the VA's home team is in a different department than
-      // this connection (a hybrid VA) — same rule as the Connections and
-      // Performance pages; e.g. this must never show an Amazon team name
-      // on a Walmart client row.
-      teamName: c.vaUser.team?.departmentId === c.departmentId ? (c.vaUser.team?.name ?? null) : null,
+      // Picks whichever of the VA's teams (home or, for a hybrid VA,
+      // additional) belongs to this connection's own department — same rule
+      // as the Connections and Performance pages; e.g. this must never show
+      // an Amazon team name on a Walmart client row.
+      teamName: pickTeamForDepartment(c.vaUser, c.departmentId)?.name ?? null,
       clientName: c.clientName,
       departmentName: c.department.name,
       submitted,
