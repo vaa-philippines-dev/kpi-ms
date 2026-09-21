@@ -6,6 +6,7 @@ import { NewConnectionModal } from "@/components/new-connection-modal";
 import { ImportConnectionsModal } from "@/components/import-connections-modal";
 import { SyncButton } from "@/components/sync-button";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 import { Info } from "lucide-react";
 
 export default async function ConnectionsPage(
@@ -131,14 +132,29 @@ export default async function ConnectionsPage(
       // own teamId is written once at creation/import and goes stale the
       // moment a VA transfers teams (never set at all for CMS-synced
       // connections), same reason Team Summary/Team Report were switched to
-      // vaUser.teamId in 93dca9f/df6c0a3. The VA's own team is the only
-      // trusted membership pointer.
+      // vaUser.teamId in 93dca9f/df6c0a3. The VA's own team (home or
+      // additional) is the only trusted membership pointer.
       vaUser: {
         select: {
           name: true,
           email: true,
           team: {
-            select: { departmentId: true, teamLeader: { select: { name: true, email: true } } },
+            select: {
+              id: true,
+              departmentId: true,
+              teamLeader: { select: { name: true, email: true } },
+            },
+          },
+          additionalTeams: {
+            select: {
+              team: {
+                select: {
+                  id: true,
+                  departmentId: true,
+                  teamLeader: { select: { name: true, email: true } },
+                },
+              },
+            },
           },
         },
       },
@@ -167,16 +183,16 @@ export default async function ConnectionsPage(
     serviceName: c.service?.name ?? null,
     additionalServiceIds: c.additionalServices.map((s) => s.service.id),
     additionalServiceNames: c.additionalServices.map((s) => s.service.name),
-    // Hidden (not just "shown but wrong") when the VA's team belongs to a
-    // different department than this connection — e.g. a hybrid VA whose
-    // home team is Amazon showing up on a Walmart connection. Surfacing an
-    // out-of-department leader here reads as a bug to whoever's scoped to
-    // this connection's own department, since they have no way to know
-    // that name belongs to a team outside it.
-    teamLeaderName:
-      c.vaUser.team?.teamLeader && c.vaUser.team.departmentId === c.departmentId
-        ? c.vaUser.team.teamLeader.name ?? c.vaUser.team.teamLeader.email
-        : null,
+    // Picks whichever of the VA's teams (home or, for a hybrid VA,
+    // additional) belongs to this connection's own department — e.g. a
+    // hybrid VA whose home team is Amazon showing up on a Walmart
+    // connection. Surfacing an out-of-department leader here reads as a bug
+    // to whoever's scoped to this connection's own department, since they
+    // have no way to know that name belongs to a team outside it.
+    teamLeaderName: (() => {
+      const leader = pickTeamForDepartment(c.vaUser, c.departmentId)?.teamLeader;
+      return leader ? leader.name ?? leader.email : null;
+    })(),
     status: c.status,
     connectionType: c.connectionType,
     isFlagged: c.isFlagged,

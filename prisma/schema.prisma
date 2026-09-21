@@ -146,23 +146,24 @@ model Service {
 }
 
 model Team {
-  id            String       @id @default(cuid())
-  name          String
-  department    Department   @relation(fields: [departmentId], references: [id])
-  departmentId  String
-  teamLeader    User?        @relation("TeamLeader", fields: [teamLeaderId], references: [id])
-  teamLeaderId  String?
-  tempLeader1   User?        @relation("TeamTempLeader1", fields: [tempLeader1Id], references: [id])
-  tempLeader1Id String?
-  tempLeader2   User?        @relation("TeamTempLeader2", fields: [tempLeader2Id], references: [id])
-  tempLeader2Id String?
-  isActive      Boolean      @default(true)
-  members       User[]       @relation("TeamMembers")
-  connections   Connection[]
+  id                String       @id @default(cuid())
+  name              String
+  department        Department   @relation(fields: [departmentId], references: [id])
+  departmentId      String
+  teamLeader        User?        @relation("TeamLeader", fields: [teamLeaderId], references: [id])
+  teamLeaderId      String?
+  tempLeader1       User?        @relation("TeamTempLeader1", fields: [tempLeader1Id], references: [id])
+  tempLeader1Id     String?
+  tempLeader2       User?        @relation("TeamTempLeader2", fields: [tempLeader2Id], references: [id])
+  tempLeader2Id     String?
+  isActive          Boolean      @default(true)
+  members           User[]       @relation("TeamMembers")
+  additionalMembers UserTeam[]
+  connections       Connection[]
   // Legacy TeamID — lets the legacy sync upsert idempotently.
-  legacyId      String?      @unique
-  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  legacyId          String?      @unique
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
 
   @@index([departmentId])
 }
@@ -543,12 +544,18 @@ model User {
   // authorization scope, not just a display label like it is for a VA.
   additionalDepartments UserDepartment[]
   // Extra services a VA also holds, on top of `service` above — one level
-  // down from additionalDepartments: since every Service belongs to
-  // exactly one Department, a hybrid VA picks at most one service per
-  // department they belong to (see assertTeamAndServiceInDepartment in
-  // dashboard/users/actions.ts). Team stays single/fixed regardless —
-  // this only extends Service, not Team.
+  // down from additionalDepartments. No per-department cap: mirrors
+  // Connection.additionalServices, which already lets a single connection
+  // hold more than one service within its one department (see
+  // getConnectionServiceIds in lib/connection-services.ts) — a hybrid VA
+  // can do the same across (and within) their departments.
   additionalServices    UserService[]
+  // Extra teams a VA also holds, on top of `team` above — same
+  // "home + additional" shape as additionalDepartments/additionalServices,
+  // but capped at one team per department (see
+  // assertTeamsAndServicesInDepartments in dashboard/users/actions.ts),
+  // since a team always belongs to exactly one department.
+  additionalTeams       UserTeam[]
   createdAt             DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
 
@@ -611,10 +618,11 @@ model UserDepartment {
 // A VA's services beyond the primary `User.service` above — mirrors
 // UserDepartment's "home + additional" pattern one level down, same
 // convention: `service` UNION whatever's here, no service among them
-// treated as more "real" than another. Each service still belongs to
-// exactly one Department, so each row here should resolve to one of this
-// VA's own departments (home `department` or one of `additionalDepartments`) —
-// enforced in assertTeamAndServiceInDepartment, not at the DB level.
+// treated as more "real" than another. Each row here should resolve to one
+// of this VA's own departments (home `department` or one of
+// `additionalDepartments`) — enforced in
+// assertTeamsAndServicesInDepartments, not at the DB level. No cap on how
+// many services per department (see User.additionalServices above).
 model UserService {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -625,4 +633,20 @@ model UserService {
 
   @@unique([userId, serviceId])
   @@index([serviceId])
+}
+
+// A VA's teams beyond the primary `User.team` above — mirrors UserService's
+// "home + additional" pattern, but (unlike UserService) still capped at one
+// team per department, enforced in assertTeamsAndServicesInDepartments, not
+// at the DB level.
+model UserTeam {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId    String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, teamId])
+  @@index([teamId])
 }

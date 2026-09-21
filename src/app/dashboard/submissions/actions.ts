@@ -8,6 +8,7 @@ import { currentPeriodStart, parseAnchorDate, isPlausiblePeriodDate } from "@/li
 import { getWeekStartDay } from "@/lib/settings";
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 
 // "Change a VA's wrongly-submitted date" — Admin, DM, the DM-equivalent
 // OPS_MANAGER, and OM (Team Leader) can all correct/remove a submission,
@@ -135,7 +136,10 @@ export async function getConnectionPeriodDetail(
   const scope = connectionScopeWhere(session);
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...scope },
-    include: { vaUser: { include: { team: true } }, department: true },
+    include: {
+      vaUser: { include: { team: true, additionalTeams: { include: { team: true } } } },
+      department: true,
+    },
   });
   if (!connection) {
     throw new Error("Connection not found or not in your scope.");
@@ -205,13 +209,11 @@ export async function getConnectionPeriodDetail(
     clientName: connection.clientName,
     vaName: connection.vaUser.name ?? connection.vaUser.email,
     departmentName: connection.department.name,
-    // Blank when the VA's home team is outside this connection's own
-    // department (hybrid VA) — see submissions/page.tsx's trackerRows for
-    // the same rule applied to the tracker table this modal opens from.
-    teamName:
-      connection.vaUser.team?.departmentId === connection.departmentId
-        ? (connection.vaUser.team?.name ?? null)
-        : null,
+    // Picks whichever of the VA's teams (home or, for a hybrid VA,
+    // additional) belongs to this connection's own department — see
+    // submissions/page.tsx's trackerRows for the same rule applied to the
+    // tracker table this modal opens from.
+    teamName: pickTeamForDepartment(connection.vaUser, connection.departmentId)?.name ?? null,
     period,
     periodStart: periodStartDate.toISOString(),
     kpiRows,

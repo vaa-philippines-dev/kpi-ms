@@ -9,6 +9,12 @@ export type TeamMemberRow = {
   id: string;
   name: string;
   role: string;
+  // True when this member is here via User.additionalTeams rather than
+  // their home teamId — remove/transfer below only ever touch the home
+  // teamId (see teams/actions.ts), so acting on one of these rows would
+  // silently corrupt their real home team. Additional-team membership is
+  // only ever edited through the Users page's edit form.
+  viaAdditional?: boolean;
 };
 
 export type OtherTeamOption = { id: string; name: string };
@@ -39,37 +45,37 @@ export function TeamRosterTable({
           {
             key: "id" as const,
             label: "",
-            render: (_v: unknown, row: TeamMemberRow) => (
-              <div className="flex items-center justify-end gap-2">
-                {otherTeams.length > 0 && (
-                  <form action={transferTeamMember} className="flex items-center gap-1">
-                    <input type="hidden" name="userId" value={row.id} />
-                    <Select name="toTeamId" required defaultValue="" className="py-1 text-xs">
-                      <option value="" disabled>
-                        Transfer to…
-                      </option>
-                      {otherTeams.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
+            render: (_v: unknown, row: TeamMemberRow) =>
+              row.viaAdditional ? (
+                <span className="text-xs text-muted">Additional — edit via Users page</span>
+              ) : (
+                <div className="flex items-center justify-end gap-2">
+                  {otherTeams.length > 0 && (
+                    <form action={transferTeamMember} className="flex items-center gap-1">
+                      <input type="hidden" name="userId" value={row.id} />
+                      <Select name="toTeamId" required defaultValue="" className="py-1 text-xs">
+                        <option value="" disabled>
+                          Transfer to…
                         </option>
-                      ))}
-                    </Select>
-                    <button
-                      type="submit"
-                      className="text-xs text-accent hover:underline"
-                    >
-                      Go
-                    </button>
-                  </form>
-                )}
-                <ConfirmSubmitButton
-                  action={removeTeamMember}
-                  fields={{ userId: row.id }}
-                  label="Remove"
-                  successMessage={`${row.name} removed from team.`}
-                />
-              </div>
-            ),
+                        {otherTeams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </Select>
+                      <button type="submit" className="text-xs text-accent hover:underline">
+                        Go
+                      </button>
+                    </form>
+                  )}
+                  <ConfirmSubmitButton
+                    action={removeTeamMember}
+                    fields={{ userId: row.id }}
+                    label="Remove"
+                    successMessage={`${row.name} removed from team.`}
+                  />
+                </div>
+              ),
           },
         ]
       : []),

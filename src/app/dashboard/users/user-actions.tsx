@@ -7,9 +7,11 @@ import { Modal } from "@/components/ui/modal";
 import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
 import { ServiceCheckboxGroups } from "@/components/service-checkbox-groups";
+import { TeamCheckboxGroups } from "@/components/team-checkbox-groups";
 
 type Option = { id: string; name: string };
 type ServiceOption = Option & { departmentId: string };
+type TeamOption = Option & { departmentId: string };
 
 export function UserActions({
   departments,
@@ -17,16 +19,19 @@ export function UserActions({
   teams,
   roles = Object.values(UserRole),
   isAdmin = false,
+  isDeptScopedManager = false,
   createUser,
   bulkCreateUsers,
 }: {
   departments: Option[];
   services: ServiceOption[];
-  teams: Option[];
+  teams: TeamOption[];
   /** Role choices offered in the Add-user form — a DM only offers OM/VA (mirrors legacy's Manager create form). */
   roles?: UserRole[];
-  /** Admin only: lets a new VA be tagged with more than one department at once. */
+  /** Admin only: lets a new VA be tagged with more than one department (and team) at once. */
   isAdmin?: boolean;
+  /** DM/Ops Manager: lets a new VA be tagged with more than one service within their own department. */
+  isDeptScopedManager?: boolean;
   createUser: (formData: FormData) => void | Promise<void>;
   bulkCreateUsers: (formData: FormData) => void | Promise<void>;
 }) {
@@ -103,7 +108,7 @@ export function UserActions({
               ))}
             </Select>
           )}
-          {isAdmin && addRole === UserRole.VA ? (
+          {(isAdmin || isDeptScopedManager) && addRole === UserRole.VA ? (
             <ServiceCheckboxGroups departments={departments} services={services} />
           ) : (
             <Select name="serviceId" defaultValue="">
@@ -115,14 +120,18 @@ export function UserActions({
               ))}
             </Select>
           )}
-          <Select name="teamId" defaultValue="">
-            <option value="">Team (optional)</option>
-            {teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
+          {isAdmin && addRole === UserRole.VA ? (
+            <TeamCheckboxGroups departments={departments} teams={teams} />
+          ) : (
+            <Select name="teamId" defaultValue="">
+              <option value="">Team (optional)</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+          )}
           <Button type="submit" className="col-span-2 sm:col-span-4">
             Add User
           </Button>

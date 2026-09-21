@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { currentPeriodStart } from "@/lib/period";
 import { KpiPeriod, ConnectionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 
 export type SubmissionTrendPoint = {
   periodStart: Date;
@@ -152,7 +153,10 @@ export async function getPendingSubmissionRows(
         select: {
           name: true,
           email: true,
-          team: { select: { departmentId: true, name: true } },
+          team: { select: { id: true, departmentId: true, name: true } },
+          additionalTeams: {
+            select: { team: { select: { id: true, departmentId: true, name: true } } },
+          },
         },
       },
     },
@@ -175,10 +179,10 @@ export async function getPendingSubmissionRows(
       connectionId: c.id,
       clientName: c.clientName,
       vaName: c.vaUser.name ?? c.vaUser.email,
-      // Same hybrid-VA "not this department's team" blanking as
-      // performance/page.tsx's connectionRows mapping.
-      teamName:
-        c.vaUser.team?.departmentId === c.departmentId ? (c.vaUser.team?.name ?? null) : null,
+      // Same hybrid-VA "pick the team that matches this connection's own
+      // department" resolution as performance/page.tsx's connectionRows
+      // mapping.
+      teamName: pickTeamForDepartment(c.vaUser, c.departmentId)?.name ?? null,
       departmentName: c.department.name,
     }));
 }

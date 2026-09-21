@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { KpiPeriod, ConnectionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { getUserTeamIds, pickTeamForDepartment } from "@/lib/user-teams";
 
 export type TeamWeekPoint = { periodStart: Date; submitted: number; total: number };
 
@@ -35,16 +36,18 @@ export async function getTeamSubmissionReport(
     starts.push(new Date(weeklyStart.getTime() - i * 7 * 24 * 60 * 60 * 1000));
   }
 
-  // Team membership lives on the VA (User.teamId), never on the connection
-  // — see lib/dept-team-summary.ts's getTeamSubmissionSummary for the full
-  // explanation of why Connection.teamId goes stale and can't be trusted
-  // for grouping.
+  // Team membership lives on the VA (User.teamId/additionalTeams), never on
+  // the connection — see lib/dept-team-summary.ts's getTeamSubmissionSummary
+  // for the full explanation of why Connection.teamId goes stale and can't
+  // be trusted for grouping.
   const teamUsers = await prisma.user.findMany({
-    where: { teamId: { not: null }, vaConnections: { some: scope } },
-    select: { teamId: true },
-    distinct: ["teamId"],
+    where: {
+      OR: [{ teamId: { not: null } }, { additionalTeams: { some: {} } }],
+      vaConnections: { some: scope },
+    },
+    select: { teamId: true, additionalTeams: { select: { teamId: true } } },
   });
-  const teamIds = teamUsers.map((u) => u.teamId).filter((id): id is string => !!id);
+  const teamIds = [...new Set(teamUsers.flatMap((u) => getUserTeamIds(u)))];
   if (teamIds.length === 0) return [];
 
   const [teams, connections] = await Promise.all([
@@ -65,14 +68,22 @@ export async function getTeamSubmissionReport(
     prisma.connection.findMany({
       where: {
         ...scope,
-        vaUser: { teamId: { in: teamIds } },
+        vaUser: {
+          OR: [{ teamId: { in: teamIds } }, { additionalTeams: { some: { teamId: { in: teamIds } } } }],
+        },
         status: ConnectionStatus.ACTIVE,
       },
       select: {
         id: true,
         createdAt: true,
         startDate: true,
-        vaUser: { select: { teamId: true } },
+        departmentId: true,
+        vaUser: {
+          select: {
+            team: { select: { id: true, departmentId: true } },
+            additionalTeams: { select: { team: { select: { id: true, departmentId: true } } } },
+          },
+        },
       },
     }),
   ]);
@@ -95,10 +106,10 @@ export async function getTeamSubmissionReport(
 
   const connsByTeam = new Map<string, typeof connections>();
   for (const c of connections) {
-    const teamId = c.vaUser.teamId;
-    if (!teamId) continue;
-    if (!connsByTeam.has(teamId)) connsByTeam.set(teamId, []);
-    connsByTeam.get(teamId)!.push(c);
+    const team = pickTeamForDepartment(c.vaUser, c.departmentId);
+    if (!team) continue;
+    if (!connsByTeam.has(team.id)) connsByTeam.set(team.id, []);
+    connsByTeam.get(team.id)!.push(c);
   }
 
   return teams.map((team) => {

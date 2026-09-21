@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardList, Wrench } from "lucide-react";
+import { Wrench } from "lucide-react";
 import { auth } from "@/auth";
 import { HeroBackground } from "@/components/hero-background";
 import { DashboardAccessButton } from "@/components/dashboard-access-button";
@@ -57,13 +57,6 @@ export default async function Home() {
           ) : (
             <DashboardAccessButton />
           )}
-          <Link
-            href="/submit"
-            className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface/80 px-5 py-2.5 text-sm font-medium text-foreground backdrop-blur transition hover:bg-surface-hover"
-          >
-            <ClipboardList className="size-4" />
-            Submit KPI Data
-          </Link>
         </div>
       </div>
     </main>

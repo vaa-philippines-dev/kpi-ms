@@ -65,10 +65,15 @@ export async function setViewAsRole(formData: FormData) {
         : null;
     } else {
       // Every other team-scoped role (VA) — matched by the VA's own
-      // User.teamId, never Connection.teamId, which goes stale on transfer
-      // (see lib/dept-team-summary.ts).
+      // User.teamId (home or, for a hybrid VA, additionalTeams), never
+      // Connection.teamId, which goes stale on transfer (see
+      // lib/dept-team-summary.ts).
       target = await prisma.user.findFirst({
-        where: { role: role as UserRole, teamId, isActive: true },
+        where: {
+          role: role as UserRole,
+          isActive: true,
+          OR: [{ teamId }, { additionalTeams: { some: { teamId } } }],
+        },
         orderBy: { name: "asc" },
       });
     }

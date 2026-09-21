@@ -11,6 +11,13 @@ import type { ScopingSession } from "@/lib/connection-scope";
  * anyone on a team they lead; VA/SERVICE_MANAGER see only their own.
  */
 export function ticketScopeWhere(session: ScopingSession): Prisma.TicketWhereInput {
+  const ledTeam = {
+    OR: [
+      { teamLeaderId: session.id },
+      { tempLeader1Id: session.id },
+      { tempLeader2Id: session.id },
+    ],
+  };
   switch (session.role) {
     case UserRole.ADMIN:
       return {};
@@ -23,17 +30,9 @@ export function ticketScopeWhere(session: ScopingSession): Prisma.TicketWhereInp
       return {
         OR: [
           { createdById: session.id },
-          {
-            createdBy: {
-              team: {
-                OR: [
-                  { teamLeaderId: session.id },
-                  { tempLeader1Id: session.id },
-                  { tempLeader2Id: session.id },
-                ],
-              },
-            },
-          },
+          // Home team or (for a hybrid VA) an additional team this OM leads.
+          { createdBy: { team: ledTeam } },
+          { createdBy: { additionalTeams: { some: { team: ledTeam } } } },
         ],
       };
     default:
