@@ -6,10 +6,12 @@ import {
   getAppName,
   getWeekStartDay,
   getSystemMessage,
+  getWeeklyKpiSheetId,
   type SystemMessageTone,
 } from "@/lib/settings";
 import { SyncButton } from "@/components/sync-button";
 import { GenerateSheetButton } from "@/components/generate-sheet-button";
+import { WeeklyKpiSheetPanel } from "@/components/weekly-kpi-sheet-panel";
 import { getEffectiveSession } from "@/lib/view-as";
 import { updateSetting, updateSystemMessage } from "./actions";
 
@@ -43,12 +45,16 @@ export default async function SettingsPage() {
     );
   }
 
-  const [interventionTypes, appName, weekStartDay, systemMessage] = await Promise.all([
+  const [interventionTypes, appName, weekStartDay, systemMessage, weeklyKpiSheetId] = await Promise.all([
     getInterventionTypes(),
     getAppName(),
     getWeekStartDay(),
     getSystemMessage(),
+    getWeeklyKpiSheetId(),
   ]);
+  const weeklyKpiSheetUrl = weeklyKpiSheetId
+    ? `https://docs.google.com/spreadsheets/d/${weeklyKpiSheetId}/edit`
+    : null;
 
   return (
     <>
@@ -182,6 +188,13 @@ export default async function SettingsPage() {
                 public, not access-controlled.
               </p>
               <GenerateSheetButton label="Submissions Sheet" endpoint="/api/export/submissions-sheet" />
+            </div>
+
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+                Weekly KPI Sheet (Auto-Export)
+              </h2>
+              <WeeklyKpiSheetPanel initialUrl={weeklyKpiSheetUrl} />
             </div>
           </>
         ) : (
