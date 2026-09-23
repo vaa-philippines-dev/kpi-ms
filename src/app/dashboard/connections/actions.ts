@@ -587,11 +587,11 @@ export type ConnectionPerformanceRow = {
 
 // Lazily loaded when the Connections detail modal's Performance tab opens —
 // mirrors legacy's renderPerfCharts() (AppVAConnections.html:1078-1138),
-// which loads Actual vs Target per KPI over recent periods; kept as a
-// compact table here rather than an SVG line chart per se. Capped to the
-// last 4 periods per KPI, the same "recent periods" window legacy's chart
-// used. Scoped like getKpiConfigDetail() — viewing is open to every role
-// that can already see this connection, not just admins.
+// which loads Actual vs Target per KPI over recent periods. Backs both the
+// panel's default per-KPI trend graph and its List fallback table. Capped
+// to the last 4 periods per KPI, the same "recent periods" window legacy's
+// chart used. Scoped like getKpiConfigDetail() — viewing is open to every
+// role that can already see this connection, not just admins.
 export async function getConnectionPerformance(
   connectionId: string,
 ): Promise<ConnectionPerformanceRow[]> {
@@ -602,14 +602,14 @@ export async function getConnectionPerformance(
   });
   if (!connection) throw new Error("Connection not found.");
 
-  // The kpiDefinitionId tiebreak is load-bearing: two KPI definitions can
-  // share a name (e.g. a weekly and a monthly "Efficiency Rate", or the same
-  // KPI defined for two services), and name+periodStart alone doesn't
-  // separate them — so their rows interleaved in whatever order Postgres
-  // happened to return, differing between loads. Ordering by definition id
-  // in between makes each KPI's recent-period series one contiguous,
-  // stable block, which is what this panel is meant to show. No effect at
-  // all where names are unique.
+  // Ordered by periodStart first (newest week/month first, not KPI name) so
+  // the List view's rows land grouped by the period they belong to — the
+  // graph view re-groups per KPI client-side regardless of row order. The
+  // kd.name/kpiDefinitionId tiebreak is still load-bearing: two KPI
+  // definitions can share a name (e.g. a weekly and a monthly "Efficiency
+  // Rate", or the same KPI defined for two services), and periodStart alone
+  // doesn't separate them — without it their rows interleave in whatever
+  // order Postgres happened to return, differing between loads.
   //
   // Window function rather than the query builder: "the newest N rows per
   // group" isn't expressible as a single findMany. This used to fetch the
@@ -631,7 +631,7 @@ export async function getConnectionPerformance(
     ) ps
     JOIN "KpiDefinition" kd ON kd.id = ps."kpiDefinitionId"
     WHERE ps.rn <= ${PERIODS_PER_KPI}
-    ORDER BY kd.name ASC, ps."kpiDefinitionId" ASC, ps."periodStart" DESC
+    ORDER BY ps."periodStart" DESC, kd.name ASC, ps."kpiDefinitionId" ASC
   `;
 
   return summaries.map((s) => ({

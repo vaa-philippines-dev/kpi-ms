@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { LineChart, List } from "lucide-react";
 import { Table, TableHead, Th, Td, Tr } from "@/components/ui/table";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/status-badge";
 import { useToast } from "@/components/ui/toast";
+import { ConnectionPerformanceTrendChart } from "@/components/connection-performance-trend-chart";
 import {
   getConnectionPerformance,
   type ConnectionPerformanceRow,
@@ -20,12 +22,14 @@ const PERIOD_LABEL: Record<KpiPeriod, string> = {
  * Actual vs Target per KPI over recent periods — the Connections detail
  * modal's Performance tab. Mirrors legacy's renderPerfCharts()
  * (AppVAConnections.html:1078-1138) in substance (recent-period actual vs
- * target per KPI, with status), as a compact table rather than an SVG line
- * chart, per this app's existing "no full visual reskin" convention.
+ * target per KPI, with status). Defaults to a per-KPI trend graph grouped
+ * by week; the original flat table stays available as a "List" toggle for
+ * scanning exact numbers.
  */
 export function ConnectionPerformancePanel({ connectionId }: { connectionId: string }) {
   const [rows, setRows] = useState<ConnectionPerformanceRow[] | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [view, setView] = useState<"graph" | "list">("graph");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -58,33 +62,68 @@ export function ConnectionPerformancePanel({ connectionId }: { connectionId: str
   }
 
   return (
-    <div className="max-h-[50vh] overflow-y-auto">
-      <Table>
-        <TableHead>
-          <tr>
-            <Th>KPI</Th>
-            <Th>Period</Th>
-            <Th>Actual</Th>
-            <Th>Target</Th>
-            <Th>Status</Th>
-          </tr>
-        </TableHead>
-        <tbody>
-          {rows.map((r, i) => (
-            <Tr key={`${r.kpiDefinitionId}-${r.periodStart}-${i}`}>
-              <Td>{r.kpiName}</Td>
-              <Td className="text-muted">
-                {PERIOD_LABEL[r.period]} · {new Date(r.periodStart).toLocaleDateString()}
-              </Td>
-              <Td className="text-muted">{r.actualValue ?? "—"}</Td>
-              <Td className="text-muted">{r.targetValue}</Td>
-              <Td>
-                <StatusBadge status={r.status} />
-              </Td>
-            </Tr>
-          ))}
-        </tbody>
-      </Table>
+    <div>
+      <div className="mb-3 flex justify-end">
+        <div className="flex gap-1 rounded-lg border border-surface-border bg-surface p-0.5">
+          <button
+            type="button"
+            onClick={() => setView("graph")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              view === "graph"
+                ? "bg-surface-hover text-foreground"
+                : "text-muted hover:text-foreground"
+            }`}
+          >
+            <LineChart className="size-3.5" />
+            Graph
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              view === "list"
+                ? "bg-surface-hover text-foreground"
+                : "text-muted hover:text-foreground"
+            }`}
+          >
+            <List className="size-3.5" />
+            List
+          </button>
+        </div>
+      </div>
+
+      <div className="max-h-[50vh] overflow-y-auto">
+        {view === "graph" ? (
+          <ConnectionPerformanceTrendChart rows={rows} />
+        ) : (
+          <Table>
+            <TableHead>
+              <tr>
+                <Th>KPI</Th>
+                <Th>Period</Th>
+                <Th>Actual</Th>
+                <Th>Target</Th>
+                <Th>Status</Th>
+              </tr>
+            </TableHead>
+            <tbody>
+              {rows.map((r, i) => (
+                <Tr key={`${r.kpiDefinitionId}-${r.periodStart}-${i}`}>
+                  <Td>{r.kpiName}</Td>
+                  <Td className="text-muted">
+                    {PERIOD_LABEL[r.period]} · {new Date(r.periodStart).toLocaleDateString()}
+                  </Td>
+                  <Td className="text-muted">{r.actualValue ?? "—"}</Td>
+                  <Td className="text-muted">{r.targetValue}</Td>
+                  <Td>
+                    <StatusBadge status={r.status} />
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
     </div>
   );
 }
