@@ -291,14 +291,16 @@ export function UsersTable({
               </Button>
             </form>
 
-            <ConfirmSubmitButton
-              action={toggleUserActive}
-              fields={{ id: editing.id }}
-              label={editing.isActive ? "Deactivate user" : "Reactivate user"}
-              successMessage={editing.isActive ? "User deactivated." : "User reactivated."}
-              tone={editing.isActive ? "danger" : "accent"}
-              onSuccess={() => setEditing(null)}
-            />
+            {isAdmin && (
+              <ConfirmSubmitButton
+                action={toggleUserActive}
+                fields={{ id: editing.id }}
+                label={editing.isActive ? "Deactivate user" : "Reactivate user"}
+                successMessage={editing.isActive ? "User deactivated." : "User reactivated."}
+                tone={editing.isActive ? "danger" : "accent"}
+                onSuccess={() => setEditing(null)}
+              />
+            )}
           </div>
         )}
       </Modal>

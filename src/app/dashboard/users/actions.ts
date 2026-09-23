@@ -455,6 +455,12 @@ export async function bulkCreateUsers(formData: FormData) {
 
 export async function toggleUserActive(formData: FormData) {
   const session = await requireManager();
+  // Unlike creating/editing (which a DM or Ops Manager can do within their
+  // own department), deactivating locks the account out everywhere — so
+  // it's reserved for Admins only.
+  if (session.role !== "ADMIN") {
+    throw new Error("Only admins can activate or deactivate users.");
+  }
   const id = String(formData.get("id") ?? "");
   if (!id) return;
   if (id === session.id) {
@@ -462,22 +468,6 @@ export async function toggleUserActive(formData: FormData) {
   }
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return;
-  if (DEPT_SCOPED_MANAGER_ROLES.includes(session.role)) {
-    // Deactivating locks the account out everywhere, not just this
-    // department — so unlike editing (which a co-managing DM can request
-    // for their own department's slice), this is reserved for the VA's
-    // *primary* department. Otherwise a Walmart DM could lock out a VA
-    // whose real home is Amazon just because they're also tagged Walmart.
-    if (user.departmentId !== session.departmentId) {
-      throw new Error("You can only activate/deactivate users whose primary department is your own.");
-    }
-    // Without this, a DM could deactivate an ADMIN or SERVICE_MANAGER
-    // account that happens to share their department, since departmentId
-    // isn't restricted by role in the schema.
-    if (!DM_MANAGEABLE_ROLES.includes(user.role)) {
-      throw new Error("You can only manage OM or VA users.");
-    }
-  }
   const activating = !user.isActive;
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
