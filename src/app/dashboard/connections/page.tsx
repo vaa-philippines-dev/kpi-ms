@@ -8,6 +8,7 @@ import { SyncButton } from "@/components/sync-button";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
 import { pickTeamForDepartment } from "@/lib/user-teams";
 import { Info } from "lucide-react";
+import { auth } from "@/auth";
 
 export default async function ConnectionsPage(
   props: PageProps<"/dashboard/connections">,
@@ -15,7 +16,7 @@ export default async function ConnectionsPage(
   const searchParams = await props.searchParams;
   const openId = typeof searchParams.open === "string" ? searchParams.open : null;
 
-  const session = await requireSession();
+  const [session, realSession] = await Promise.all([requireSession(), auth()]);
   const scope = connectionScopeWhere(session);
 
   const [departments, services, vaUsers] = await Promise.all([
@@ -164,6 +165,19 @@ export default async function ConnectionsPage(
         include: { changedBy: { select: { name: true, email: true } } },
       },
       interventions: { orderBy: { createdAt: "desc" }, take: 5 },
+      statusChangeRequests: {
+        where: { state: "PENDING" },
+        take: 1,
+        include: { requestedBy: { select: { name: true, email: true } } },
+      },
+      customer: {
+        select: {
+          csAssignments: {
+            where: { isActive: true },
+            select: { csUser: { select: { name: true, email: true } } },
+          },
+        },
+      },
       additionalServices: { include: { service: { select: { id: true, name: true } } } },
       _count: { select: { kpiConfigs: true, interventions: true } },
     },
@@ -216,6 +230,23 @@ export default async function ConnectionsPage(
       outcome: iv.outcome,
     })),
     interventionCount: c._count.interventions,
+    csNames:
+      c.customer?.csAssignments.map((a) => a.csUser.name ?? a.csUser.email).join(", ") || null,
+    pendingStatusRequest: (() => {
+      const req = c.statusChangeRequests[0];
+      return req
+        ? {
+            id: req.id,
+            requestedStatus: req.requestedStatus,
+            reason: req.reason,
+            requestedByName: req.requestedBy.name ?? req.requestedBy.email,
+            createdAt: req.createdAt.toISOString(),
+            // Real (not view-as) user — cancelStatusChangeRequest checks the
+            // real session, so only offer Cancel when it would succeed.
+            canCancel: req.requestedById === realSession?.user?.id || realSession?.user?.role === "ADMIN",
+          }
+        : null;
+    })(),
   }));
 
   return (
@@ -262,6 +293,8 @@ export default async function ConnectionsPage(
             isAdmin={isAdmin}
             canEditKpi={canEditKpiConfig}
             canEditConnection={canEditConnection}
+            // Same four roles as createStatusChangeRequest's REQUESTER_ROLES.
+            canRequestStatusChange={canEditConnection}
             assignmentDepartments={assignmentDepartments}
             assignmentServices={assignmentServices}
             assignmentVaUsers={assignmentVaUsers}

@@ -21,6 +21,8 @@ import {
   Activity,
   LifeBuoy,
   MessageCircle,
+  ArrowLeftRight,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -218,6 +220,22 @@ const interventionsItem: NavItem = {
   keywords: "coaching training escalation my interventions",
 };
 
+const statusRequestsItem: NavItem = {
+  href: "/dashboard/status-requests",
+  label: "Status Requests",
+  icon: ArrowLeftRight,
+  roles: ["CS_SPECIALIST", "ADMIN", "EXECUTIVE"],
+  keywords: "status change request pause end of contract eoc approve reject cs",
+};
+const statusRequestHistoryItem: NavItem = {
+  href: "/dashboard/status-requests/history",
+  label: "History",
+  icon: ScrollText,
+  roles: ["CS_SPECIALIST", "ADMIN", "EXECUTIVE"],
+  labelByRole: { ADMIN: "Status Request History", EXECUTIVE: "Status Request History" },
+  keywords: "status request history approved rejected cancelled log",
+};
+
 // Group names, order, and item placement per role mirror the legacy sidebar
 // (legacy-appscript/AppCore.html getNavItems) exactly. Role mapping: ADMIN
 // = legacy Admin, DM = legacy Manager, OM = legacy Team Leader,
@@ -228,7 +246,15 @@ const interventionsItem: NavItem = {
 const adminGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem],
+    items: [
+      dashboardItem,
+      vaConnectionsItem,
+      kpiConfigItem,
+      customerOverviewItem,
+      clientDetailItem,
+      statusRequestsItem,
+      statusRequestHistoryItem,
+    ],
   },
   {
     label: "Reports",
@@ -265,7 +291,15 @@ const adminGroups: NavGroup[] = [
 const executiveGroups: NavGroup[] = [
   {
     label: "Overview",
-    items: [dashboardItem, vaConnectionsItem, kpiConfigItem, customerOverviewItem, clientDetailItem],
+    items: [
+      dashboardItem,
+      vaConnectionsItem,
+      kpiConfigItem,
+      customerOverviewItem,
+      clientDetailItem,
+      statusRequestsItem,
+      statusRequestHistoryItem,
+    ],
   },
   {
     label: "Reports",
@@ -325,8 +359,10 @@ const teamLeaderGroups: NavGroup[] = [
   },
 ];
 
-// SERVICE_MANAGER — legacy CS Specialist: minimal, no Connections/KPI Config.
-const csGroups: NavGroup[] = [
+// SERVICE_MANAGER — legacy CS Specialist's nav: minimal, no Connections/KPI
+// Config. (The CMS-sourced CS Specialist is its own role now, CS_SPECIALIST
+// below; SERVICE_MANAGER is the CMS's per-department Service Manager.)
+const serviceManagerGroups: NavGroup[] = [
   {
     label: "Overview",
     items: [dashboardItem, customerOverviewItem, devTicketsItem],
@@ -334,6 +370,15 @@ const csGroups: NavGroup[] = [
   {
     label: "Reports",
     items: [performanceItem],
+  },
+];
+
+// CS_SPECIALIST — exactly three tabs, per the manager's spec: their
+// clients' dashboard, the pending status-request queue, and its history.
+const csSpecialistGroups: NavGroup[] = [
+  {
+    label: "Client Success",
+    items: [dashboardItem, statusRequestsItem, statusRequestHistoryItem],
   },
 ];
 
@@ -364,7 +409,8 @@ const navGroupsByRole: Record<string, NavGroup[]> = {
   // same nav groups as DM rather than a parallel copy that could drift.
   OPS_MANAGER: managerGroups,
   OM: teamLeaderGroups,
-  SERVICE_MANAGER: csGroups,
+  SERVICE_MANAGER: serviceManagerGroups,
+  CS_SPECIALIST: csSpecialistGroups,
   VA: vaGroups,
 };
 

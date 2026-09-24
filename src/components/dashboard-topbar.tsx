@@ -10,6 +10,7 @@ import { PeriodNav } from "@/components/period-nav";
 import { ProfileCard } from "@/components/profile-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsControl } from "@/components/view-as-control";
+import type { UserRole } from "@/generated/prisma/enums";
 
 export async function DashboardTopbar() {
   const [session, realSession] = await Promise.all([requireSession(), auth()]);
@@ -48,9 +49,35 @@ export async function DashboardTopbar() {
       : Promise.resolve([]),
   ]);
 
+  const isViewingAs = Boolean(isRealAdmin && realId && session.id !== realId && user);
+  // "Pick a specific person" list for the role currently being previewed —
+  // narrowed to the previewed user's own department (home or additional)
+  // for department-scoped roles, so the VA list isn't all ~800 VAs at once.
+  // CS Specialists and Executives aren't department-scoped, so they list all.
+  const DEPT_SCOPED = new Set(["DM", "OPS_MANAGER", "OM", "VA"]);
+  const viewAsUsers = isViewingAs
+    ? await prisma.user.findMany({
+        where: {
+          role: session.role as UserRole,
+          isActive: true,
+          ...(DEPT_SCOPED.has(session.role) && user?.departmentId
+            ? {
+                OR: [
+                  { departmentId: user.departmentId },
+                  { additionalDepartments: { some: { departmentId: user.departmentId } } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+
   const viewingAs =
-    isRealAdmin && realId && session.id !== realId && user
+    isViewingAs && user
       ? {
+          userId: session.id,
           role: session.role,
           departmentId: user.departmentId,
           departmentName: user.department?.name,
@@ -74,6 +101,7 @@ export async function DashboardTopbar() {
           <ViewAsControl
             viewingAs={viewingAs}
             departments={viewAsDepartments}
+            users={viewAsUsers.map((u) => ({ id: u.id, name: u.name ?? u.email }))}
             teams={viewAsTeams.map((t) => ({
               id: t.id,
               name: t.name,

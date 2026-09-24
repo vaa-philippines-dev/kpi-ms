@@ -111,6 +111,29 @@ export async function setViewAsRole(formData: FormData) {
   revalidatePath("/dashboard", "layout");
 }
 
+// Previewing one specific person rather than "whoever sorts first with that
+// role" — e.g. a particular CS Specialist's client book. ADMIN targets are
+// refused: previewing another admin would show nothing an admin can't
+// already see, and getEffectiveSession() only honors the cookie for admins
+// viewing someone else anyway.
+export async function setViewAsUser(formData: FormData) {
+  await requireRealAdmin();
+  const userId = String(formData.get("userId") ?? "");
+  const target = userId
+    ? await prisma.user.findFirst({ where: { id: userId, isActive: true } })
+    : null;
+  if (!target || target.role === UserRole.ADMIN) {
+    throw new Error("That user can't be previewed (inactive, admin, or no longer exists).");
+  }
+  const store = await cookies();
+  store.set(VIEW_AS_COOKIE, target.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+  });
+  revalidatePath("/dashboard", "layout");
+}
+
 export async function exitViewAs() {
   await requireRealAdmin();
   const store = await cookies();

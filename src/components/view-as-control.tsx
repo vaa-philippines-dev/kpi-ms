@@ -2,10 +2,11 @@
 
 import { useTransition } from "react";
 import { Eye, Loader2, X } from "lucide-react";
-import { setViewAsRole, exitViewAs } from "@/app/dashboard/view-as-actions";
+import { setViewAsRole, setViewAsUser, exitViewAs } from "@/app/dashboard/view-as-actions";
 import { useToast } from "@/components/ui/toast";
 
 export type ViewingAs = {
+  userId: string;
   role: string;
   departmentId?: string | null;
   departmentName?: string | null;
@@ -14,6 +15,7 @@ export type ViewingAs = {
 };
 
 export type ViewAsDepartment = { id: string; name: string };
+export type ViewAsUser = { id: string; name: string };
 export type ViewAsTeam = { id: string; name: string; departmentId: string; departmentName: string };
 
 // The only roles actually scoped by team (see connection-scope.ts) — every
@@ -21,12 +23,19 @@ export type ViewAsTeam = { id: string; name: string; departmentId: string; depar
 // noise for them.
 const TEAM_SCOPED_ROLES = new Set(["OM", "VA"]);
 
+// Roles whose visibility has nothing to do with a department (CS is scoped
+// by assigned clients, Executive sees everything) — a department picker
+// would only narrow which person gets borrowed, which the user picker does
+// better.
+const UNSCOPED_BY_DEPARTMENT = new Set(["CS_SPECIALIST", "EXECUTIVE"]);
+
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "EXECUTIVE", label: "Executive" },
   { value: "DM", label: "Manager" },
   { value: "OPS_MANAGER", label: "Ops Manager" },
   { value: "OM", label: "Team Leader" },
-  { value: "SERVICE_MANAGER", label: "CS Specialist" },
+  { value: "SERVICE_MANAGER", label: "Service Manager" },
+  { value: "CS_SPECIALIST", label: "CS Specialist" },
   { value: "VA", label: "Virtual Assistant" },
 ];
 
@@ -36,7 +45,8 @@ const ROLE_LABELS: Record<string, string> = {
   DM: "Manager",
   OPS_MANAGER: "Ops Manager",
   OM: "Team Leader",
-  SERVICE_MANAGER: "CS Specialist",
+  SERVICE_MANAGER: "Service Manager",
+  CS_SPECIALIST: "CS Specialist",
   VA: "Virtual Assistant",
 };
 
@@ -50,10 +60,12 @@ export function ViewAsControl({
   viewingAs,
   departments,
   teams,
+  users,
 }: {
   viewingAs: ViewingAs | null;
   departments: ViewAsDepartment[];
   teams: ViewAsTeam[];
+  users: ViewAsUser[];
 }) {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
@@ -86,6 +98,19 @@ export function ViewAsControl({
     });
   }
 
+  function changeUser(userId: string) {
+    if (!viewingAs || !userId) return;
+    const formData = new FormData();
+    formData.set("userId", userId);
+    startTransition(async () => {
+      try {
+        await setViewAsUser(formData);
+      } catch (err) {
+        toast(err instanceof Error ? err.message : "Something went wrong.", "error");
+      }
+    });
+  }
+
   if (viewingAs) {
     return (
       <div className="flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs">
@@ -93,7 +118,7 @@ export function ViewAsControl({
         <span className="whitespace-nowrap">
           Viewing as <strong>{ROLE_LABELS[viewingAs.role] ?? viewingAs.role}</strong>
         </span>
-        {departments.length > 0 && (
+        {departments.length > 0 && !UNSCOPED_BY_DEPARTMENT.has(viewingAs.role) && (
           <select
             value={viewingAs.departmentId ?? ""}
             disabled={isPending}
@@ -132,6 +157,21 @@ export function ViewAsControl({
               </select>
             );
           })()}
+        {users.length > 0 && (
+          <select
+            value={viewingAs.userId}
+            disabled={isPending}
+            onChange={(e) => changeUser(e.target.value)}
+            title="Preview as a specific person"
+            className="max-w-48 rounded border-none bg-transparent py-0 pr-5 text-xs font-medium text-accent outline-none disabled:opacity-50"
+          >
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           disabled={isPending}

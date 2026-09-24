@@ -12,6 +12,12 @@ import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { KpiConfigPanel } from "@/components/kpi-config-panel";
 import { ConnectionPerformancePanel } from "@/components/connection-performance-panel";
 import {
+  RequestStatusChangeButton,
+  PendingStatusRequestBanner,
+  StatusRequestForm,
+  type PendingStatusRequest,
+} from "@/components/status-request-panel";
+import {
   CONNECTION_STATUS_LABELS,
   CONNECTION_STATUS_TONE,
   TERMINAL_CONNECTION_STATUSES,
@@ -92,6 +98,10 @@ export type ConnectionRow = {
   statusEvents: ConnectionStatusEventRow[];
   interventions: ConnectionInterventionRow[];
   interventionCount: number;
+  // Active CS Specialist(s) for this connection's client (via
+  // Connection.customer) — where a status change request is routed.
+  csNames: string | null;
+  pendingStatusRequest: PendingStatusRequest | null;
 };
 
 const STATUS_FILTER_OPTIONS = Object.entries(CONNECTION_STATUS_LABELS).map(
@@ -723,6 +733,7 @@ export function ConnectionsTable({
   isAdmin,
   canEditKpi,
   canEditConnection,
+  canRequestStatusChange = false,
   assignmentDepartments,
   assignmentServices,
   assignmentVaUsers,
@@ -738,6 +749,9 @@ export function ConnectionsTable({
   // info/notes (mirrors canEditKpi's role list), but flagging and deleting
   // a connection stay admin-only.
   canEditConnection: boolean;
+  // "Request status change" (top-right of the detail modal) — routed to the
+  // client's CS Specialist, see status-requests/actions.ts.
+  canRequestStatusChange?: boolean;
   // Lists backing the VA/Department/Service reassignment form — same
   // shape (and same DM/OM department-locked filtering) as NewConnectionModal
   // gets from page.tsx.
@@ -749,7 +763,13 @@ export function ConnectionsTable({
   // Performance Summary table's "View Connection" link (`?open=<id>`).
   initialOpenId?: string | null;
 }) {
-  const [openId, setOpenId] = useState<string | null>(initialOpenId);
+  const [openId, setOpenIdState] = useState<string | null>(initialOpenId);
+  const [requestFormOpen, setRequestFormOpen] = useState(false);
+  // Every open/close/switch of the modal starts with the request form shut.
+  function setOpenId(id: string | null) {
+    setOpenIdState(id);
+    setRequestFormOpen(false);
+  }
   const openConn = connections.find((c) => c.id === openId) ?? null;
   const columns = getColumns(canEditConnection);
 
@@ -795,6 +815,18 @@ export function ConnectionsTable({
                   {openConn.serviceName ? ` · ${openConn.serviceName}` : ""}
                 </p>
               </div>
+              <div className="flex items-center gap-1.5">
+              {canRequestStatusChange && !openConn.pendingStatusRequest && (
+                <RequestStatusChangeButton
+                  onClick={() => setRequestFormOpen((v) => !v)}
+                  disabled={TERMINAL_CONNECTION_STATUSES.has(openConn.status)}
+                  title={
+                    TERMINAL_CONNECTION_STATUSES.has(openConn.status)
+                      ? "This connection has ended."
+                      : "Ask the client's CS Specialist to change this connection's status"
+                  }
+                />
+              )}
               {isAdmin && (
                 <form action={toggleConnectionFlag}>
                   <input type="hidden" name="id" value={openConn.id} />
@@ -811,7 +843,26 @@ export function ConnectionsTable({
                   </button>
                 </form>
               )}
+              </div>
             </div>
+
+            {openConn.pendingStatusRequest ? (
+              <PendingStatusRequestBanner
+                request={openConn.pendingStatusRequest}
+                currentStatus={openConn.status}
+                csNames={openConn.csNames}
+              />
+            ) : (
+              requestFormOpen && (
+                <StatusRequestForm
+                  key={`status-request-${openConn.id}`}
+                  connectionId={openConn.id}
+                  currentStatus={openConn.status}
+                  csNames={openConn.csNames}
+                  onDone={() => setRequestFormOpen(false)}
+                />
+              )
+            )}
 
             {canEditConnection && (
               <form

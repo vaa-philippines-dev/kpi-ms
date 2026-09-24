@@ -35,7 +35,8 @@ export async function requireSession(): Promise<ScopingSession> {
  * assigned to a team they lead; DM (Manager equivalent) and OPS_MANAGER
  * (Operations Manager, same department-wide scope as DM) -> connections in
  * their department; ADMIN, EXECUTIVE (read-only admin — see UserRole), and
- * SERVICE_MANAGER (CS Specialist equivalent) -> everything. Unlike the
+ * SERVICE_MANAGER (legacy CS Specialist equivalent) -> everything;
+ * CS_SPECIALIST -> connections of the clients they're assigned to. Unlike the
  * legacy Apps Script app (which trusted a client-asserted userId/role), this
  * reads off the server-verified session, so it can't be spoofed from the
  * browser.
@@ -96,6 +97,11 @@ export function connectionScopeWhere(
           },
         ],
       };
+    case UserRole.CS_SPECIALIST:
+      // Every connection under a client this CS is currently assigned to
+      // (CsClientAssignment, synced from the CMS by lib/cms-sync/cs-sync.ts)
+      // — i.e. all the VAs connected to their clients, across departments.
+      return { customer: { csAssignments: { some: { csUserId: session.id, isActive: true } } } };
     case UserRole.VA:
     default:
       return { vaUserId: session.id };

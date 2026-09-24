@@ -177,6 +177,20 @@ export default async function SettingsPage() {
 
             <div>
               <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
+                Sync CS Specialists
+              </h2>
+              <p className="mb-3 text-xs text-muted">
+                Imports CS Specialists (and CS Managers) from the CMS Users tab,
+                links every connection to its CMS client, and assigns each
+                client to its CS from Customers.AssignedSpecialist. Connection
+                statuses are never changed: a client counts as Active only if
+                one of its KPI connections is live, whatever the CMS says.
+              </p>
+              <SyncButton label="Sync CS Specialists & Clients" endpoint="/api/cms-sync/cs-specialists" />
+            </div>
+
+            <div>
+              <h2 className="mb-3 text-sm font-semibold text-muted uppercase">
                 Submissions Sheet
               </h2>
               <p className="mb-3 text-xs text-muted">
