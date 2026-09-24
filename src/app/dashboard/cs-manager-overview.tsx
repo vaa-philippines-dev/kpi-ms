@@ -13,7 +13,14 @@ import { STATUS_TILES, StatTile, PendingRequestsTile } from "./cs-specialist-ove
  * and live VA connection with a CS filter. Same scope as
  * connectionScopeWhere's CS_MANAGER branch (any client with an active CS).
  */
-export async function CsManagerOverview({ weeklyStart }: { weeklyStart: Date }) {
+export async function CsManagerOverview({
+  weeklyStart,
+  canReassign,
+}: {
+  weeklyStart: Date;
+  /** Real role is CS_MANAGER or ADMIN — reassignClientCs re-checks it. */
+  canReassign: boolean;
+}) {
   const [{ clientRows, connectionRows }, specialists, pending] = await Promise.all([
     loadCsBook({ isActive: true }, weeklyStart),
     prisma.user.findMany({
@@ -92,8 +99,20 @@ export async function CsManagerOverview({ weeklyStart }: { weeklyStart: Date }) 
       </div>
 
       <div>
-        <h2 className="mb-3 text-sm font-semibold text-muted uppercase">All Clients</h2>
-        <CsClientTable rows={clientRows} showCs />
+        <h2 className="mb-1 text-sm font-semibold text-muted uppercase">All Clients</h2>
+        {canReassign && <p className="mb-3 text-xs text-muted">Click a client to reassign it to another CS.</p>}
+        <CsClientTable
+          rows={clientRows}
+          showCs
+          specialists={
+            canReassign
+              ? teamRows
+                  .filter((r) => r.isActive)
+                  .map((r) => ({ id: r.id, name: r.name }))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+              : undefined
+          }
+        />
       </div>
 
       <div>

@@ -1,8 +1,8 @@
-import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { readCmsSheet } from "@/lib/legacy-sync/sheets-client";
 import { mapWithConcurrency } from "@/lib/legacy-sync/concurrency";
-import { ConnectionStatus, CustomerStatus, UserRole } from "@/generated/prisma/enums";
+import { ConnectionStatus, CsAssignmentSource, CustomerStatus, UserRole } from "@/generated/prisma/enums";
+import { randomAssignmentCode } from "@/lib/cs-assignment-code";
 import type { PhaseResult, SyncReport } from "./connection-sync";
 
 function emptyResult(): PhaseResult {
@@ -25,10 +25,6 @@ const LIVE_STATUSES = new Set<ConnectionStatus>([
 
 const normName = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
-/** CSC_ + 12 uppercase hex chars — same shape as the CMS's own IDs (CONN_/CUST_). */
-function randomAssignmentCode(): string {
-  return `CSC_${randomBytes(6).toString("hex").toUpperCase()}`;
-}
 
 /**
  * Imports CS Specialists from the CMS and links each one to their clients
@@ -49,7 +45,9 @@ function randomAssignmentCode(): string {
  *     whose KPI connections have all ended is set INACTIVE here.
  *  4. Customers.AssignedSpecialist → CsClientAssignment (generated CSC_ code,
  *     since the CMS has no ID for this pairing). A CMS reassignment
- *     deactivates the previous row instead of deleting it.
+ *     deactivates the previous row instead of deleting it. A client whose
+ *     active assignment was made in KPI (source MANUAL, by a CS Manager or
+ *     Admin) is left alone — KPI's override wins until it's reset to CMS.
  *
  * Safe to re-run: every step is an idempotent upsert/diff.
  */
@@ -238,6 +236,8 @@ export async function runCmsCsSync(
   }
 
   const unassignedEmails = new Map<string, number>();
+  let manualKept = 0;
+  let manualDisagrees = 0;
   for (const cmsId of neededCustomerIds) {
     const customer = kpiCustomerByCmsId.get(cmsId);
     if (!customer) continue;
@@ -245,6 +245,13 @@ export async function runCmsCsSync(
     const csUserId = email ? csUserIdByEmail.get(email) : undefined;
     if (email && !csUserId) unassignedEmails.set(email, (unassignedEmails.get(email) ?? 0) + 1);
     const current = assignmentsByCustomer.get(customer.id) ?? [];
+    const manual = current.find((a) => a.isActive && a.source === CsAssignmentSource.MANUAL);
+    if (manual) {
+      manualKept++;
+      if (manual.csUserId !== csUserId) manualDisagrees++;
+      assignResult.skipped++;
+      continue;
+    }
     try {
       // Deactivate anyone who's no longer the assigned CS for this client.
       for (const a of current) {
@@ -274,6 +281,12 @@ export async function runCmsCsSync(
     } catch (e) {
       assignResult.errors.push(`${cmsId}: ${(e as Error).message}`);
     }
+  }
+  if (manualKept) {
+    notes.push(
+      `${manualKept} client(s) kept their KPI (manual) CS assignment` +
+        (manualDisagrees ? ` — ${manualDisagrees} of them are assigned to someone else in the CMS.` : "."),
+    );
   }
   for (const [email, n] of unassignedEmails) {
     notes.push(`${n} client(s) assigned to ${email} in the CMS left unassigned: not an imported CS user.`);

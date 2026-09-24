@@ -41,15 +41,17 @@ export default async function ConnectionsPage(
   // OPS_MANAGER, and OM can edit KPI config from the embedded tab too;
   // distinct from `isAdmin` above, which still gates connection-management
   // actions that remain admin-only.
+  // CS_MANAGER has DM parity over every CS-assigned connection.
+  const isCsManager = session.role === "CS_MANAGER";
   const canEditKpiConfig =
-    isAdmin || session.role === "DM" || session.role === "OPS_MANAGER" || session.role === "OM";
+    isAdmin || session.role === "DM" || session.role === "OPS_MANAGER" || session.role === "OM" || isCsManager;
   // Mirrors requireConnectionEditor() in ./actions.ts — ADMIN, DM,
   // OPS_MANAGER, and OM can edit a connection's status, type, account info,
   // and notes, each locked to the connections connectionScopeWhere already
   // lets them see; flagging and deleting a connection stay admin-only
   // (isAdmin above).
   const canEditConnection =
-    isAdmin || isDeptScopedManager || session.role === "OM";
+    isAdmin || isDeptScopedManager || session.role === "OM" || isCsManager;
   // Adding a connection manually is admin-only — DM/OPS_MANAGER/OM sync
   // connections in from the CMS instead (canSyncConnections below), so they
   // don't need a manual "add connection" form too.
@@ -293,8 +295,9 @@ export default async function ConnectionsPage(
             isAdmin={isAdmin}
             canEditKpi={canEditKpiConfig}
             canEditConnection={canEditConnection}
-            // Same four roles as createStatusChangeRequest's REQUESTER_ROLES.
-            canRequestStatusChange={canEditConnection}
+            // Same four roles as createStatusChangeRequest's REQUESTER_ROLES —
+            // not CS_MANAGER, who resolves requests and can edit status directly.
+            canRequestStatusChange={canEditConnection && !isCsManager}
             assignmentDepartments={assignmentDepartments}
             assignmentServices={assignmentServices}
             assignmentVaUsers={assignmentVaUsers}

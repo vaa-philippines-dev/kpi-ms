@@ -110,6 +110,15 @@ enum CustomerStatus {
   INACTIVE
 }
 
+// Where a CsClientAssignment came from. MANUAL = reassigned in KPI by a CS
+// Manager/Admin — the CMS sync leaves that client alone until someone
+// resets it back to CMS (the CMS sheet is read-only to us, so a KPI-side
+// reassignment can't be written back there).
+enum CsAssignmentSource {
+  CMS
+  MANUAL
+}
+
 enum StatusChangeRequestState {
   PENDING
   APPROVED
@@ -594,7 +603,8 @@ model User {
   // since a team always belongs to exactly one department.
   additionalTeams        UserTeam[]
   // CS_SPECIALIST only — the clients this CS handles (see CsClientAssignment).
-  csAssignments          CsClientAssignment[]
+  csAssignments          CsClientAssignment[]    @relation("CsAssignments")
+  csAssignmentsMade      CsClientAssignment[]    @relation("CsAssignmentsMade")
   statusRequestsCreated  StatusChangeRequest[]   @relation("StatusRequestCreator")
   statusRequestsResolved StatusChangeRequest[]   @relation("StatusRequestResolver")
   createdAt              DateTime                @default(now()) @db.Timestamptz(3)
@@ -713,15 +723,19 @@ model Customer {
 // is generated here. A reassignment in the CMS deactivates the old row
 // rather than deleting it, so the pairing history stays traceable.
 model CsClientAssignment {
-  id         String   @id @default(cuid())
-  code       String   @unique
-  csUser     User     @relation(fields: [csUserId], references: [id], onDelete: Cascade)
-  csUserId   String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  customerId String
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  id           String             @id @default(cuid())
+  code         String             @unique
+  csUser       User               @relation("CsAssignments", fields: [csUserId], references: [id], onDelete: Cascade)
+  csUserId     String
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customerId   String
+  isActive     Boolean            @default(true)
+  source       CsAssignmentSource @default(CMS)
+  // Who made a MANUAL assignment (null for CMS-synced rows).
+  assignedBy   User?              @relation("CsAssignmentsMade", fields: [assignedById], references: [id], onDelete: SetNull)
+  assignedById String?
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime           @updatedAt @db.Timestamptz(3)
 
   @@unique([csUserId, customerId])
   @@index([customerId])

@@ -23,11 +23,12 @@ async function requireAdmin() {
 // already see via connectionScopeWhere (DM/OPS_MANAGER: own department,
 // OM: own team's connections). Same pattern as requireKpiConfigEditor() in
 // kpi-config/actions.ts; flagging and deleting a connection stay
-// admin-only, so those two mutations keep requireAdmin().
+// admin-only, so those two mutations keep requireAdmin(). CS_MANAGER gets
+// the same DM parity over every CS-assigned connection (its scope).
 async function requireConnectionEditor(): Promise<ScopingSession> {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM" && role !== "CS_MANAGER") {
     throw new Error("You don't have permission to edit connections.");
   }
   return {
@@ -466,7 +467,10 @@ export async function updateConnectionAssignment(formData: FormData) {
   });
   if (!before) throw new Error("Connection not found.");
 
-  if (session.role !== "ADMIN" && departmentId !== session.departmentId) {
+  // CS_MANAGER isn't department-bound (CS books span every department), so
+  // like ADMIN it can move a connection across departments — but only for
+  // connections already inside its own scope, checked by `before` above.
+  if (session.role !== "ADMIN" && session.role !== "CS_MANAGER" && departmentId !== session.departmentId) {
     throw new Error("You can only assign connections within your own department.");
   }
 

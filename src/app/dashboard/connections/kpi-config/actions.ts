@@ -21,7 +21,7 @@ import { KpiDirection, KpiPeriod, ThresholdUnit } from "@/generated/prisma/enums
 async function requireKpiConfigEditor(): Promise<ScopingSession> {
   const session = await auth();
   const role = session?.user?.role;
-  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM") {
+  if (role !== "ADMIN" && role !== "DM" && role !== "OPS_MANAGER" && role !== "OM" && role !== "CS_MANAGER") {
     throw new Error("You don't have permission to manage KPI config.");
   }
   return {

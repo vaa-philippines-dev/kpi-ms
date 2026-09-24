@@ -18,6 +18,7 @@ import { VaOverview } from "./va-overview";
 import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { auth } from "@/auth";
 
 /** "7Y 11M" — compact form for the Long-Running Connections duration pill. */
 function formatDurationCompact(days: number): string {
@@ -81,7 +82,11 @@ export default async function DashboardOverviewPage(
     return (
       <>
         <PageHeader title="Dashboard" description="Your CS team's clients and their VAs' KPI performance this week." />
-        <CsManagerOverview weeklyStart={weeklyStart} />
+        <CsManagerOverview
+          weeklyStart={weeklyStart}
+          // Real role (not view-as): reassigning is a mutation.
+          canReassign={["CS_MANAGER", "ADMIN"].includes((await auth())?.user?.role ?? "")}
+        />
       </>
     );
   }

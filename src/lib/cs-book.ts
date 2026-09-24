@@ -81,6 +81,8 @@ export async function loadCsBook(
     });
     return {
       id: a.id,
+      customerId: a.customerId,
+      source: a.source,
       clientName: a.customer.name,
       assignmentCode: a.code,
       status: a.customer.status,
