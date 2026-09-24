@@ -8,6 +8,7 @@ export const ROLE_LABELS: Record<string, string> = {
   [UserRole.OM]: "Team Leader",
   [UserRole.SERVICE_MANAGER]: "Service Manager",
   [UserRole.CS_SPECIALIST]: "CS Specialist",
+  [UserRole.CS_MANAGER]: "CS Manager",
   [UserRole.VA]: "VA",
 };
 

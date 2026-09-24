@@ -72,6 +72,12 @@ enum UserRole {
   // CsClientAssignment, not to any department/team. Distinct from
   // SERVICE_MANAGER, which is the CMS's per-department Service Manager.
   CS_SPECIALIST
+  // Head of the CS team — sees every CS Specialist's client book (all
+  // connections under any CS-assigned client), broken down per specialist,
+  // and can resolve any of their status requests. Assigned by hand, not by
+  // the CMS sync (the CMS's own "CS Manager" rows mostly carry client books
+  // of their own and are imported as CS_SPECIALIST).
+  CS_MANAGER
   VA
 }
 

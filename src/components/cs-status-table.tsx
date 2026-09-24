@@ -12,6 +12,8 @@ export type CsStatusRow = {
   vaName: string;
   status: PerformanceStatus;
   kpiRows: ConnectionKpiRow[];
+  /** Assigned CS — only shown (with its own filter) when `showCs` is set. */
+  csName?: string;
 };
 
 const COLUMNS: DataTableColumn<CsStatusRow>[] = [
@@ -28,6 +30,14 @@ const COLUMNS: DataTableColumn<CsStatusRow>[] = [
   },
 ];
 
+const CS_COLUMN: DataTableColumn<CsStatusRow> = {
+  key: "csName",
+  label: "CS",
+  sortable: true,
+  filterable: "select",
+  filterPlaceholder: "All specialists",
+};
+
 /**
  * System-wide connection status table with a click-to-open KPI detail
  * modal — mirrors legacy's CS Specialist dashboard (`renderCSDashboard()` /
@@ -38,9 +48,11 @@ const COLUMNS: DataTableColumn<CsStatusRow>[] = [
 export function CsStatusTable({
   rows,
   weekLabel,
+  showCs = false,
 }: {
   rows: CsStatusRow[];
   weekLabel: string;
+  showCs?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const openRow = rows.find((r) => r.id === openId) ?? null;
@@ -48,7 +60,7 @@ export function CsStatusTable({
   return (
     <>
       <DataTable
-        columns={COLUMNS}
+        columns={showCs ? [COLUMNS[0], CS_COLUMN, ...COLUMNS.slice(1)] : COLUMNS}
         data={rows}
         getRowId={(r) => r.id}
         defaultLimit={25}

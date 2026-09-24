@@ -14,6 +14,8 @@ export type CsClientRow = {
   liveConnections: number;
   vaNames: string;
   performance: PerformanceStatus;
+  /** Assigned CS — only shown (with its own filter) when `showCs` is set. */
+  csName?: string;
 };
 
 const COLUMNS: DataTableColumn<CsClientRow>[] = [
@@ -54,16 +56,24 @@ const COLUMNS: DataTableColumn<CsClientRow>[] = [
   { key: "assignmentCode", label: "CS-Client ID", sortable: true, filterable: true, className: "font-mono text-xs text-muted" },
 ];
 
+const CS_COLUMN: DataTableColumn<CsClientRow> = {
+  key: "csName",
+  label: "CS",
+  sortable: true,
+  filterable: "select",
+  filterPlaceholder: "All specialists",
+};
+
 /** A CS Specialist's own client book — one row per CsClientAssignment. */
-export function CsClientTable({ rows }: { rows: CsClientRow[] }) {
+export function CsClientTable({ rows, showCs = false }: { rows: CsClientRow[]; showCs?: boolean }) {
   return (
     <DataTable
-      columns={COLUMNS}
+      columns={showCs ? [COLUMNS[0], CS_COLUMN, ...COLUMNS.slice(1)] : COLUMNS}
       data={rows}
       getRowId={(r) => r.id}
       defaultLimit={25}
       defaultSort={{ key: "clientName", dir: "asc" }}
-      emptyMessage="No clients assigned to you in the CMS yet."
+      emptyMessage="No clients assigned in the CMS yet."
     />
   );
 }

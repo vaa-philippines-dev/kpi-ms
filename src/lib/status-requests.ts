@@ -7,6 +7,7 @@ import type { StatusRequestRow } from "@/components/status-requests-table";
 /** Roles that can open the Status Requests / History pages at all. */
 export const STATUS_REQUEST_VIEWER_ROLES = new Set<string>([
   UserRole.CS_SPECIALIST,
+  UserRole.CS_MANAGER,
   UserRole.ADMIN,
   UserRole.EXECUTIVE,
 ]);

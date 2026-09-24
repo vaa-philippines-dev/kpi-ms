@@ -13,6 +13,7 @@ import { DashboardStatCards } from "./dashboard-stat-cards";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
 import { CsSpecialistOverview } from "./cs-specialist-overview";
+import { CsManagerOverview } from "./cs-manager-overview";
 import { VaOverview } from "./va-overview";
 import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -72,6 +73,15 @@ export default async function DashboardOverviewPage(
       <>
         <PageHeader title="Dashboard" description="Your clients and their VAs' KPI performance this week." />
         <CsSpecialistOverview session={session} weeklyStart={weeklyStart} />
+      </>
+    );
+  }
+
+  if (session.role === "CS_MANAGER") {
+    return (
+      <>
+        <PageHeader title="Dashboard" description="Your CS team's clients and their VAs' KPI performance this week." />
+        <CsManagerOverview weeklyStart={weeklyStart} />
       </>
     );
   }

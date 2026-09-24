@@ -35,7 +35,8 @@ function randomAssignmentCode(): string {
  * (and, through the client, to every VA connection under that client):
  *
  *  1. Users tab → User(role CS_SPECIALIST). Creates new accounts and keeps
- *     name/isActive current on existing CS_SPECIALIST accounts; an email
+ *     isActive current on existing CS_SPECIALIST/CS_MANAGER accounts (name
+ *     only filled if blank, so KPI-side corrections stick); an email
  *     that already belongs to a non-CS KPI account is never re-roled, just
  *     reported. Non-company (e.g. gmail) addresses are skipped, since they
  *     can't sign in anyway.
@@ -91,13 +92,20 @@ export async function runCmsCsSync(
         });
         csUserIdByEmail.set(email, user.id);
         usersResult.created++;
-      } else if (existing.role !== UserRole.CS_SPECIALIST) {
+      } else if (existing.role !== UserRole.CS_SPECIALIST && existing.role !== UserRole.CS_MANAGER) {
         usersResult.skipped++;
         notes.push(`Skipped CS user ${email}: already a ${existing.role} account in KPI (role left unchanged).`);
         continue;
       } else {
-        if (existing.name !== name || existing.isActive !== isActive) {
-          await prisma.user.update({ where: { id: existing.id }, data: { name, isActive } });
+        // Name is only filled in when missing — a name corrected in KPI (the
+        // CMS has typos, e.g. "Princes") must survive re-syncs. A CS_MANAGER
+        // keeps that role; it's assigned by hand, never by this sync.
+        const fillName = !existing.name && name;
+        if (fillName || existing.isActive !== isActive) {
+          await prisma.user.update({
+            where: { id: existing.id },
+            data: { isActive, ...(fillName ? { name } : {}) },
+          });
           usersResult.updated++;
         } else {
           usersResult.skipped++;

@@ -15,7 +15,7 @@ export default async function StatusRequestsPage() {
   // an admin previewing as a CS can still act (as the admin), an Executive
   // never can.
   const realRole = real?.user?.role;
-  const canResolve = realRole === "CS_SPECIALIST" || realRole === "ADMIN";
+  const canResolve = realRole === "CS_SPECIALIST" || realRole === "CS_MANAGER" || realRole === "ADMIN";
 
   return (
     <>

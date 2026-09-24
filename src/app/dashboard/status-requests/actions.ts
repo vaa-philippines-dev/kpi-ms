@@ -25,9 +25,11 @@ async function realSession(): Promise<ScopingSession> {
 // Same four roles as requireConnectionEditor() in connections/actions.ts —
 // anyone who manages the connection can raise a request for it.
 const REQUESTER_ROLES = new Set<string>([UserRole.ADMIN, UserRole.DM, UserRole.OPS_MANAGER, UserRole.OM]);
-// The CS assigned to the connection's client resolves requests; ADMIN can
-// too, as a fallback for clients with no CS assigned yet.
-const RESOLVER_ROLES = new Set<string>([UserRole.CS_SPECIALIST, UserRole.ADMIN]);
+// The CS assigned to the connection's client resolves requests; the CS
+// Manager can resolve any of their team's; ADMIN too, as a fallback for
+// clients with no CS assigned yet. Each is still re-checked against its own
+// connectionScopeWhere in loadPendingForResolver.
+const RESOLVER_ROLES = new Set<string>([UserRole.CS_SPECIALIST, UserRole.CS_MANAGER, UserRole.ADMIN]);
 
 function revalidateAll() {
   revalidatePath("/dashboard/status-requests", "layout");

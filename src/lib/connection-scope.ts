@@ -102,6 +102,11 @@ export function connectionScopeWhere(
       // (CsClientAssignment, synced from the CMS by lib/cms-sync/cs-sync.ts)
       // — i.e. all the VAs connected to their clients, across departments.
       return { customer: { csAssignments: { some: { csUserId: session.id, isActive: true } } } };
+    case UserRole.CS_MANAGER:
+      // Every CS Specialist's book at once — any connection whose client has
+      // an active CS assignment. Clients with no CS at all stay Admin-only,
+      // same as their status requests.
+      return { customer: { csAssignments: { some: { isActive: true } } } };
     case UserRole.VA:
     default:
       return { vaUserId: session.id };

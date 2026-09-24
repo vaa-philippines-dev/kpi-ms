@@ -73,6 +73,7 @@ const vaConnectionsItem: NavItem = {
   labelByRole: {
     OM: "My Team",
     VA: "Connections",
+    CS_MANAGER: "Connections",
   },
   keywords: "va client pairing my team my connections",
 };
@@ -224,14 +225,14 @@ const statusRequestsItem: NavItem = {
   href: "/dashboard/status-requests",
   label: "Status Requests",
   icon: ArrowLeftRight,
-  roles: ["CS_SPECIALIST", "ADMIN", "EXECUTIVE"],
+  roles: ["CS_SPECIALIST", "CS_MANAGER", "ADMIN", "EXECUTIVE"],
   keywords: "status change request pause end of contract eoc approve reject cs",
 };
 const statusRequestHistoryItem: NavItem = {
   href: "/dashboard/status-requests/history",
   label: "History",
   icon: ScrollText,
-  roles: ["CS_SPECIALIST", "ADMIN", "EXECUTIVE"],
+  roles: ["CS_SPECIALIST", "CS_MANAGER", "ADMIN", "EXECUTIVE"],
   labelByRole: { ADMIN: "Status Request History", EXECUTIVE: "Status Request History" },
   keywords: "status request history approved rejected cancelled log",
 };
@@ -382,6 +383,15 @@ const csSpecialistGroups: NavGroup[] = [
   },
 ];
 
+// CS_MANAGER — head of the CS team: the CS Specialist's three tabs across
+// every specialist's book, plus the (read-only) Connections list.
+const csManagerGroups: NavGroup[] = [
+  {
+    label: "Client Success",
+    items: [dashboardItem, vaConnectionsItem, statusRequestsItem, statusRequestHistoryItem],
+  },
+];
+
 // VA — legacy VA: "My Work" plus a lighter "Others" group. KPI, History, My
 // Team, and Interventions are all new (not in legacy) — previously a VA had
 // no way to check their current KPI standing, whether it's trending up or
@@ -411,6 +421,7 @@ const navGroupsByRole: Record<string, NavGroup[]> = {
   OM: teamLeaderGroups,
   SERVICE_MANAGER: serviceManagerGroups,
   CS_SPECIALIST: csSpecialistGroups,
+  CS_MANAGER: csManagerGroups,
   VA: vaGroups,
 };
 

@@ -27,7 +27,7 @@ const TEAM_SCOPED_ROLES = new Set(["OM", "VA"]);
 // by assigned clients, Executive sees everything) — a department picker
 // would only narrow which person gets borrowed, which the user picker does
 // better.
-const UNSCOPED_BY_DEPARTMENT = new Set(["CS_SPECIALIST", "EXECUTIVE"]);
+const UNSCOPED_BY_DEPARTMENT = new Set(["CS_SPECIALIST", "CS_MANAGER", "EXECUTIVE"]);
 
 const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "EXECUTIVE", label: "Executive" },
@@ -36,6 +36,7 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "OM", label: "Team Leader" },
   { value: "SERVICE_MANAGER", label: "Service Manager" },
   { value: "CS_SPECIALIST", label: "CS Specialist" },
+  { value: "CS_MANAGER", label: "CS Manager" },
   { value: "VA", label: "Virtual Assistant" },
 ];
 
@@ -47,6 +48,7 @@ const ROLE_LABELS: Record<string, string> = {
   OM: "Team Leader",
   SERVICE_MANAGER: "Service Manager",
   CS_SPECIALIST: "CS Specialist",
+  CS_MANAGER: "CS Manager",
   VA: "Virtual Assistant",
 };
 
