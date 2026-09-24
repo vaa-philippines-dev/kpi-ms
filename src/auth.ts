@@ -1,6 +1,28 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+
+// Local-testing-only login: sign in as any active, pre-provisioned user by
+// email with no Google round-trip. Double-gated — `next dev` alone sets
+// NODE_ENV=development, so it also needs DEV_AUTH=1 in the local .env; on
+// Vercel (NODE_ENV=production) the provider is never registered at all.
+export const DEV_AUTH_ENABLED =
+  process.env.NODE_ENV === "development" && process.env.DEV_AUTH === "1";
+
+const devLoginProvider = Credentials({
+  id: "dev-login",
+  name: "Dev login",
+  credentials: { email: { label: "Email", type: "email" } },
+  async authorize(credentials) {
+    if (!DEV_AUTH_ENABLED) return null;
+    const email = String(credentials?.email ?? "").trim().toLowerCase();
+    if (!email) return null;
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.isActive) return null;
+    return { id: user.id, email: user.email, name: user.name };
+  },
+});
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -14,6 +36,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // signIn callback below with a confusing AccessDenied.
       authorization: { params: { prompt: "select_account" } },
     }),
+    ...(DEV_AUTH_ENABLED ? [devLoginProvider] : []),
   ],
   secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: "jwt" },
@@ -21,8 +44,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     signIn: "/sign-in",
   },
   callbacks: {
-    async signIn({ profile }) {
-      const email = profile?.email?.toLowerCase();
+    async signIn({ profile, user }) {
+      // `profile` is Google's; the dev-login Credentials provider has none,
+      // only the `user` its authorize() returned.
+      const email = (profile?.email ?? user?.email)?.toLowerCase();
       if (!email) {
         return false;
       }
