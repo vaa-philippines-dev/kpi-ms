@@ -11,9 +11,11 @@ import { Textarea } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { CONNECTION_STATUS_LABELS, CONNECTION_STATUS_TONE } from "@/lib/connection-labels";
 import type { ConnectionStatus, StatusChangeRequestState } from "@/generated/prisma/enums";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import {
   approveStatusChangeRequest,
   rejectStatusChangeRequest,
+  deleteStatusChangeRequest,
 } from "@/app/dashboard/status-requests/actions";
 
 export type StatusRequestRow = {
@@ -193,10 +195,13 @@ export function StatusRequestsTable({
   rows,
   mode,
   canResolve,
+  canDelete = false,
 }: {
   rows: StatusRequestRow[];
   mode: "pending" | "history";
   canResolve: boolean;
+  /** Real (not view-as) ADMIN only — see deleteStatusChangeRequest. */
+  canDelete?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const open = rows.find((r) => r.id === openId) ?? null;
@@ -253,6 +258,18 @@ export function StatusRequestsTable({
             </Link>
             {canResolve && open.state === "PENDING" && (
               <ResolveForm request={open} onDone={() => setOpenId(null)} />
+            )}
+            {canDelete && open.state !== "PENDING" && (
+              <div className="flex justify-end border-t border-surface-border pt-4">
+                <ConfirmSubmitButton
+                  action={deleteStatusChangeRequest}
+                  fields={{ requestId: open.id }}
+                  label="Delete from history"
+                  confirmLabel="Permanently delete this record?"
+                  successMessage="Deleted from history."
+                  onSuccess={() => setOpenId(null)}
+                />
+              </div>
             )}
           </div>
         )}

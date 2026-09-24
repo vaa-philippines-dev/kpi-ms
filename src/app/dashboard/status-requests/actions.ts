@@ -212,3 +212,39 @@ export async function cancelStatusChangeRequest(formData: FormData) {
   });
   revalidateAll();
 }
+
+/**
+ * Admin-only hard delete of a resolved request from History. Pending
+ * requests can't be deleted here — they're still live work for a CS, and
+ * Cancel already covers withdrawing one. The Activity Log keeps a record of
+ * what was deleted, since the row itself is gone.
+ */
+export async function deleteStatusChangeRequest(formData: FormData) {
+  const session = await realSession();
+  if (session.role !== UserRole.ADMIN) {
+    throw new Error("Only admins can delete status request history.");
+  }
+  const requestId = String(formData.get("requestId") ?? "");
+  const request = await prisma.statusChangeRequest.findUnique({
+    where: { id: requestId },
+    include: { connection: { select: { clientName: true, departmentId: true } } },
+  });
+  if (!request) throw new Error("Request not found.");
+  if (request.state === StatusChangeRequestState.PENDING) {
+    throw new Error("This request is still pending — cancel or resolve it instead.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.statusChangeRequest.delete({ where: { id: request.id } });
+    await logActivity(tx, {
+      actor: { id: session.id, role: session.role },
+      action: "DELETE",
+      entityType: "StatusChangeRequest",
+      entityId: request.id,
+      entityLabel: request.connection.clientName,
+      summary: `Deleted ${request.state.toLowerCase()} status request history for "${request.connection.clientName}" (${request.fromStatus} → ${request.requestedStatus})`,
+      departmentId: request.connection.departmentId,
+    });
+  });
+  revalidateAll();
+}
