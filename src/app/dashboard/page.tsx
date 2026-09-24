@@ -12,6 +12,7 @@ import { DepartmentBreakdownTable, type DeptConnectionRow } from "./department-b
 import { DashboardStatCards } from "./dashboard-stat-cards";
 import { TeamLeaderOverview } from "./team-leader-overview";
 import { CsOverview } from "./cs-overview";
+import { CsSpecialistOverview } from "./cs-specialist-overview";
 import { VaOverview } from "./va-overview";
 import { MyConnectionsSubmitPanel } from "./my-connections-submit-panel";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
@@ -64,7 +65,18 @@ export default async function DashboardOverviewPage(
     );
   }
 
-  // CS Specialists (SERVICE_MANAGER) get legacy's dedicated dashboard —
+  // CMS-sourced CS Specialists — scoped to their own client book, not
+  // system-wide like SERVICE_MANAGER's legacy CS dashboard below.
+  if (session.role === "CS_SPECIALIST") {
+    return (
+      <>
+        <PageHeader title="Dashboard" description="Your clients and their VAs' KPI performance this week." />
+        <CsSpecialistOverview session={session} weeklyStart={weeklyStart} />
+      </>
+    );
+  }
+
+  // Service Managers (SERVICE_MANAGER) get legacy's CS Specialist dashboard —
   // system-wide stat cards + a flat connection-status table with a
   // click-to-open KPI drill-down — instead of the department-breakdown
   // view below, which legacy's CS dashboard doesn't have.

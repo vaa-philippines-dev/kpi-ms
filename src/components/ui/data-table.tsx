@@ -114,9 +114,14 @@ export function DataTable<T>({
     for (const [key, value] of Object.entries(colFilters)) {
       if (!value) continue;
       const needle = value.toLowerCase();
-      rows = rows.filter((row) =>
-        cellText(row, key as keyof T & string).toLowerCase().includes(needle),
-      );
+      // Explicit filterOptions are always exact enum/boolean values, so match
+      // them exactly — a substring match let "ACTIVE" also keep "INACTIVE"
+      // rows, and "DM" also keep "ADMIN".
+      const exact = Boolean(columns.find((c) => c.key === key)?.filterOptions);
+      rows = rows.filter((row) => {
+        const text = cellText(row, key as keyof T & string).toLowerCase();
+        return exact ? text === needle : text.includes(needle);
+      });
     }
     if (sortKey) {
       rows = [...rows].sort((a, b) => {

@@ -7,16 +7,33 @@ import { Button } from "@/components/ui/button";
 type PhaseResult = { created: number; updated: number; skipped: number; errors: string[] };
 export type SyncReport = Record<string, PhaseResult>;
 
-function ReportSummary({ report }: { report: SyncReport }) {
+function ReportSummary({ report, notes }: { report: SyncReport; notes: string[] | null }) {
   const phases = Object.values(report);
   const created = phases.reduce((sum, r) => sum + r.created, 0);
   const errors = phases.flatMap((r) => r.errors);
 
   return (
     <div className="mt-3 space-y-2 text-xs">
-      <p className="text-muted">
-        {created === 0 ? "No new connections." : `Added ${created} connection${created === 1 ? "" : "s"}.`}
-      </p>
+      {/* A sync that sends `notes` gets a per-phase breakdown; the original
+          connection sync keeps its one-line "Added N connections". */}
+      {notes ? (
+        <ul className="space-y-0.5 text-muted">
+          {Object.entries(report).map(([phase, r]) => (
+            <li key={phase}>
+              {phase}: {r.created} created, {r.updated} updated, {r.skipped} unchanged
+            </li>
+          ))}
+          {notes.map((n, i) => (
+            <li key={`n${i}`} className="text-warning">
+              {n}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted">
+          {created === 0 ? "No new connections." : `Added ${created} connection${created === 1 ? "" : "s"}.`}
+        </p>
+      )}
       {errors.length > 0 && (
         <ul className="list-disc pl-4 text-danger">
           {errors.slice(0, 10).map((e, i) => (
@@ -35,6 +52,7 @@ export function SyncButton({ label, endpoint }: { label: string; endpoint: strin
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<SyncReport | null>(null);
+  const [notes, setNotes] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
 
@@ -70,6 +88,7 @@ export function SyncButton({ label, endpoint }: { label: string; endpoint: strin
             setProgress({ phase: event.phase, done: event.done, total: event.total });
           } else if (event.type === "done") {
             setReport(event.report);
+            setNotes(event.notes ?? null);
             setProgress(null);
             router.refresh();
           } else if (event.type === "error") {
@@ -114,7 +133,7 @@ export function SyncButton({ label, endpoint }: { label: string; endpoint: strin
         </div>
       )}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-      {report && <ReportSummary report={report} />}
+      {report && <ReportSummary report={report} notes={notes} />}
     </div>
   );
 }

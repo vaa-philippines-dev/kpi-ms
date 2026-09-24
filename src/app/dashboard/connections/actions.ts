@@ -7,6 +7,7 @@ import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/pris
 import { requireSession, connectionScopeWhere, type ScopingSession } from "@/lib/connection-scope";
 import { generateConnectionShortCode } from "@/lib/connection-short-code";
 import { logActivity, diffFields } from "@/lib/activity-log";
+import { TERMINAL_STATUSES, parseEocDate, applyConnectionStatusChange } from "@/lib/connection-status";
 
 async function requireAdmin() {
   const session = await auth();
@@ -49,12 +50,6 @@ async function requireConnectionCreator(): Promise<{ id: string; role: string }>
   return { id: session!.user.id, role };
 }
 
-// Terminal states never transition back to anything else — mirrors the
-// legacy updateVAConnectionStatus() legal-transition guard.
-const TERMINAL_STATUSES: ConnectionStatus[] = [
-  ConnectionStatus.END_OF_CONTRACT,
-  ConnectionStatus.END_OF_PROJECT,
-];
 
 export async function createConnection(formData: FormData) {
   const creator = await requireConnectionCreator();
@@ -143,32 +138,18 @@ export async function updateConnectionStatus(formData: FormData) {
   // ConnectionStatusEvent's changedAt below, which is just "when the
   // system was updated" and is often days after the actual end date.
   // Defaults to today, mirroring startDate's default-to-now on create.
-  const eocDateRaw = String(formData.get("eocDate") ?? "");
   const eocDate = TERMINAL_STATUSES.includes(status)
-    ? eocDateRaw
-      ? new Date(`${eocDateRaw}T00:00:00.000Z`)
-      : new Date()
+    ? parseEocDate(String(formData.get("eocDate") ?? ""))
     : undefined;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.connection.update({ where: { id }, data: { status, ...(eocDate ? { eocDate } : {}) } });
-    await tx.connectionStatusEvent.create({
-      data: { connectionId: id, status, changedById: session.id },
-    });
-    await logActivity(tx, {
+  await prisma.$transaction((tx) =>
+    applyConnectionStatusChange(tx, {
+      connection,
+      status,
+      eocDate,
       actor: { id: session.id, role: session.role },
-      action: "UPDATE",
-      entityType: "Connection",
-      entityId: id,
-      entityLabel: connection.clientName,
-      summary: `Changed status of "${connection.clientName}" from ${connection.status} to ${status}`,
-      changes: [
-        { field: "status", oldValue: connection.status, newValue: status },
-        ...(eocDate ? [{ field: "eocDate", oldValue: null, newValue: eocDate.toISOString() }] : []),
-      ],
-      departmentId: connection.departmentId,
-    });
-  });
+    }),
+  );
   revalidatePath("/dashboard/connections");
 }
 
