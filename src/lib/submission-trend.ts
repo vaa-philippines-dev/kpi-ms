@@ -3,6 +3,7 @@ import { currentPeriodStart } from "@/lib/period";
 import { KpiPeriod, ConnectionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { pickTeamForDepartment } from "@/lib/user-teams";
+import { getSubmittedConnectionIds } from "@/lib/submitted-connections";
 
 export type SubmissionTrendPoint = {
   periodStart: Date;
@@ -50,6 +51,9 @@ function stepBack(periodStart: Date, period: KpiPeriod): Date {
  * PerformanceSummary is populated by both paths (live submissions upsert it
  * in the same transaction as their Submission row — see submit/actions.ts),
  * so it's the one signal that actually means "we have data for this period."
+ * Its rows are never deleted, though — a deleted/moved submission leaves a
+ * NO_DATA row behind — so the actual check is Submission OR a non-NO_DATA
+ * PerformanceSummary (lib/submitted-connections.ts).
  */
 export async function getSubmissionTrend(
   scope: Prisma.ConnectionWhereInput,
@@ -100,15 +104,12 @@ export async function getSubmissionTrend(
       if (total === 0) {
         return { periodStart, submitted: 0, total: 0, pending: 0, ratePct: 0 };
       }
-      const submittedGroups = await prisma.performanceSummary.groupBy({
-        by: ["connectionId"],
-        where: {
-          period,
-          periodStart,
-          connectionId: { in: countable.map((c) => c.id) },
-        },
-      });
-      const submitted = submittedGroups.length;
+      const submittedIds = await getSubmittedConnectionIds(
+        countable.map((c) => c.id),
+        period,
+        periodStart,
+      );
+      const submitted = submittedIds.size;
       return {
         periodStart,
         submitted,
@@ -122,8 +123,8 @@ export async function getSubmissionTrend(
 
 /**
  * The actual connections behind a period's "No Submissions" count above —
- * ACTIVE, already-started connections with no PerformanceSummary row yet
- * for `period`/`periodStart`. Powers the Submission Trend card's detail
+ * ACTIVE, already-started connections not yet submitted (see
+ * lib/submitted-connections.ts) for `period`/`periodStart`. Powers the Submission Trend card's detail
  * modal so any role can see who hasn't submitted, not just the count.
  */
 export async function getPendingSubmissionRows(
@@ -163,15 +164,11 @@ export async function getPendingSubmissionRows(
   });
   if (countable.length === 0) return [];
 
-  const submittedGroups = await prisma.performanceSummary.groupBy({
-    by: ["connectionId"],
-    where: {
-      period,
-      periodStart,
-      connectionId: { in: countable.map((c) => c.id) },
-    },
-  });
-  const submittedIds = new Set(submittedGroups.map((g) => g.connectionId));
+  const submittedIds = await getSubmittedConnectionIds(
+    countable.map((c) => c.id),
+    period,
+    periodStart,
+  );
 
   return countable
     .filter((c) => !submittedIds.has(c.id))

@@ -8,6 +8,7 @@ import { HistorySummaryCard } from "@/components/history-summary-card";
 import { getConnectionTrendBatch } from "@/lib/connection-trend";
 import { ConnectionStatus, KpiPeriod } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { getSubmittedConnectionIds } from "@/lib/submitted-connections";
 
 // Teaser window for the dashboard's History summary — shorter than the real
 // History page's 10-period view (lib/connection-trend.ts's caller there),
@@ -45,19 +46,13 @@ export async function VaOverview({
   const activeConns = connections.filter((c) => c.status === ConnectionStatus.ACTIVE);
   const pendingConns = connections.filter((c) => c.status === ConnectionStatus.PENDING);
 
-  // PerformanceSummary, not Submission — see lib/submission-trend.ts: legacy
-  // bulk imports write straight into PerformanceSummary and never create a
-  // Submission row, so this badge would undercount every connection whose
-  // current-week data came from the import rather than a live submit.
-  const submittedRows = await prisma.performanceSummary.findMany({
-    where: {
-      connectionId: { in: activeConns.map((c) => c.id) },
-      period: KpiPeriod.WEEKLY,
-      periodStart: weeklyStart,
-    },
-    select: { connectionId: true },
-  });
-  const submittedIds = new Set(submittedRows.map((s) => s.connectionId));
+  // Submission OR a non-NO_DATA PerformanceSummary — see
+  // lib/submitted-connections.ts for why neither table alone is enough.
+  const submittedIds = await getSubmittedConnectionIds(
+    activeConns.map((c) => c.id),
+    KpiPeriod.WEEKLY,
+    weeklyStart,
+  );
   const submittedCount = activeConns.filter((c) => submittedIds.has(c.id)).length;
 
   // Batched — one set of queries for every connection, not three per

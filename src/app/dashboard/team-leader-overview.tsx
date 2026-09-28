@@ -10,6 +10,7 @@ import { formatWeekRange } from "@/lib/period";
 import { rollupStatus, excludeInapplicable } from "@/lib/performance";
 import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
+import { getSubmittedConnectionIds } from "@/lib/submitted-connections";
 
 /**
  * Team Leader's dashboard content — mirrors legacy's renderTLDashboard()
@@ -32,7 +33,7 @@ export async function TeamLeaderOverview({
   weekStartDay: number;
   anchor: Date | undefined;
 }) {
-  const [connections, submittedRows, kpiDefs, trend] = await Promise.all([
+  const [connections, kpiDefs, trend] = await Promise.all([
     prisma.connection.findMany({
       // ACTIVE only — matches the Performance page's connection count, so a
       // TL's team of e.g. 32 active accounts plus 11 END_OF_CONTRACT ones
@@ -60,14 +61,6 @@ export async function TeamLeaderOverview({
       },
       orderBy: { clientName: "asc" },
     }),
-    // PerformanceSummary, not Submission — see lib/submission-trend.ts:
-    // legacy bulk imports write straight into PerformanceSummary and never
-    // create a Submission row, so this would undercount every connection
-    // whose current-week data came from the import rather than a live submit.
-    prisma.performanceSummary.findMany({
-      where: { connection: scope, period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
-      select: { connectionId: true },
-    }),
     prisma.kpiDefinition.findMany({ where: { period: KpiPeriod.WEEKLY } }),
     getPerformanceTrend(scope, KpiPeriod.WEEKLY, weekStartDay, 6, anchor),
   ]);
@@ -76,7 +69,13 @@ export async function TeamLeaderOverview({
     return <ComingSoon note="No connections assigned to your team yet." />;
   }
 
-  const submittedIds = new Set(submittedRows.map((s) => s.connectionId));
+  // Submission OR a non-NO_DATA PerformanceSummary — see
+  // lib/submitted-connections.ts for why neither table alone is enough.
+  const submittedIds = await getSubmittedConnectionIds(
+    connections.map((c) => c.id),
+    KpiPeriod.WEEKLY,
+    weeklyStart,
+  );
   const weekLabel = formatWeekRange(weeklyStart);
 
   const cards: TeamCard[] = connections.map((c) => {

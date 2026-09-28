@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { KpiPeriod, ConnectionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { getUserTeamIds, pickTeamForDepartment } from "@/lib/user-teams";
+import { getSubmittedKeys, submittedKey } from "@/lib/submitted-connections";
 
 export type TeamWeekPoint = { periodStart: Date; submitted: number; total: number };
 
@@ -88,20 +89,12 @@ export async function getTeamSubmissionReport(
     }),
   ]);
 
-  // PerformanceSummary, not Submission — see lib/submission-trend.ts for why
-  // (legacy bulk imports never create a Submission row, only a
-  // PerformanceSummary one, so Submission alone undercounts every imported
-  // period).
-  const submissions = await prisma.performanceSummary.groupBy({
-    by: ["connectionId", "periodStart"],
-    where: {
-      period: KpiPeriod.WEEKLY,
-      periodStart: { in: starts },
-      connectionId: { in: connections.map((c) => c.id) },
-    },
-  });
-  const submittedSet = new Set(
-    submissions.map((s) => `${s.connectionId}:${s.periodStart.getTime()}`),
+  // Submission OR a non-NO_DATA PerformanceSummary — see
+  // lib/submitted-connections.ts for why neither table alone is enough.
+  const submittedSet = await getSubmittedKeys(
+    connections.map((c) => c.id),
+    KpiPeriod.WEEKLY,
+    starts,
   );
 
   const connsByTeam = new Map<string, typeof connections>();
@@ -121,7 +114,7 @@ export async function getTeamSubmissionReport(
       const countable = teamConns.filter((c) => (c.startDate ?? c.createdAt) <= periodStart);
       const total = countable.length;
       const submitted = countable.filter((c) =>
-        submittedSet.has(`${c.id}:${periodStart.getTime()}`),
+        submittedSet.has(submittedKey(c.id, periodStart)),
       ).length;
       return { periodStart, submitted, total };
     });

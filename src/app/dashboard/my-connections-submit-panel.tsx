@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConnectionStatus, KpiPeriod } from "@/generated/prisma/enums";
+import { getSubmittedConnectionIds } from "@/lib/submitted-connections";
 
 /**
  * Anyone can end up personally assigned as the VA on a connection, not just
@@ -30,15 +31,13 @@ export async function MyConnectionsSubmitPanel({
   });
   if (connections.length === 0) return null;
 
-  const submittedRows = await prisma.performanceSummary.findMany({
-    where: {
-      connectionId: { in: connections.map((c) => c.id) },
-      period: KpiPeriod.WEEKLY,
-      periodStart: weeklyStart,
-    },
-    select: { connectionId: true },
-  });
-  const submittedIds = new Set(submittedRows.map((s) => s.connectionId));
+  // Submission OR a non-NO_DATA PerformanceSummary — see
+  // lib/submitted-connections.ts for why neither table alone is enough.
+  const submittedIds = await getSubmittedConnectionIds(
+    connections.map((c) => c.id),
+    KpiPeriod.WEEKLY,
+    weeklyStart,
+  );
   const submittedCount = connections.filter((c) => submittedIds.has(c.id)).length;
 
   return (

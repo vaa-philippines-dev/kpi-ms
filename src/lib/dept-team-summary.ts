@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { KpiPeriod, ConnectionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 import { pickTeamForDepartment } from "@/lib/user-teams";
+import { getSubmittedConnectionIds } from "@/lib/submitted-connections";
 
 export type GroupSubmissionRow = {
   id: string;
@@ -36,26 +37,20 @@ async function buildRow(
   if (total === 0) {
     return { id, name, leaderName, submitted: 0, total: 0, ratePct: 0 };
   }
-  // Measured via PerformanceSummary, not Submission — legacy bulk imports
-  // write performance data straight into PerformanceSummary and never
-  // create a Submission row for it, so checking Submission here undercounts
-  // every period that has imported (rather than live-submitted) data. See
-  // lib/submission-trend.ts for the full explanation.
-  const submittedGroups = await prisma.performanceSummary.groupBy({
-    by: ["connectionId"],
-    where: {
-      period,
-      periodStart,
-      connectionId: { in: connections.map((c) => c.id) },
-    },
-  });
+  // Submission OR a non-NO_DATA PerformanceSummary — see
+  // lib/submitted-connections.ts for why neither table alone is enough.
+  const submittedIds = await getSubmittedConnectionIds(
+    connections.map((c) => c.id),
+    period,
+    periodStart,
+  );
   return {
     id,
     name,
     leaderName,
-    submitted: submittedGroups.length,
+    submitted: submittedIds.size,
     total,
-    ratePct: Math.round((submittedGroups.length / total) * 100),
+    ratePct: Math.round((submittedIds.size / total) * 100),
   };
 }
 
@@ -192,7 +187,7 @@ export async function getTeamSubmissionSummary(
  * oversees several), an OM's `scope` is already narrowed to their own team,
  * so a single rolled-up row ("28/31") hides exactly the thing a team leader
  * needs: which of their people still haven't submitted. Reuses the same
- * ACTIVE-only, PerformanceSummary-backed "submitted" definition as buildRow.
+ * ACTIVE-only "submitted" definition as buildRow.
  */
 export async function getTeamMemberSubmissionSummary(
   scope: Prisma.ConnectionWhereInput,
@@ -205,15 +200,11 @@ export async function getTeamMemberSubmissionSummary(
   });
   if (connections.length === 0) return [];
 
-  const submittedGroups = await prisma.performanceSummary.groupBy({
-    by: ["connectionId"],
-    where: {
-      period,
-      periodStart,
-      connectionId: { in: connections.map((c) => c.id) },
-    },
-  });
-  const submittedIds = new Set(submittedGroups.map((g) => g.connectionId));
+  const submittedIds = await getSubmittedConnectionIds(
+    connections.map((c) => c.id),
+    period,
+    periodStart,
+  );
 
   const byVa = new Map<string, { name: string; total: number; submitted: number }>();
   for (const c of connections) {
