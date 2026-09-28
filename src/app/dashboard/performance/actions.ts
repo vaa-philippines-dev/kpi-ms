@@ -68,9 +68,9 @@ export type ConnectionWeekDetail = {
  * applicable KPI to be submitted, not just one.
  *
  * "Submitted" is read off actual SubmissionRecord rows, not off
- * PerformanceSummary presence — PerformanceSummary rows are never deleted
- * (recomputePerformanceSummary falls them back to NO_DATA instead) and can
- * in principle exist without ever having had a Submission behind them (e.g.
+ * PerformanceSummary presence — stale NO_DATA rows from deleted/moved
+ * submissions predating recomputePerformanceSummary's cleanup may linger,
+ * and rows can in principle exist without ever having had a Submission behind them (e.g.
  * a direct legacy-sync write), so their mere existence doesn't reliably
  * prove a submission happened. Same reasoning as lib/connection-trend.ts and
  * commit 2d9cd9d's fix for the submissions tracker — just scoped per-KPI

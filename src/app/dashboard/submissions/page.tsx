@@ -130,9 +130,8 @@ export default async function SubmissionsPage(
 
   // Submitted-vs-pending tracker: has this connection got an actual
   // Submission row for the selected period? Deliberately NOT derived from
-  // PerformanceSummary — that table's rows are never deleted
-  // (recomputePerformanceSummary falls back to NO_DATA instead), so a
-  // deleted/moved submission would leave a stale row that still reads as
+  // PerformanceSummary — before recomputePerformanceSummary started deleting
+  // vacated rows, a deleted/moved submission left a stale NO_DATA row that still reads as
   // "submitted" even though no Submission exists anymore — mirrors the
   // legacy AppSubmissions grid.
   const submittedConnectionIds = new Set(currentPeriodSubmissions.map((s) => s.connectionId));

@@ -164,8 +164,8 @@ export async function getConnectionTrendBatch(
  * costs three queries per call, so mapping it over a list multiplies them.
  *
  * "Submitted" is read off the Submission table directly rather than off
- * PerformanceSummary presence — PerformanceSummary rows are never deleted
- * (recomputePerformanceSummary falls them back to NO_DATA instead), so their
+ * PerformanceSummary presence — stale NO_DATA rows left by deleted/moved
+ * submissions (before recomputePerformanceSummary deleted them) mean their
  * mere existence doesn't reliably say whether a period was actually
  * submitted. Same fix as dashboard/performance/actions.ts's
  * getConnectionWeekDetail and commit 2d9cd9d's fix for the submissions

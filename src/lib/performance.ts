@@ -217,9 +217,13 @@ export async function overridePerformanceTarget(
  * Recomputes and upserts PerformanceSummary for one connection/period/KPI
  * set, by re-summing whatever SubmissionRecords currently exist for that
  * connection+periodStart — the same "actual = sum of every submitted value"
- * rule createSubmission uses. Never deletes a PerformanceSummary row, even
- * when the recomputed actual comes back null (no submissions left); it just
- * updates it to NO_DATA, same as if nothing had ever been submitted.
+ * rule createSubmission uses. A KPI with no SubmissionRecord left at all for
+ * that connection+periodStart (its submission was deleted or moved to another
+ * period) has its PerformanceSummary row deleted rather than kept as NO_DATA:
+ * the Performance table lists every connection with a summary row for the
+ * period, so a leftover row made a vacated week show the connection as
+ * "No Data" as if something had been submitted. A KPI whose records are all
+ * explicit "no data" entries still keeps its NO_DATA row.
  *
  * Callers: createSubmission (original write), and — for correcting a
  * wrongly-dated submission — updateSubmission/deleteSubmission in
@@ -253,7 +257,7 @@ export async function recomputePerformanceSummary(
   // Submitting every area at once (the "view all clusters" form) can pass
   // 50+ KPI ids here; doing that many sequential round trips inside one
   // transaction risked blowing Prisma's 5s interactive-transaction timeout.
-  const [kpis, sums, existing] = await Promise.all([
+  const [kpis, sums, recordCounts, existing] = await Promise.all([
     tx.kpiDefinition.findMany({
       where: { id: { in: kpiDefinitionIds } },
       include: { kpiConfigs: { where: { connectionId } } },
@@ -267,6 +271,14 @@ export async function recomputePerformanceSummary(
       },
       _sum: { value: true },
     }),
+    tx.submissionRecord.groupBy({
+      by: ["kpiDefinitionId"],
+      where: {
+        kpiDefinitionId: { in: kpiDefinitionIds },
+        submission: { connectionId, periodStart },
+      },
+      _count: { _all: true },
+    }),
     tx.performanceSummary.findMany({
       where: { connectionId, periodStart, kpiDefinitionId: { in: kpiDefinitionIds } },
       select: { kpiDefinitionId: true, targetValue: true },
@@ -274,6 +286,16 @@ export async function recomputePerformanceSummary(
   ]);
   const actualByKpiId = new Map(sums.map((s) => [s.kpiDefinitionId, s._sum.value ?? null]));
   const frozenTargetByKpiId = new Map(existing.map((s) => [s.kpiDefinitionId, s.targetValue]));
+  const submittedKpiIds = new Set(recordCounts.map((r) => r.kpiDefinitionId));
+
+  const vacatedKpiIds = kpiDefinitionIds.filter((id) => !submittedKpiIds.has(id));
+  if (vacatedKpiIds.length > 0) {
+    await tx.performanceSummary.deleteMany({
+      where: { connectionId, periodStart, kpiDefinitionId: { in: vacatedKpiIds } },
+    });
+  }
+  const submittedKpis = kpis.filter((kpi) => submittedKpiIds.has(kpi.id));
+  if (submittedKpis.length === 0) return;
 
   // Firing one upsert per KPI — even concurrently via Promise.all — still
   // serializes on the transaction's single DB connection, so it doesn't
@@ -282,7 +304,7 @@ export async function recomputePerformanceSummary(
   // blowing the timeout). A single multi-row `INSERT ... ON CONFLICT DO
   // UPDATE` is the only way to make this one round trip regardless of how
   // many KPIs are being recomputed.
-  const rows = kpis.map((kpi) => {
+  const rows = submittedKpis.map((kpi) => {
     const config = kpi.kpiConfigs[0];
     const actualValue = actualByKpiId.get(kpi.id) ?? null;
     const targetValue = frozenTargetByKpiId.get(kpi.id) ?? config?.targetValue ?? kpi.targetValue;

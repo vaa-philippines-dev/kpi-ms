@@ -467,9 +467,9 @@ export async function overrideSubmissionTarget(formData: FormData) {
 }
 
 /** Deletes a wrongly-submitted submission entirely and recomputes the
- * aggregate it fed — never deletes the PerformanceSummary row itself, just
- * recomputes it, which naturally falls back to NO_DATA if nothing else
- * remains for that connection/KPI/period. */
+ * aggregate it fed — recomputePerformanceSummary deletes the
+ * PerformanceSummary row outright if nothing else remains for that
+ * connection/KPI/period, so the vacated period drops off Performance. */
 export async function deleteSubmission(formData: FormData) {
   const session = await requireSubmissionEditor();
   const submissionId = String(formData.get("submissionId") ?? "");
