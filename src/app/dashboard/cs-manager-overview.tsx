@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/prisma";
-import { CsTeamTable, type CsTeamRow } from "@/components/cs-team-table";
+import type { CsTeamRow } from "@/components/cs-team-table";
+import { CsDashboard } from "@/components/cs-dashboard";
 import { formatWeekRange } from "@/lib/period";
 import { loadCsBook } from "@/lib/cs-book";
 import { CustomerStatus, PerformanceStatus, StatusChangeRequestState, UserRole } from "@/generated/prisma/enums";
-import { STATUS_TILES, StatTile, PendingRequestsTile } from "./cs-specialist-overview";
 
 /**
  * CS_MANAGER's dashboard — a department-manager-style view across the whole
- * CS team: team-wide tiles and a per-specialist breakdown whose rows open
- * each specialist's book. Reassigning clients lives on its own Reassign
+ * CS team: team-wide tiles and a per-specialist breakdown; tiles and rows
+ * open drill-downs (see CsDashboard). Reassigning clients lives on its own Reassign
  * page. Same scope as connectionScopeWhere's CS_MANAGER branch (any client
  * with an active CS).
  */
@@ -59,38 +59,20 @@ export async function CsManagerOverview({ weeklyStart }: { weeklyStart: Date }) 
         atRisk: count(PerformanceStatus.AT_RISK),
         critical: count(PerformanceStatus.CRITICAL),
         noData: count(PerformanceStatus.NO_DATA),
-        connections: conns,
       };
     })
     // Hide empty inactive accounts; an inactive CS still holding clients
     // stays visible so their orphaned book gets noticed.
     .filter((r) => r.isActive || r.totalClients > 0);
 
-  const activeClients = clientRows.filter((r) => r.status === CustomerStatus.ACTIVE).length;
-  const weekLabel = formatWeekRange(weeklyStart);
-
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
-        <StatTile value={teamRows.filter((r) => r.isActive).length} label="Specialists" />
-        <StatTile value={activeClients} label="Active Clients" />
-        <StatTile value={connectionRows.length} label="Live VA Connections" />
-        <PendingRequestsTile count={pending.length} />
-        {STATUS_TILES.map((tile) => (
-          <div key={tile.status} className={`rounded-xl border bg-surface p-4 ${tile.style}`}>
-            <div className="text-3xl font-semibold">
-              {connectionRows.filter((r) => r.status === tile.status).length}
-            </div>
-            <div className="mt-1 text-sm">{tile.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <div>
-        <h2 className="mb-3 text-sm font-semibold text-muted uppercase">Specialists — {weekLabel}</h2>
-        <p className="-mt-2 mb-3 text-xs text-muted">Click a specialist to see their clients.</p>
-        <CsTeamTable rows={teamRows} weekLabel={weekLabel} />
-      </div>
-    </div>
+    <CsDashboard
+      mode="manager"
+      clientRows={clientRows}
+      connectionRows={connectionRows}
+      teamRows={teamRows}
+      pendingCount={pending.length}
+      weekLabel={formatWeekRange(weeklyStart)}
+    />
   );
 }

@@ -14,6 +14,7 @@ export const LIVE_STATUSES = new Set<ConnectionStatus>([
 ]);
 
 export type CsBookConnectionRow = CsStatusRow & {
+  customerId: string;
   csUserId: string;
   csName: string;
   connectionStatus: ConnectionStatus;
@@ -87,6 +88,7 @@ export async function loadCsBook(
           actual: s.actualValue,
           status: s.status,
         })),
+        customerId: a.customerId,
         csUserId: a.csUserId,
         csName,
         connectionStatus: c.status,

@@ -87,16 +87,19 @@ export type CsOption = { id: string; name: string };
 
 /**
  * A CS client book — one row per CsClientAssignment. With `specialists`
- * (CS Manager / Admin), a row opens the reassign-to-another-CS modal.
+ * (CS Manager / Admin), a row opens the reassign-to-another-CS modal;
+ * otherwise `onOpen` (the dashboards' client drill-down) handles the click.
  */
 export function CsClientTable({
   rows,
   showCs = false,
   specialists,
+  onOpen,
 }: {
   rows: CsClientRow[];
   showCs?: boolean;
   specialists?: CsOption[];
+  onOpen?: (row: CsClientRow) => void;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const open = rows.find((r) => r.id === openId) ?? null;
@@ -109,7 +112,7 @@ export function CsClientTable({
         getRowId={(r) => r.id}
         defaultLimit={25}
         defaultSort={{ key: "clientName", dir: "asc" }}
-        onRowClick={specialists ? (r) => setOpenId(r.id) : undefined}
+        onRowClick={specialists ? (r) => setOpenId(r.id) : onOpen}
         emptyMessage="No clients assigned in the CMS yet."
       />
       {specialists && (
