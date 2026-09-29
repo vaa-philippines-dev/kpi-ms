@@ -117,6 +117,7 @@ const CONNECTION_COLUMNS: DataTableColumn<CsBookConnectionRow>[] = [
     label: "Client",
     sortable: true,
     filterable: true,
+    className: "align-top",
     searchText: (r) => `${r.clientName} ${r.vaName}`,
     render: (v, r) => (
       <div>
@@ -129,6 +130,7 @@ const CONNECTION_COLUMNS: DataTableColumn<CsBookConnectionRow>[] = [
     key: "departments",
     label: "Departments",
     filterable: true,
+    className: "align-top",
     searchText: (r) => r.departments.join(" "),
     render: (_, r) => (
       <div className="flex flex-wrap gap-1">
@@ -142,36 +144,21 @@ const CONNECTION_COLUMNS: DataTableColumn<CsBookConnectionRow>[] = [
     key: "startDate",
     label: "Start Date",
     sortable: true,
-    className: "whitespace-nowrap tabular-nums",
+    className: "whitespace-nowrap tabular-nums align-top",
     render: (v) => DATE_FORMAT.format(new Date(String(v))),
   },
   {
     key: "tenureDays",
     label: "Lifetime Value",
     sortable: true,
-    className: "whitespace-nowrap",
+    className: "whitespace-nowrap align-top",
     render: (v) => formatDuration(Number(v)),
   },
   {
     key: "kpiRows",
     label: "Target / Actual",
-    render: (_, r) =>
-      r.kpiRows.length === 0 ? (
-        <span className="text-xs text-muted">No KPIs this week</span>
-      ) : (
-        <div className="min-w-48 space-y-0.5 text-xs">
-          {r.kpiRows.map((k) => (
-            <div key={k.name} className="flex items-center justify-between gap-3">
-              <span className="truncate text-muted" title={k.name}>
-                {k.name}
-              </span>
-              <span className={`shrink-0 tabular-nums ${STATUS_TEXT[k.status]}`}>
-                {formatKpiValue(k.target, k.unit)} / {formatKpiValue(k.actual, k.unit)}
-              </span>
-            </div>
-          ))}
-        </div>
-      ),
+    className: "align-top",
+    render: (_, r) => <KpiList rows={r.kpiRows} />,
   },
   {
     key: "status",
@@ -179,6 +166,7 @@ const CONNECTION_COLUMNS: DataTableColumn<CsBookConnectionRow>[] = [
     sortable: true,
     filterable: "select",
     filterOptions: Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label })),
+    className: "align-top",
     searchText: (r) => STATUS_LABEL[r.status],
     render: (v) => <StatusBadge status={v as PerformanceStatus} />,
   },
@@ -186,6 +174,7 @@ const CONNECTION_COLUMNS: DataTableColumn<CsBookConnectionRow>[] = [
     key: "connectionStatus",
     label: "Connection",
     sortable: true,
+    className: "align-top",
     render: (_, r) => (
       <Badge tone={CONNECTION_STATUS_TONE[r.connectionStatus]}>
         {CONNECTION_STATUS_LABELS[r.connectionStatus]}
@@ -194,10 +183,51 @@ const CONNECTION_COLUMNS: DataTableColumn<CsBookConnectionRow>[] = [
   },
 ];
 
+const KPI_PREVIEW = 4;
+
+/**
+ * A connection's KPIs for the week, target / actual. Long lists (a hybrid
+ * VA can carry 15+) collapse to the first few so one row doesn't fill the
+ * whole modal.
+ */
+function KpiList({ rows }: { rows: CsBookConnectionRow["kpiRows"] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (rows.length === 0) return <span className="text-xs text-muted">No KPIs this week</span>;
+  const shown = expanded ? rows : rows.slice(0, KPI_PREVIEW);
+  const onTarget = rows.filter((k) => k.status === PerformanceStatus.ON_TARGET).length;
+
+  return (
+    <div className="w-72 space-y-1 text-xs">
+      <div className="text-muted">
+        {onTarget}/{rows.length} on target
+      </div>
+      {shown.map((k, i) => (
+        // Same KPI name can repeat across a connection's services, so the
+        // index is part of the key.
+        <div key={`${k.name}-${i}`} className="flex items-start justify-between gap-3">
+          <span className="min-w-0 text-muted">{k.name}</span>
+          <span className={`shrink-0 text-right tabular-nums ${STATUS_TEXT[k.status]}`}>
+            {formatKpiValue(k.target, k.unit)} / {formatKpiValue(k.actual, k.unit)}
+          </span>
+        </div>
+      ))}
+      {rows.length > KPI_PREVIEW && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="text-accent hover:underline"
+        >
+          {expanded ? "Show less" : `Show all ${rows.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MiniTile({ value, label, tone = "" }: { value: string | number; label: string; tone?: string }) {
   return (
     <div className="rounded-lg border border-surface-border px-3 py-2">
-      <div className={`text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
+      <div className={`text-lg font-semibold whitespace-nowrap tabular-nums ${tone}`}>{value}</div>
       <div className="text-xs text-muted">{label}</div>
     </div>
   );
@@ -218,7 +248,7 @@ function SpecialistDetail({ row, weekLabel }: { row: CsTeamRow; weekLabel: strin
         <span>· {weekLabel}</span>
       </p>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <MiniTile value={`${row.activeClients}/${row.totalClients}`} label="Active Clients" />
         <MiniTile value={row.liveConnections} label="Live VAs" />
         <MiniTile value={row.pendingRequests} label="Pending Requests" tone={row.pendingRequests ? "text-accent" : ""} />
