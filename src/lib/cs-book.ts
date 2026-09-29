@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { ConnectionStatus, KpiPeriod } from "@/generated/prisma/enums";
 import { rollupStatus, excludeInapplicable } from "@/lib/performance";
+import { daysSince } from "@/lib/period";
 import type { CsStatusRow } from "@/components/cs-status-table";
 import type { CsClientRow } from "@/components/cs-client-table";
 
@@ -12,7 +13,17 @@ export const LIVE_STATUSES = new Set<ConnectionStatus>([
   ConnectionStatus.PENDING,
 ]);
 
-export type CsBookConnectionRow = CsStatusRow & { csUserId: string; csName: string };
+export type CsBookConnectionRow = CsStatusRow & {
+  csUserId: string;
+  csName: string;
+  connectionStatus: ConnectionStatus;
+  /** ISO — Connection.startDate, falling back to createdAt like Lifetime Value. */
+  startDate: string;
+  /** Lifetime value in days (tenure since startDate), same as the Lifetime Value report. */
+  tenureDays: number;
+  /** Primary department plus any additional services' departments. */
+  departments: string[];
+};
 export type CsBookClientRow = CsClientRow & { csUserId: string; csName: string; csIsActive: boolean };
 
 /**
@@ -34,6 +45,8 @@ export async function loadCsBook(
           connections: {
             include: {
               vaUser: { select: { name: true, email: true } },
+              department: { select: { name: true } },
+              additionalServices: { select: { service: { select: { department: { select: { name: true } } } } } },
               performanceSummaries: {
                 where: { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
                 select: {
@@ -41,7 +54,7 @@ export async function loadCsBook(
                   status: true,
                   targetValue: true,
                   actualValue: true,
-                  kpiDefinition: { select: { name: true } },
+                  kpiDefinition: { select: { name: true, unit: true } },
                 },
               },
               // Not-applicable KPIs can still carry a stale summary row —
@@ -69,12 +82,19 @@ export async function loadCsBook(
         status: rollupStatus(summaries.map((s) => s.status)),
         kpiRows: summaries.map((s) => ({
           name: s.kpiDefinition.name,
+          unit: s.kpiDefinition.unit,
           target: s.targetValue,
           actual: s.actualValue,
           status: s.status,
         })),
         csUserId: a.csUserId,
         csName,
+        connectionStatus: c.status,
+        startDate: (c.startDate ?? c.createdAt).toISOString(),
+        tenureDays: daysSince(c.startDate ?? c.createdAt),
+        departments: [
+          ...new Set([c.department.name, ...c.additionalServices.map((cs) => cs.service.department.name)]),
+        ],
       };
       connectionRows.push(row);
       return row;

@@ -85,14 +85,17 @@ export function ProfileCard({
             </p>
           </div>
 
-          <Link
-            href="/submit"
-            onClick={() => setOpen(false)}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-foreground transition hover:bg-surface-hover"
-          >
-            <Send className="size-4" />
-            Submit KPIs
-          </Link>
+          {/* CS roles review KPIs, they never submit them. */}
+          {role !== "CS_SPECIALIST" && role !== "CS_MANAGER" && (
+            <Link
+              href="/submit"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground transition hover:bg-surface-hover"
+            >
+              <Send className="size-4" />
+              Submit KPIs
+            </Link>
+          )}
 
           {(role === "ADMIN" || role === "EXECUTIVE") && (
             <Link

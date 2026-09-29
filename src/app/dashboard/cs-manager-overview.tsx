@@ -1,6 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { CsStatusTable } from "@/components/cs-status-table";
-import { CsClientTable } from "@/components/cs-client-table";
 import { CsTeamTable, type CsTeamRow } from "@/components/cs-team-table";
 import { formatWeekRange } from "@/lib/period";
 import { loadCsBook } from "@/lib/cs-book";
@@ -9,18 +7,12 @@ import { STATUS_TILES, StatTile, PendingRequestsTile } from "./cs-specialist-ove
 
 /**
  * CS_MANAGER's dashboard — a department-manager-style view across the whole
- * CS team: team-wide tiles, a per-specialist breakdown, then every client
- * and live VA connection with a CS filter. Same scope as
- * connectionScopeWhere's CS_MANAGER branch (any client with an active CS).
+ * CS team: team-wide tiles and a per-specialist breakdown whose rows open
+ * each specialist's book. Reassigning clients lives on its own Reassign
+ * page. Same scope as connectionScopeWhere's CS_MANAGER branch (any client
+ * with an active CS).
  */
-export async function CsManagerOverview({
-  weeklyStart,
-  canReassign,
-}: {
-  weeklyStart: Date;
-  /** Real role is CS_MANAGER or ADMIN — reassignClientCs re-checks it. */
-  canReassign: boolean;
-}) {
+export async function CsManagerOverview({ weeklyStart }: { weeklyStart: Date }) {
   const [{ clientRows, connectionRows }, specialists, pending] = await Promise.all([
     loadCsBook({ isActive: true }, weeklyStart),
     prisma.user.findMany({
@@ -67,6 +59,7 @@ export async function CsManagerOverview({
         atRisk: count(PerformanceStatus.AT_RISK),
         critical: count(PerformanceStatus.CRITICAL),
         noData: count(PerformanceStatus.NO_DATA),
+        connections: conns,
       };
     })
     // Hide empty inactive accounts; an inactive CS still holding clients
@@ -95,29 +88,8 @@ export async function CsManagerOverview({
 
       <div>
         <h2 className="mb-3 text-sm font-semibold text-muted uppercase">Specialists — {weekLabel}</h2>
-        <CsTeamTable rows={teamRows} />
-      </div>
-
-      <div>
-        <h2 className="mb-1 text-sm font-semibold text-muted uppercase">All Clients</h2>
-        {canReassign && <p className="mb-3 text-xs text-muted">Click a client to reassign it to another CS.</p>}
-        <CsClientTable
-          rows={clientRows}
-          showCs
-          specialists={
-            canReassign
-              ? teamRows
-                  .filter((r) => r.isActive)
-                  .map((r) => ({ id: r.id, name: r.name }))
-                  .sort((a, b) => a.name.localeCompare(b.name))
-              : undefined
-          }
-        />
-      </div>
-
-      <div>
-        <h2 className="mb-3 text-sm font-semibold text-muted uppercase">VA Connections — {weekLabel}</h2>
-        <CsStatusTable rows={connectionRows} weekLabel={weekLabel} showCs />
+        <p className="-mt-2 mb-3 text-xs text-muted">Click a specialist to see their clients.</p>
+        <CsTeamTable rows={teamRows} weekLabel={weekLabel} />
       </div>
     </div>
   );

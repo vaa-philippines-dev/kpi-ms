@@ -23,6 +23,7 @@ import {
   MessageCircle,
   ArrowLeftRight,
   ScrollText,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -237,6 +238,14 @@ const statusRequestHistoryItem: NavItem = {
   keywords: "status request history approved rejected cancelled log",
 };
 
+const reassignItem: NavItem = {
+  href: "/dashboard/reassign",
+  label: "Reassign",
+  icon: UserCog,
+  roles: ["CS_MANAGER", "ADMIN"],
+  keywords: "reassign client cs specialist move book transfer",
+};
+
 // Group names, order, and item placement per role mirror the legacy sidebar
 // (legacy-appscript/AppCore.html getNavItems) exactly. Role mapping: ADMIN
 // = legacy Admin, DM = legacy Manager, OM = legacy Team Leader,
@@ -384,11 +393,11 @@ const csSpecialistGroups: NavGroup[] = [
 ];
 
 // CS_MANAGER — head of the CS team: the CS Specialist's three tabs across
-// every specialist's book, plus the (read-only) Connections list.
+// every specialist's book, plus Reassign (moving clients between CSs).
 const csManagerGroups: NavGroup[] = [
   {
     label: "Client Success",
-    items: [dashboardItem, vaConnectionsItem, statusRequestsItem, statusRequestHistoryItem],
+    items: [dashboardItem, reassignItem, statusRequestsItem, statusRequestHistoryItem],
   },
 ];
 

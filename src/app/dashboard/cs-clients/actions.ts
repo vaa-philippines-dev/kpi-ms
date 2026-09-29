@@ -20,6 +20,7 @@ async function requireCsAssigner() {
 function revalidateCs() {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/connections");
+  revalidatePath("/dashboard/reassign");
   revalidatePath("/dashboard/status-requests", "layout");
 }
 

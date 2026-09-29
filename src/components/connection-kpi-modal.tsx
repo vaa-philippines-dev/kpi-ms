@@ -6,6 +6,8 @@ import { PerformanceStatus } from "@/generated/prisma/enums";
 
 export type ConnectionKpiRow = {
   name: string;
+  /** KpiDefinition.unit — see formatKpiValue. */
+  unit?: string | null;
   target: number;
   actual: number | null;
   status: PerformanceStatus;
