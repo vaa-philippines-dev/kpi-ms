@@ -100,9 +100,10 @@ export async function runCmsConnectionSync(
   const report: SyncReport = {};
   void triggeredByUserId;
 
-  const [vaRows, connRows, departments, existingVaUsers, allUserEmails, existingConnections] = await Promise.all([
+  const [vaRows, connRows, customerRows, departments, existingVaUsers, allUserEmails, existingConnections] = await Promise.all([
     readCmsSheet("VirtualAssistants"),
     readCmsSheet("VAConnections"),
+    readCmsSheet("Customers"),
     prisma.department.findMany({ select: { id: true, name: true } }),
     prisma.user.findMany({
       where: { role: UserRole.VA },
@@ -154,6 +155,15 @@ export async function runCmsConnectionSync(
   // since User.email is unique account-wide, not just within role VA.
   const emailsInUse = new Set(allUserEmails.map((u) => u.email.trim().toLowerCase()));
   const vaById = new Map(vaRows.map((r) => [r.VAID, r]));
+  // Newer CMS VAConnections rows (roughly Sep 2026 on) leave CustomerName
+  // blank and only carry CustomerID, so the name is resolved from the
+  // Customers tab instead — without this those rows were silently skipped
+  // as "no client name" (e.g. CONN_D69D0AA49BFF, Artur Murdakhayev).
+  const customerNameById = new Map(
+    customerRows
+      .filter((r) => (r.CustomerID ?? "").trim() && (r.CustomerName ?? "").trim())
+      .map((r) => [r.CustomerID.trim(), r.CustomerName.trim()]),
+  );
 
   const existingCmsIds = new Set(
     existingConnections.map((c) => c.externalCmsId).filter((v): v is string => Boolean(v)),
@@ -201,7 +211,8 @@ export async function runCmsConnectionSync(
   await mapWithConcurrency(connRows, 8, async (row) => {
     try {
       const connectionId = row.ConnectionID;
-      const clientName = (row.CustomerName ?? "").trim();
+      const clientName =
+        (row.CustomerName ?? "").trim() || customerNameById.get((row.CustomerID ?? "").trim()) || "";
       if (!connectionId || !clientName) {
         connResult.skipped++;
         return;
