@@ -59,6 +59,8 @@ export default async function DashboardOverviewPage(
           userId={session.id}
           scope={scope}
           weeklyStart={weeklyStart}
+          period={selectedPeriod}
+          periodStart={selectedPeriodStart}
           weekStartDay={weekStartDay}
           anchor={anchor}
         />

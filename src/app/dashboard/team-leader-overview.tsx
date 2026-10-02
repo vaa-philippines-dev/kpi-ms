@@ -24,12 +24,24 @@ export async function TeamLeaderOverview({
   userId,
   scope,
   weeklyStart,
+  period,
+  periodStart,
   weekStartDay,
   anchor,
 }: {
   userId: string;
   scope: Prisma.ConnectionWhereInput;
+  /** Still needed for MyConnectionsSubmitPanel, which is weekly-only. */
   weeklyStart: Date;
+  /**
+   * Global topbar Weekly/Monthly toggle — the tiles, cards, trend and
+   * submission table must follow it, same as the Performance page. This
+   * used to be hardcoded to WEEKLY, so with "Monthly" selected the
+   * dashboard kept showing this week's rollup while Performance showed the
+   * month's, and the two disagreed on At Risk/Critical counts.
+   */
+  period: KpiPeriod;
+  periodStart: Date;
   weekStartDay: number;
   anchor: Date | undefined;
 }) {
@@ -45,7 +57,7 @@ export async function TeamLeaderOverview({
         // departmentId/serviceId FK columns are (already present without an
         // include), so fetching the full related rows was pure waste.
         performanceSummaries: {
-          where: { period: KpiPeriod.WEEKLY, periodStart: weeklyStart },
+          where: { period, periodStart },
           select: {
             kpiDefinitionId: true,
             status: true,
@@ -61,8 +73,8 @@ export async function TeamLeaderOverview({
       },
       orderBy: { clientName: "asc" },
     }),
-    prisma.kpiDefinition.findMany({ where: { period: KpiPeriod.WEEKLY } }),
-    getPerformanceTrend(scope, KpiPeriod.WEEKLY, weekStartDay, 6, anchor),
+    prisma.kpiDefinition.findMany({ where: { period } }),
+    getPerformanceTrend(scope, period, weekStartDay, 6, anchor),
   ]);
 
   if (connections.length === 0) {
@@ -73,10 +85,13 @@ export async function TeamLeaderOverview({
   // lib/submitted-connections.ts for why neither table alone is enough.
   const submittedIds = await getSubmittedConnectionIds(
     connections.map((c) => c.id),
-    KpiPeriod.WEEKLY,
-    weeklyStart,
+    period,
+    periodStart,
   );
-  const weekLabel = formatWeekRange(weeklyStart);
+  const periodLabel =
+    period === KpiPeriod.MONTHLY
+      ? periodStart.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })
+      : formatWeekRange(periodStart);
 
   const cards: TeamCard[] = connections.map((c) => {
     const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
@@ -145,19 +160,23 @@ export async function TeamLeaderOverview({
 
       <MyConnectionsSubmitPanel userId={userId} weeklyStart={weeklyStart} />
 
-      <TeamConnectionsPanel cards={cards} weekLabel={weekLabel} />
+      <TeamConnectionsPanel cards={cards} weekLabel={periodLabel} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-surface-border bg-surface p-5">
           <h2 className="text-sm font-semibold">Performance Trend</h2>
-          <p className="mb-4 text-xs text-muted">Your team, last 6 weeks</p>
+          <p className="mb-4 text-xs text-muted">
+            Your team, last 6 {period === KpiPeriod.MONTHLY ? "months" : "weeks"}
+          </p>
           <PerformanceTrendChart points={trend} />
         </div>
 
         <div className="rounded-xl border border-surface-border bg-surface p-5">
           <div className="mb-4">
             <h2 className="text-sm font-semibold">Submission Status</h2>
-            <p className="text-xs text-muted">Week of {weekLabel}</p>
+            <p className="text-xs text-muted">
+              {period === KpiPeriod.MONTHLY ? periodLabel : `Week of ${periodLabel}`}
+            </p>
           </div>
           <Table>
             <TableHead>
