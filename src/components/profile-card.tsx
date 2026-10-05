@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { ChevronDown, Loader2, LogOut, Send, Settings } from "lucide-react";
+import { ChevronDown, Loader2, LogOut, Settings } from "lucide-react";
 import { roleLabel } from "@/lib/roles";
 import { signOutAction } from "@/app/dashboard/actions";
 
@@ -84,18 +84,6 @@ export function ProfileCard({
               {departmentName ? ` · ${departmentName}` : ""}
             </p>
           </div>
-
-          {/* CS roles review KPIs, they never submit them. */}
-          {role !== "CS_SPECIALIST" && role !== "CS_MANAGER" && (
-            <Link
-              href="/submit"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground transition hover:bg-surface-hover"
-            >
-              <Send className="size-4" />
-              Submit KPIs
-            </Link>
-          )}
 
           {(role === "ADMIN" || role === "EXECUTIVE") && (
             <Link
