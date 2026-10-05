@@ -2,6 +2,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireSession, connectionScopeWhere } from "@/lib/connection-scope";
+import { getConnectionServiceIds } from "@/lib/connection-services";
+import { kpiApplicabilityOR } from "@/lib/kpi-definition-services";
 import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 export type ConnectionWeekKpiRow = {
@@ -85,7 +87,11 @@ export async function getConnectionWeekDetail(
   const scope = connectionScopeWhere(session);
   const connection = await prisma.connection.findFirst({
     where: { id: connectionId, ...scope },
-    include: { vaUser: true, team: { include: { teamLeader: true } } },
+    include: {
+      vaUser: true,
+      team: { include: { teamLeader: true } },
+      additionalServices: { select: { serviceId: true } },
+    },
   });
   if (!connection) throw new Error("Connection not found.");
 
@@ -99,7 +105,7 @@ export async function getConnectionWeekDetail(
       where: {
         period,
         departmentId: connection.departmentId,
-        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+        OR: kpiApplicabilityOR(getConnectionServiceIds(connection)),
       },
       orderBy: { name: "asc" },
     }),

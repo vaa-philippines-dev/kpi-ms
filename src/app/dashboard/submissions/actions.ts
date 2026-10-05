@@ -9,6 +9,8 @@ import { getWeekStartDay } from "@/lib/settings";
 import { logActivity } from "@/lib/activity-log";
 import { KpiDirection, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 import { pickTeamForDepartment } from "@/lib/user-teams";
+import { getConnectionServiceIds } from "@/lib/connection-services";
+import { kpiApplicabilityOR } from "@/lib/kpi-definition-services";
 
 // "Change a VA's wrongly-submitted date" — Admin, DM, the DM-equivalent
 // OPS_MANAGER, and OM (Team Leader) can all correct/remove a submission,
@@ -139,6 +141,7 @@ export async function getConnectionPeriodDetail(
     include: {
       vaUser: { include: { team: true, additionalTeams: { include: { team: true } } } },
       department: true,
+      additionalServices: { select: { serviceId: true } },
     },
   });
   if (!connection) {
@@ -157,7 +160,7 @@ export async function getConnectionPeriodDetail(
       where: {
         period,
         departmentId: connection.departmentId,
-        OR: [{ serviceId: null }, { serviceId: connection.serviceId }],
+        OR: kpiApplicabilityOR(getConnectionServiceIds(connection)),
       },
       orderBy: { name: "asc" },
     }),
