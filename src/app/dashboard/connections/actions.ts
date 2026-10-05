@@ -497,8 +497,14 @@ export async function updateConnectionAssignment(formData: FormData) {
     before.serviceId,
     ...before.additionalServices.map((s) => s.serviceId),
   ].filter((v): v is string => v !== null);
-  const toRemove = beforeServiceIds.filter((s) => !serviceIds.includes(s));
-  const toAdd = additionalServiceIds.filter((s) => !beforeServiceIds.includes(s));
+  // Diff the ConnectionService rows against the new *additional* list only,
+  // not the full before-set — otherwise swapping which service is primary
+  // (old primary demoted to additional) sees the old primary as "already
+  // there" and never creates its row, silently dropping that service and
+  // every KPI config under it.
+  const beforeAdditionalIds = before.additionalServices.map((s) => s.serviceId);
+  const toRemove = beforeAdditionalIds.filter((s) => !additionalServiceIds.includes(s));
+  const toAdd = additionalServiceIds.filter((s) => !beforeAdditionalIds.includes(s));
 
   await prisma.$transaction(async (tx) => {
     await tx.connection.update({
