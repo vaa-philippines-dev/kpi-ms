@@ -106,11 +106,15 @@ export default async function SubmissionsPage(
         },
         select: { periodStart: true },
       }),
+      // Same period as the tracker table beside it — this used to be pinned
+      // to WEEKLY, so in Monthly view a VA whose every monthly row read
+      // "Submitted" could still show e.g. 67% (2/3) here: that was their
+      // weekly rate for the anchor's week, not this month's.
       isUnrestrictedViewer
-        ? getDepartmentSubmissionSummary(KpiPeriod.WEEKLY, weeklyStart)
+        ? getDepartmentSubmissionSummary(selectedPeriod, selectedPeriodStart)
         : session.role === UserRole.OM
-          ? getTeamMemberSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart)
-          : getTeamSubmissionSummary(scope, KpiPeriod.WEEKLY, weeklyStart),
+          ? getTeamMemberSubmissionSummary(scope, selectedPeriod, selectedPeriodStart)
+          : getTeamSubmissionSummary(scope, selectedPeriod, selectedPeriodStart),
     ]);
 
   // Submission volume per week, oldest-first, zero-filled for weeks with no
