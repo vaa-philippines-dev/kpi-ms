@@ -171,12 +171,12 @@ export default async function TeamsPage() {
                 )}
 
                 <TeamRosterTable
+                  teamId={team.id}
                   members={teamMembers.map(
                     (m): TeamMemberRow => ({
                       id: m.id,
                       name: m.name ?? m.email,
                       role: roleLabel(m.role),
-                      viaAdditional: m.teamId !== team.id,
                     }),
                   )}
                   isManager={isManager}

@@ -9,12 +9,6 @@ export type TeamMemberRow = {
   id: string;
   name: string;
   role: string;
-  // True when this member is here via User.additionalTeams rather than
-  // their home teamId — remove/transfer below only ever touch the home
-  // teamId (see teams/actions.ts), so acting on one of these rows would
-  // silently corrupt their real home team. Additional-team membership is
-  // only ever edited through the Users page's edit form.
-  viaAdditional?: boolean;
 };
 
 export type OtherTeamOption = { id: string; name: string };
@@ -26,10 +20,15 @@ export type OtherTeamOption = { id: string; name: string };
  * the same component rather than a one-off table.
  */
 export function TeamRosterTable({
+  teamId,
   members,
   isManager,
   otherTeams = [],
 }: {
+  // This team's own id — removeTeamMember/transferTeamMember need to know
+  // which of a member's teams (home or, for a hybrid VA, additional) this
+  // roster is acting on.
+  teamId: string;
   members: TeamMemberRow[];
   isManager: boolean;
   // Other teams in the same department — lets a manager transfer a member
@@ -45,37 +44,35 @@ export function TeamRosterTable({
           {
             key: "id" as const,
             label: "",
-            render: (_v: unknown, row: TeamMemberRow) =>
-              row.viaAdditional ? (
-                <span className="text-xs text-muted">Additional — edit via Users page</span>
-              ) : (
-                <div className="flex items-center justify-end gap-2">
-                  {otherTeams.length > 0 && (
-                    <form action={transferTeamMember} className="flex items-center gap-1">
-                      <input type="hidden" name="userId" value={row.id} />
-                      <Select name="toTeamId" required defaultValue="" className="py-1 text-xs">
-                        <option value="" disabled>
-                          Transfer to…
+            render: (_v: unknown, row: TeamMemberRow) => (
+              <div className="flex items-center justify-end gap-2">
+                {otherTeams.length > 0 && (
+                  <form action={transferTeamMember} className="flex items-center gap-1">
+                    <input type="hidden" name="userId" value={row.id} />
+                    <input type="hidden" name="fromTeamId" value={teamId} />
+                    <Select name="toTeamId" required defaultValue="" className="py-1 text-xs">
+                      <option value="" disabled>
+                        Transfer to…
+                      </option>
+                      {otherTeams.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
                         </option>
-                        {otherTeams.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </Select>
-                      <button type="submit" className="text-xs text-accent hover:underline">
-                        Go
-                      </button>
-                    </form>
-                  )}
-                  <ConfirmSubmitButton
-                    action={removeTeamMember}
-                    fields={{ userId: row.id }}
-                    label="Remove"
-                    successMessage={`${row.name} removed from team.`}
-                  />
-                </div>
-              ),
+                      ))}
+                    </Select>
+                    <button type="submit" className="text-xs text-accent hover:underline">
+                      Go
+                    </button>
+                  </form>
+                )}
+                <ConfirmSubmitButton
+                  action={removeTeamMember}
+                  fields={{ userId: row.id, teamId }}
+                  label="Remove"
+                  successMessage={`${row.name} removed from team.`}
+                />
+              </div>
+            ),
           },
         ]
       : []),
