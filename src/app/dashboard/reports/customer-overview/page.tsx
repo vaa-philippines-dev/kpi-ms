@@ -13,7 +13,7 @@ import {
 } from "@/lib/period";
 import { getWeekStartDay } from "@/lib/settings";
 import { rollupStatus, excludeInapplicable } from "@/lib/performance";
-import { KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
+import { ConnectionStatus, KpiPeriod, PerformanceStatus } from "@/generated/prisma/enums";
 
 const PERF_RANK: Record<PerformanceStatus, number> = {
   [PerformanceStatus.CRITICAL]: 4,
@@ -32,6 +32,10 @@ type Customer = {
   // own combobox lets the user switch to a different one if needed.
   sampleConnectionId: string;
   activeConnCount: number;
+  // Connections whose status is ACTIVE right now — drives the header cards
+  // and status tiles so they agree with the Dashboard, while activeConnCount
+  // (date-window, legacy parity) keeps the table's history intact.
+  liveConnCount: number;
   maxDays: number;
   periodStatuses: (PerformanceStatus | null)[];
 };
@@ -81,6 +85,7 @@ export default async function CustomerOverviewPage(
       secondaryName: true,
       startDate: true,
       createdAt: true,
+      status: true,
       department: { select: { name: true } },
       vaUser: { select: { name: true, email: true } },
       performanceSummaries: {
@@ -105,6 +110,7 @@ export default async function CustomerOverviewPage(
       vaNames: new Set(),
       sampleConnectionId: c.id,
       activeConnCount: 0,
+      liveConnCount: 0,
       maxDays: 0,
       periodStatuses: periods.map(() => null),
     };
@@ -118,6 +124,7 @@ export default async function CustomerOverviewPage(
     // connection.status check).
     if (c.startDate && c.startDate > lastPeriodEnd) continue;
     cust.activeConnCount += 1;
+    if (c.status === ConnectionStatus.ACTIVE) cust.liveConnCount += 1;
 
     const inapplicableKpiIds = new Set(c.kpiConfigs.map((cfg) => cfg.kpiDefinitionId));
     const applicableSummaries = excludeInapplicable(c.performanceSummaries, inapplicableKpiIds);
@@ -141,8 +148,12 @@ export default async function CustomerOverviewPage(
 
   const customers = Array.from(customerMap.values()).filter((c) => c.activeConnCount > 0);
 
-  const activeCustomers = customers.length;
-  const activeConnections = customers.reduce((sum, c) => sum + c.activeConnCount, 0);
+  // Header cards and status tiles count only clients with a currently ACTIVE
+  // connection (matches the Dashboard); ended/paused/inactive clients stay in
+  // the table below for their history.
+  const liveCustomers = customers.filter((c) => c.liveConnCount > 0);
+  const activeCustomers = liveCustomers.length;
+  const activeConnections = liveCustomers.reduce((sum, c) => sum + c.liveConnCount, 0);
 
   const toStatusCustomer = (c: Customer): StatusCustomer => ({
     clientName: c.clientName,
@@ -152,7 +163,7 @@ export default async function CustomerOverviewPage(
     sampleConnectionId: c.sampleConnectionId,
   });
   const byLatestStatus = (status: PerformanceStatus) =>
-    customers
+    liveCustomers
       .filter((c) => c.periodStatuses[c.periodStatuses.length - 1] === status)
       .map(toStatusCustomer);
   const criticalCustomers = byLatestStatus(PerformanceStatus.CRITICAL);
