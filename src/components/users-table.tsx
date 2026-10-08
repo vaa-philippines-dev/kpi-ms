@@ -11,7 +11,7 @@ import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { useToast } from "@/components/ui/toast";
 import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
-import { updateUser, toggleUserActive } from "@/app/dashboard/users/actions";
+import { updateUser, toggleUserActive, deleteUser } from "@/app/dashboard/users/actions";
 import { ServiceCheckboxGroups } from "@/components/service-checkbox-groups";
 import { TeamCheckboxGroups } from "@/components/team-checkbox-groups";
 
@@ -310,14 +310,26 @@ export function UsersTable({
             </form>
 
             {isAdmin && (
-              <ConfirmSubmitButton
-                action={toggleUserActive}
-                fields={{ id: editing.id }}
-                label={editing.isActive ? "Deactivate user" : "Reactivate user"}
-                successMessage={editing.isActive ? "User deactivated." : "User reactivated."}
-                tone={editing.isActive ? "danger" : "accent"}
-                onSuccess={() => setEditing(null)}
-              />
+              <div className="flex items-start justify-between gap-3">
+                <ConfirmSubmitButton
+                  action={toggleUserActive}
+                  fields={{ id: editing.id }}
+                  label={editing.isActive ? "Deactivate user" : "Reactivate user"}
+                  successMessage={editing.isActive ? "User deactivated." : "User reactivated."}
+                  tone={editing.isActive ? "danger" : "accent"}
+                  onSuccess={() => setEditing(null)}
+                />
+                <ConfirmSubmitButton
+                  action={deleteUser}
+                  fields={{ id: editing.id }}
+                  label="Delete permanently"
+                  confirmLabel="This can't be undone."
+                  typeToConfirm={editing.email}
+                  successMessage="User deleted."
+                  tone="danger"
+                  onSuccess={() => setEditing(null)}
+                />
+              </div>
             )}
           </div>
         )}

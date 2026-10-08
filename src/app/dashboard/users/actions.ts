@@ -453,6 +453,87 @@ export async function bulkCreateUsers(formData: FormData) {
   revalidatePath("/dashboard/users");
 }
 
+// Permanently removes a user row (e.g. a duplicate or typo'd account). Admin
+// only, and refused whenever the user owns data other records depend on —
+// those relations are required FKs, so deleting would either fail or orphan
+// history. Such users should be deactivated (or have their connections
+// reassigned first) instead. Activity-log rows they authored are kept
+// (actorId is nulled by the DB) and team-leader slots are blocked rather
+// than silently emptied.
+export async function deleteUser(formData: FormData) {
+  const session = await requireManager();
+  if (session.role !== "ADMIN") {
+    throw new Error("Only admins can delete users.");
+  }
+  const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("Missing user id.");
+  if (id === session.id) {
+    throw new Error("You can't delete your own account.");
+  }
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          vaConnections: true,
+          ledTeams: true,
+          tempLedTeams1: true,
+          tempLedTeams2: true,
+          statusChanges: true,
+          kpiConfigsUpdated: true,
+          kpiConfigHistory: true,
+          interventions: true,
+          settingsUpdated: true,
+          submissionDrafts: true,
+          ticketsCreated: true,
+          ticketsClosed: true,
+          ticketMessages: true,
+          statusRequestsCreated: true,
+          statusRequestsResolved: true,
+        },
+      },
+    },
+  });
+  if (!user) throw new Error("User not found.");
+
+  const c = user._count;
+  const blockers: [string, number][] = [
+    ["connection(s) as the assigned VA", c.vaConnections],
+    ["team(s) led", c.ledTeams + c.tempLedTeams1 + c.tempLedTeams2],
+    ["connection status change(s)", c.statusChanges],
+    ["KPI config edit(s)", c.kpiConfigsUpdated + c.kpiConfigHistory],
+    ["intervention(s)", c.interventions],
+    ["setting change(s)", c.settingsUpdated],
+    ["submission draft(s)", c.submissionDrafts],
+    ["ticket(s)/message(s)", c.ticketsCreated + c.ticketsClosed + c.ticketMessages],
+    ["status request(s)", c.statusRequestsCreated + c.statusRequestsResolved],
+  ];
+  const blocking = blockers.filter(([, n]) => n > 0);
+  if (blocking.length > 0) {
+    throw new Error(
+      `Can't delete ${user.email} — it still has ${blocking
+        .map(([label, n]) => `${n} ${label}`)
+        .join(", ")}. Deactivate the user instead, or reassign that data first.`,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // UserDepartment/UserService/UserTeam/CsClientAssignment cascade.
+    await tx.user.delete({ where: { id } });
+    await logActivity(tx, {
+      actor: session,
+      action: "DELETE",
+      entityType: "User",
+      entityId: id,
+      entityLabel: user.name ?? user.email,
+      summary: `Deleted user ${user.email} (${user.role})`,
+      departmentId: user.departmentId,
+    });
+  });
+  revalidatePath("/dashboard/users");
+  revalidatePath("/dashboard/teams");
+}
+
 export async function toggleUserActive(formData: FormData) {
   const session = await requireManager();
   // Unlike creating/editing (which a DM or Ops Manager can do within their
