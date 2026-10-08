@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { ChevronRight } from "lucide-react";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Modal } from "@/components/ui/modal";
@@ -8,6 +8,7 @@ import { Input, Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
+import { useToast } from "@/components/ui/toast";
 import { UserRole } from "@/generated/prisma/enums";
 import { roleLabel } from "@/lib/roles";
 import { updateUser, toggleUserActive } from "@/app/dashboard/users/actions";
@@ -157,6 +158,8 @@ export function UsersTable({
 }) {
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [editRole, setEditRole] = useState<UserRole | null>(null);
+  const [isSaving, startSave] = useTransition();
+  const { toast } = useToast();
 
   const canEditRow = (u: UserRow) =>
     roles.includes(u.role) && (isAdmin || !viewerDepartmentId || u.departmentId === viewerDepartmentId);
@@ -184,8 +187,23 @@ export function UsersTable({
         {editing && (
           <div className="space-y-4">
             <form
-              action={updateUser}
-              onSubmit={() => setEditing(null)}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                // Keep the modal open until the save succeeds — closing on
+                // submit unmounted the form and swallowed server-side
+                // rejections (e.g. "email already in use"), so a failed save
+                // looked like it had worked.
+                startSave(async () => {
+                  try {
+                    await updateUser(formData);
+                    toast("User saved.", "success");
+                    setEditing(null);
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : "Could not save user.", "error");
+                  }
+                });
+              }}
               className="space-y-3"
             >
               <input type="hidden" name="id" value={editing.id} />
@@ -286,7 +304,7 @@ export function UsersTable({
                   </Select>
                 )}
               </div>
-              <Button type="submit" className="w-full">
+              <Button type="submit" className="w-full" loading={isSaving}>
                 Save
               </Button>
             </form>
