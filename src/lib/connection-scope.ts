@@ -8,13 +8,20 @@ export type ScopingSession = {
   role: string;
   departmentId: string | null;
   teamId: string | null;
+  /**
+   * Department lock for a Team Leader previewing one of their VAs (see
+   * EffectiveSession.scopeDepartmentId in lib/view-as.ts). Absent/null for
+   * every real session.
+   */
+  scopeDepartmentId?: string | null;
 };
 
 /**
  * Redirects unauthenticated visitors to sign-in; returns the effective
- * session otherwise — the real signed-in user, unless an ADMIN currently
- * has a "view as" override applied (see lib/view-as.ts), in which case
- * every caller of this transparently sees what the viewed-as user sees.
+ * session otherwise — the real signed-in user, unless an ADMIN or Team
+ * Leader currently has a "view as" override applied (see lib/view-as.ts),
+ * in which case every caller of this transparently sees what the
+ * viewed-as user sees.
  */
 export async function requireSession(): Promise<ScopingSession> {
   const session = await getEffectiveSession();
@@ -26,6 +33,7 @@ export async function requireSession(): Promise<ScopingSession> {
     role: session.role,
     departmentId: session.departmentId,
     teamId: session.teamId,
+    scopeDepartmentId: session.scopeDepartmentId,
   };
 }
 
@@ -109,7 +117,12 @@ export function connectionScopeWhere(
       return { customer: { csAssignments: { some: { isActive: true } } } };
     case UserRole.VA:
     default:
-      return { vaUserId: session.id };
+      // A Team Leader previewing one of their VAs only gets that VA's
+      // connections in the team leader's own department — a hybrid VA's
+      // work in their other departments stays out of view.
+      return session.scopeDepartmentId
+        ? { vaUserId: session.id, departmentId: session.scopeDepartmentId }
+        : { vaUserId: session.id };
   }
 }
 

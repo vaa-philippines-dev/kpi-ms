@@ -6,6 +6,7 @@ import { TicketCategory, TicketPriority, TicketStatus, UserRole } from "@/genera
 import { requireSession, type ScopingSession } from "@/lib/connection-scope";
 import { ticketScopeWhere } from "@/lib/ticket-scope";
 import { logActivity } from "@/lib/activity-log";
+import { assertNotViewingAs } from "@/lib/view-as";
 
 async function requireAdmin(): Promise<ScopingSession> {
   const session = await requireSession();
@@ -25,6 +26,9 @@ export type TicketThreadMessage = {
 };
 
 export async function createTicket(formData: FormData) {
+  // requireSession() is the *effective* session — without this, an admin or
+  // Team Leader previewing someone could raise a ticket under their name.
+  await assertNotViewingAs("create a ticket");
   const session = await requireSession();
 
   const subject = String(formData.get("subject") ?? "").trim();
@@ -90,6 +94,7 @@ export async function sendTicketMessage(
   body: string,
   attachmentUrl?: string | null,
 ): Promise<TicketThreadMessage> {
+  await assertNotViewingAs("reply to a ticket");
   const session = await requireSession();
   const trimmedBody = body.trim();
   if (!trimmedBody) {

@@ -33,8 +33,13 @@ export default async function MyTeamPage() {
     );
   }
 
+  // A Team Leader previewing a hybrid VA only sees that VA's team in the
+  // team leader's own department (see lib/view-as.ts).
   const teams = await prisma.team.findMany({
-    where: { id: { in: teamIds } },
+    where: {
+      id: { in: teamIds },
+      ...(session.scopeDepartmentId ? { departmentId: session.scopeDepartmentId } : {}),
+    },
     include: { teamLeader: true },
     orderBy: { name: "asc" },
   });

@@ -10,15 +10,20 @@ import { PeriodNav } from "@/components/period-nav";
 import { ProfileCard } from "@/components/profile-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ViewAsControl } from "@/components/view-as-control";
+import { TeamViewAsControl } from "@/components/team-view-as-control";
+import { teamLeaderViewableVasWhere } from "@/lib/view-as";
+import { pickTeamForDepartment } from "@/lib/user-teams";
 import type { UserRole } from "@/generated/prisma/enums";
 
 export async function DashboardTopbar() {
   const [session, realSession] = await Promise.all([requireSession(), auth()]);
   const scope = connectionScopeWhere(session);
   const isRealAdmin = realSession?.user?.role === "ADMIN";
+  const isRealTeamLeader = realSession?.user?.role === "OM";
   const realId = realSession?.user?.id;
+  const realDepartmentId = realSession?.user?.departmentId ?? null;
 
-  const [user, alerts, weekStartDay, viewAsDepartments, viewAsTeams] = await Promise.all([
+  const [user, alerts, weekStartDay, viewAsDepartments, viewAsTeams, teamViewAsMembers] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.id },
       select: {
@@ -47,7 +52,31 @@ export async function DashboardTopbar() {
           select: { id: true, name: true, departmentId: true, department: { select: { name: true } } },
         })
       : Promise.resolve([]),
+    // Team Leaders' own View As list — only VAs on teams they lead in their
+    // own department (see lib/view-as.ts).
+    isRealTeamLeader && realId
+      ? prisma.user.findMany({
+          where: teamLeaderViewableVasWhere(realId, realDepartmentId),
+          orderBy: [{ name: "asc" }, { email: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            team: { select: { id: true, name: true, departmentId: true } },
+            additionalTeams: { select: { team: { select: { id: true, name: true, departmentId: true } } } },
+          },
+        })
+      : Promise.resolve([]),
   ]);
+
+  // A Team Leader previewing a VA — that VA's profile shows the team
+  // leader's department (the only one in view), not the VA's primary one,
+  // which for a hybrid VA may be a department the team leader can't see.
+  const isTeamViewingAs = isRealTeamLeader && Boolean(realId) && session.id !== realId;
+  const teamViewDepartment =
+    isTeamViewingAs && realDepartmentId
+      ? await prisma.department.findUnique({ where: { id: realDepartmentId }, select: { name: true } })
+      : null;
 
   const isViewingAs = Boolean(isRealAdmin && realId && session.id !== realId && user);
   // "Pick a specific person" list for the role currently being previewed —
@@ -110,6 +139,16 @@ export async function DashboardTopbar() {
             }))}
           />
         )}
+        {isRealTeamLeader && (
+          <TeamViewAsControl
+            viewingUserId={isTeamViewingAs ? session.id : null}
+            members={teamViewAsMembers.map((m) => ({
+              id: m.id,
+              name: m.name ?? m.email,
+              teamName: realDepartmentId ? (pickTeamForDepartment(m, realDepartmentId)?.name ?? null) : null,
+            }))}
+          />
+        )}
         <CommandPalette role={session.role} />
         <NotificationBell alerts={alerts} />
         <ThemeToggle variant="inline" />
@@ -118,7 +157,7 @@ export async function DashboardTopbar() {
             name={user.name}
             email={user.email}
             role={session.role}
-            departmentName={user.department?.name}
+            departmentName={teamViewDepartment?.name ?? user.department?.name}
           />
         )}
       </div>

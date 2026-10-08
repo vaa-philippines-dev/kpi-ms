@@ -24,6 +24,7 @@ export default async function InterventionsPage() {
     role: session.role,
     departmentId: session.departmentId,
     teamId: session.teamId,
+    scopeDepartmentId: session.scopeDepartmentId,
   });
 
   const interventionTypes = await getInterventionTypes();

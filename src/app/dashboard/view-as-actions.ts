@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { UserRole } from "@/generated/prisma/enums";
-import { VIEW_AS_COOKIE } from "@/lib/view-as";
+import { VIEW_AS_COOKIE, teamLeaderViewableVasWhere } from "@/lib/view-as";
 
 // Gated on the REAL session (never the effective one) — an admin who's
 // currently viewing as someone else must still be able to switch targets
-// or exit, and nobody else can ever set this cookie.
+// or exit. Team Leaders have their own, narrower setter below
+// (setTeamViewAsUser); nobody else can ever set this cookie.
 async function requireRealAdmin() {
   const session = await auth();
   if (session?.user?.role !== "ADMIN") {
@@ -134,8 +135,45 @@ export async function setViewAsUser(formData: FormData) {
   revalidatePath("/dashboard", "layout");
 }
 
+// Team Leader counterpart to setViewAsUser — only ever a VA on a team this
+// team leader leads in their own department (home team or, for a hybrid
+// VA, an additional team). getEffectiveSession() re-checks the same rule on
+// every request, so this is just the up-front validation for a clear error.
+export async function setTeamViewAsUser(formData: FormData) {
+  const session = await auth();
+  if (session?.user?.role !== UserRole.OM) {
+    throw new Error("Only team leaders can view as a team member.");
+  }
+  const userId = String(formData.get("userId") ?? "");
+  const target = userId
+    ? await prisma.user.findFirst({
+        where: {
+          AND: [
+            { id: userId },
+            teamLeaderViewableVasWhere(session.user.id, session.user.departmentId),
+          ],
+        },
+        select: { id: true },
+      })
+    : null;
+  if (!target) {
+    throw new Error("You can only view as an active VA on a team you lead.");
+  }
+  const store = await cookies();
+  store.set(VIEW_AS_COOKIE, target.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+  });
+  revalidatePath("/dashboard", "layout");
+}
+
 export async function exitViewAs() {
-  await requireRealAdmin();
+  const session = await auth();
+  const role = session?.user?.role;
+  if (role !== UserRole.ADMIN && role !== UserRole.OM) {
+    throw new Error("Only admins and team leaders can use View As.");
+  }
   const store = await cookies();
   store.delete(VIEW_AS_COOKIE);
   revalidatePath("/dashboard", "layout");
